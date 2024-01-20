@@ -15,7 +15,7 @@
 using namespace std;
 using namespace glm;
 
-#define FULLSCREEN 0
+#define FULLSCREEN true
 #define HEIGHT 600
 #define WIDTH 700
 
@@ -100,9 +100,10 @@ void processInput(GLFWwindow * window, Camera * camera) {
 	if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
 		camera->move(0.0f, 1.0f, 0.0f);
 
-	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        //glfwSetWindowShouldClose(window, true);
+		glfwSetWindowShouldClose(window, true);
+	}
 }
 
 
@@ -148,7 +149,7 @@ int main() {
 		rotm = glm::rotate(rotm, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
 		rotm = glm::rotate(rotm, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
 		pengposition += vec3(0.001, 0.004, 0.002);
-		shader.setMatrix4("pengrotation", value_ptr(rotm));
+		ping.setRotation(rotm);
 		ping.setPosition(pengposition.x, pengposition.y, pengposition.z);
 	    // Draw
 

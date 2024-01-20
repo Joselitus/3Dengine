@@ -89,8 +89,8 @@ Mesh AnimatedModel::processMesh(aiMesh * mesh, const aiScene * scene) {
         }
         else
             vertex.TexCoords = glm::vec2(0.0f, 0.0f);  
-            vertices.push_back(vertex);
-        }
+         vertices.push_back(vertex);
+    }
 
     int boneArraysSize = mesh->mNumVertices*NUM_BONES_PER_VEREX;
 

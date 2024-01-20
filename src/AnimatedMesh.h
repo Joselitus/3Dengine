@@ -9,7 +9,7 @@ class Skeleton;
 #define NUM_BONES_PER_VEREX 4
 
 struct AnimatedVertex {
-	glm::vec3 Position;
+    glm::vec3 Position;
     glm::vec3 Normal;
     glm::vec2 TexCoords;
     glm::ivec4 BoneIDs;

@@ -33,5 +33,6 @@ void GameObject::Draw(Shader * shader) {
         glm::value_ptr(this->skeleton->boneMats[0]));
 	}
 	shader->setVector3("objposition", position.x, position.y, position.z);
+	shader->setMatrix4("objrotation", value_ptr(this->rotation));
 	this->model->Draw(shader);
 }
