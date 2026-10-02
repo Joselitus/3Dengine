@@ -25,6 +25,7 @@ class Model
                                              std::string typeName);
 
     public:
+        Model() {;} // Epico default constructor
         Model(const char * path);
         void Draw(Shader * shader); 
 };

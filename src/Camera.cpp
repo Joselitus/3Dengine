@@ -53,6 +53,24 @@ void Camera::rotate(int phi, int theta) {
 	this->update();
 }
 
+void Camera::attachTo(GameObject *target, float distance, float height) {
+	this->target = target;
+	this->distance = distance;
+	this->height = height;
+	this->follow();
+}
+
+void Camera::follow() {
+	if (!this->target)
+		return;
+	// World-space direction the camera is looking in (inverse of the rotation)
+	vec3 forward = vec3(glm::inverse(this->model) * vec4(0.0f, 0.0f, -1.0f, 0.0f));
+	this->position = this->target->getPosition() + vec3(0.0f, this->height, 0.0f)
+		- forward * this->distance;
+	this->view = translate(mat4(1.0f), this->position * -1.0f);
+	this->update();
+}
+
 void Camera::update() {
 	this->shader->setMatrix4("projection", value_ptr(this->projection));
 	this->shader->setMatrix4("view", value_ptr(this->view));

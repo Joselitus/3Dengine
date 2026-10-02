@@ -6,11 +6,13 @@ SRCS = $(wildcard *.cpp)
 OBJS = $(SRCS:%.cpp=%.o)
 
 test: $(OBJS)
-	$(CC) -o $@ $(OBJS) $(FLAGS)
+	$(CC) -o ../test/$@ $(OBJS) $(FLAGS) -g
 
 %.o: %.cpp 
-	$(CC) $< -c
+	$(CC) $< -c -g -MMD -MP
+
+-include $(SRCS:%.cpp=%.d)
 
 clean:
 	rm *.o
-	rm test
+	rm ../test/test

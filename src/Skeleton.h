@@ -1,77 +1,53 @@
 #ifndef SKELETON
 #define SKELETON
+#define GLM_ENABLE_EXPERIMENTAL
 
 #include "myopengl.h"
-#include "AnimatedMesh.h"
-#include "Animation.h"
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <assimp/Importer.hpp>
-#include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/scene.h>
 
 #define MAX_BONES 100
 
-class Bone;
-
-class Skeleton {
-     public:
-     std::vector<Bone> bones;
-     glm::mat4 globalInverseTransform;
-     std::vector<glm::mat4> boneMats;
- 
-    Skeleton();
-
-    Skeleton(std::vector<Bone> in_bones, glm::mat4 in_globalInverseTransform);
-    void Init(std::vector<Bone> in_bones, glm::mat4 in_globalInverseTransform);
-    Bone* FindBone(std::string name);
-    void UpdateBoneMatsVector();
-    void Update();
+// One entry per (mesh, bone) pair. The index in Skeleton::bones is the ID
+// stored in the vertices and used to index gBones in the shader.
+struct BoneInfo {
+  std::string name;
+  aiNode *node;
+  glm::mat4 offset;
 };
 
-class Bone {
-private:
-     std::string name;    //The bone's name as loaded by ASSIMP.
-     unsigned int id;     //The bone's index in the bone list.
-
-     AnimatedMesh* mesh;
-     aiNode* node;
-     aiNodeAnim* animNode;
-     Bone* parent_bone;    
-     glm::mat4 parent_transforms;    
-     glm::mat4 offset_matrix;    
-     Skeleton* parent_skeleton; 
-
-     //Keyframe Data
-     glm::vec3 pos;
-     glm::quat rot;
-     glm::vec3 scale;
-     glm::vec3 p1;
-     glm::vec3 p2; 
-
+class Skeleton {
 public:
-     Bone(){name = ""; id = -2;}
-     Bone(AnimatedMesh* in_mesh, unsigned int in_id, std::string in_name, aiMatrix4x4 in_o_mat);
-     Bone(AnimatedMesh* in_mesh, unsigned int in_id, std::string in_name, glm::mat4 in_o_mat);
+  std::vector<BoneInfo> bones;
+  glm::mat4 globalInverseTransform;
+  std::vector<glm::mat4> boneMats; // always MAX_BONES entries
 
-     unsigned int FindPosition(float time);
-     glm::vec3 CalcInterpolatedPosition(float time);
-     unsigned int FindRotation(float time);
-     glm::quat CalcInterpolatedRotation(float time);
-     void UpdateKeyframeTransform(float time);
+  Skeleton();
+  void Init(aiNode *root, const aiAnimation *animation,
+            std::vector<BoneInfo> in_bones);
+  // Evaluates the animation at `seconds` (looping) and fills boneMats.
+  void Update(double seconds);
+  // Object-space transform of a node for the last Update().
+  glm::mat4 NodeGlobal(const aiNode *node) const;
 
-     void setAnimNode(aiNodeAnim * animNode) {this->animNode = animNode;}
-     void setNode(aiNode * node) {this->node = node;}
-     void setParentBone(Bone * bone) {this->parent_bone = bone;}
-     void setParentSkeleton(Skeleton * skeleton) {this->parent_skeleton = skeleton;}
+private:
+  aiNode *root;
+  const aiAnimation *animation;
+  std::unordered_map<std::string, const aiNodeAnim *> channels;
+  std::unordered_map<const aiNode *, glm::mat4> nodeGlobals;
 
-     aiNodeAnim * getAnimNode() {return this->animNode;}
-     aiNode * getNode() {return this->node;}
-     std::string getName() {return this->name;}
-     glm::mat4 getOffsetMatrix() {return this->offset_matrix;}
-  
-     glm::mat4 GetParentTransforms();
+  void Traverse(const aiNode *node, const glm::mat4 &parent, double ticks);
+  glm::mat4 LocalTransform(const aiNode *node, double ticks) const;
 };
 
 #endif

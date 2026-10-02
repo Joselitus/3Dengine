@@ -2,211 +2,232 @@
 using namespace std;
 using namespace glm;
 
-AnimatedModel::AnimatedModel(const char * path): Model(path) {}
+AnimatedModel::AnimatedModel(const char *path)
+    : scene(nullptr), fitCenter(0.0f), fitScale(1.0f) {
+  loadModel(path);
+}
 
 void AnimatedModel::loadModel(string path) {
-	Assimp::Importer import;
-	scene = import.ReadFile(path, aiProcess_GenNormals | aiProcess_Triangulate | aiProcess_FlipUVs);
+  scene = importer.ReadFile(path, aiProcess_GenNormals | aiProcess_Triangulate |
+                                      aiProcess_FlipUVs);
 
-	if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-        cout << "ERROR::ASSIMP::" << import.GetErrorString() << endl;
-        return;
-    }
+  if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE ||
+      !scene->mRootNode) {
+    cout << "ERROR::ASSIMP::" << importer.GetErrorString() << endl;
+    scene = nullptr;
+    return;
+  }
   directory = path.substr(0, path.find_last_of('/'));
-  rootNode = scene->mRootNode;
-  recursiveNodeProcess(rootNode);
-  AnimNodeProcess();
-	globalInverseTransform = inverse(AiToGLMMat4(rootNode->mTransformation));
 
-  this->processNode(rootNode, scene);
+  // Builds meshes, and (through processAnimatedMesh) the global bone list.
+  this->processNode(scene->mRootNode, scene);
 
+  const aiAnimation *animation =
+      scene->mNumAnimations > 0 ? scene->mAnimations[0] : nullptr;
+  skeleton.Init(scene->mRootNode, animation, std::move(pendingBones));
+  pendingBones.clear();
 
-	for(int i = 0; i < scene->mNumMeshes; i++) {
-	    for(int j = 0; j < scene->mMeshes[i]->mNumBones; j++) {
-	         //Here we're just storing the bone information that we loaded
-	         //with ASSIMP into the formats our Bone class will recognize.
-	         string b_name = scene->mMeshes[i]->mBones[j]->mName.data;
-	         mat4 b_mat = transpose(AiToGLMMat4(scene->mMeshes[i]->mBones[j]->mOffsetMatrix));
-	         
-	         //Just because I like debugging...
-	         //std::cout<<"Bone "<<j<<" "<<b_name<<std::endl;
-	         
-	         //Here we create a Bone Object with the information we've
-	         //gathered so far, but wait, there's more!
-	         Bone bone(&(meshes.at(i)),i,b_name,b_mat);
-	         
-	         //These next parts are simple, we just fill up the bone's
-	         //remaining data using the functions we defined earlier.
-	         bone.setNode(FindAiNode(b_name));
-	         bone.setAnimNode(FindAiNodeAnim(b_name));
-
-	         if(bone.getNode() == nullptr)
-	             std::cout<<"No Animations were found for "+b_name<<std::endl;
-	         
-	         //Finally, we push the Bone into our vector. Yay.
-	         bones.push_back(bone);
-	     }
-	 }
-
-
-	 //Now we have to fill up the remaining ... remaining data within the
-	 //bone object, specifically: the pointers to the bone's parent bone.
-	 for(int i = 0; i < bones.size(); i++)
-	 {
-	     //Here we cycle through the existing bones and match them up with
-	     //their parents, the code here is pretty self explanatory.
-	     std::string b_name = bones.at(i).getName();
-	     std::string parent_name = FindAiNode(b_name)->mParent->mName.data;
-
-	     Bone* p_bone = FindBone(parent_name);
-
-	     bones.at(i).setParentBone(p_bone);
-
-	     if(p_bone == nullptr)
-	         std::cout<<"Parent Bone for "<<b_name<<" does not exist (is nullptr)"<<std::endl;
-	 }
-	 if(meshes.size() > 0)
-	     meshes.at(0).skeleton->Init(bones,globalInverseTransform);
+  computeFit();
 }
 
-Mesh AnimatedModel::processMesh(aiMesh * mesh, const aiScene * scene) {
-    vector<AnimatedVertex> vertices;
-    vector<unsigned int> indices;
-    vector<Texture> textures;
+void AnimatedModel::processNode(aiNode *node, const aiScene *scene) {
+  // process all the node's meshes (if any)
+  for (unsigned int i = 0; i < node->mNumMeshes; i++) {
+    aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+    // Leftover geometry with neither bones nor a texture (e.g. an untextured
+    // prop kept in the file by the exporter) is not part of the character.
+    aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
+    if (mesh->mNumBones == 0 &&
+        material->GetTextureCount(aiTextureType_DIFFUSE) == 0) {
+      cout << "Skipping unskinned, untextured mesh " << mesh->mName.C_Str()
+           << endl;
+      continue;
+    }
+    meshes.push_back(processAnimatedMesh(mesh, scene));
+    meshNodes.push_back(node);
+  }
+  // then do the same for each of its children
+  for (unsigned int i = 0; i < node->mNumChildren; i++) {
+    processNode(node->mChildren[i], scene);
+  }
+}
 
-    for(unsigned int i = 0; i < mesh->mNumVertices; i++) {
-        AnimatedVertex vertex;
-        // process vertex positions, normals and texture coordinates
-        vec3 vector = vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
-        vertex.Position = vector;
-        vector = vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
-        vertex.Normal = vector;
-        if(mesh->mTextureCoords[0]) { // does the mesh contain texture coordinates?
-        vec2 vec;
-        vec.x = mesh->mTextureCoords[0][i].x; 
-        vec.y = mesh->mTextureCoords[0][i].y;
-        vertex.TexCoords = vec;
+AnimatedMesh AnimatedModel::processAnimatedMesh(aiMesh *mesh,
+                                                const aiScene *scene) {
+  vector<AnimatedVertex> vertices;
+  vector<unsigned int> indices;
+  vector<Texture> textures;
+
+  for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+    AnimatedVertex vertex;
+    // vertex positions, normals and texture coordinates
+    vec3 vector =
+        vec3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+    vertex.Position = vector;
+    vector =
+        vec3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+    vertex.Normal = vector;
+    if (mesh->mTextureCoords[0]) { // does the mesh contain texture coordinates?
+      vec2 vec;
+      vec.x = mesh->mTextureCoords[0][i].x;
+      vec.y = mesh->mTextureCoords[0][i].y;
+      vertex.TexCoords = vec;
+    } else
+      vertex.TexCoords = glm::vec2(0.0f, 0.0f);
+    vertices.push_back(vertex);
+  }
+
+  // Register this mesh's bones in the model-wide list; the global index is
+  // what the shader uses to look the bone up in gBones.
+  for (unsigned int i = 0; i < mesh->mNumBones; i++) {
+    aiBone *aiBone = mesh->mBones[i];
+    if (aiBone->mNumWeights == 0) // unused bone, don't spend a gBones slot
+      continue;
+    unsigned int globalId = pendingBones.size();
+
+    aiMatrix4x4 offset = aiBone->mOffsetMatrix;
+    BoneInfo info;
+    info.name = aiBone->mName.data;
+    info.node = scene->mRootNode->FindNode(aiBone->mName);
+    info.offset = AiToGLMMat4(offset);
+    if (pendingBones.size() >= MAX_BONES) {
+      cout << "Too many bones (max " << MAX_BONES << ")" << endl;
+      continue;
+    }
+    if (!info.node) {
+      cout << "No node found for bone " << info.name << endl;
+      continue;
+    }
+    pendingBones.push_back(info);
+
+    for (unsigned int j = 0; j < aiBone->mNumWeights; j++) {
+      aiVertexWeight weight = aiBone->mWeights[j];
+      AnimatedVertex &v = vertices.at(weight.mVertexId);
+      for (int k = 0; k < NUM_BONES_PER_VEREX; k++) {
+        if (v.Weights[k] == 0.0f) {
+          v.BoneIDs[k] = globalId;
+          v.Weights[k] = weight.mWeight;
+          break;
         }
-        else
-            vertex.TexCoords = glm::vec2(0.0f, 0.0f);  
-         vertices.push_back(vertex);
+      }
     }
+  }
 
-    int boneArraysSize = mesh->mNumVertices*NUM_BONES_PER_VEREX;
+  // The exporter leaves the weights summing to anything from ~0.85 to ~1.3;
+  // unnormalised weights scale the vertex towards/away from the origin of the
+  // skinning transform and make it poke out of the mesh.
+  for (AnimatedVertex &v : vertices) {
+    float total = 0.0f;
+    for (int k = 0; k < NUM_BONES_PER_VEREX; k++)
+      total += v.Weights[k];
+    if (total > 0.0f)
+      for (int k = 0; k < NUM_BONES_PER_VEREX; k++)
+        v.Weights[k] /= total;
+  }
 
-    std::vector<int> boneIDs;
-    boneIDs.resize(boneArraysSize);
+  // process indices
+  for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+    aiFace face = mesh->mFaces[i];
+    for (unsigned int j = 0; j < face.mNumIndices; j++)
+      indices.push_back(face.mIndices[j]);
+  }
+  // process material
+  if (mesh->mMaterialIndex >= 0) {
+    aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
+    vector<Texture> diffuseMaps = loadMaterialTextures(
+        material, aiTextureType_DIFFUSE, "texture_diffuse");
+    textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
+    vector<Texture> specularMaps = loadMaterialTextures(
+        material, aiTextureType_SPECULAR, "texture_specular");
+    textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
+  }
+  return AnimatedMesh(vertices, indices, textures);
+}
 
-    std::vector<float> boneWeights;
-    boneWeights.resize(boneArraysSize);
-    for(int i=0;i<mesh->mNumBones;i++) {
-
-         aiBone* aiBone = mesh->mBones[i];
-
-         for(int j=0;j<aiBone->mNumWeights;j++) {
-              aiVertexWeight weight = aiBone->mWeights[j];
-              unsigned int vertexStart = weight.mVertexId * NUM_BONES_PER_VEREX;
-              for(int k=0;k<NUM_BONES_PER_VEREX;k++) {
-                   if(boneWeights.at(vertexStart+k)==0) {
-                   boneWeights.at(vertexStart+k) = weight.mWeight;
-                   boneIDs.at(vertexStart+k) = i;
-                   vertices.at(weight.mVertexId).BoneIDs[k] = i;
-                   vertices.at(weight.mVertexId).Weights[k] = weight.mWeight;
-                   break;
-                   }
-              }
-         }
+vector<Texture> AnimatedModel::loadMaterialTextures(aiMaterial *mat,
+                                                    aiTextureType type,
+                                                    string typeName) {
+  vector<Texture> textures;
+  for (unsigned int i = 0; i < mat->GetTextureCount(type); i++) {
+    aiString str;
+    mat->GetTexture(type, i, &str);
+    bool skip = false;
+    for (unsigned int j = 0; j < textures_loaded.size(); j++) {
+      if (std::strcmp(textures_loaded[j].path.data(), str.C_Str()) == 0) {
+        textures.push_back(textures_loaded[j]);
+        skip = true;
+        break;
+      }
     }
-
-    // process indices
-    for(unsigned int i = 0; i < mesh->mNumFaces; i++) {
-      aiFace face = mesh->mFaces[i];
-      for(unsigned int j = 0; j < face.mNumIndices; j++)
-          indices.push_back(face.mIndices[j]);
-  }  
-    // process material
-    if(mesh->mMaterialIndex >= 0) {
-      aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
-      vector<Texture> diffuseMaps = loadMaterialTextures(material, 
-                                          aiTextureType_DIFFUSE, "texture_diffuse");
-      textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
-      vector<Texture> specularMaps = loadMaterialTextures(material, 
-                                          aiTextureType_SPECULAR, "texture_specular");
-      textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
-  }  
-    return AnimatedMesh(vertices, indices, textures);
+    if (!skip) { // if texture hasn't been loaded already, load it
+      Texture texture;
+      texture.id = TextureFromFile(str.C_Str(), directory);
+      texture.type = typeName;
+      texture.path = str.C_Str();
+      textures.push_back(texture);
+      textures_loaded.push_back(texture); // add to loaded textures
+    }
+  }
+  return textures;
 }
 
-void AnimatedModel::recursiveNodeProcess(aiNode* node) {
-      nodes.push_back(node);
+void AnimatedModel::Update(double seconds) { skeleton.Update(seconds); }
 
-      for(int i = 0; i < node->mNumChildren; i++)
-           recursiveNodeProcess(node->mChildren[i]);
+void AnimatedModel::computeFit() {
+  // Skin the model on the CPU at a few points of the animation just to find
+  // the region it moves through.
+  const aiAnimation *anim =
+      scene->mNumAnimations > 0 ? scene->mAnimations[0] : nullptr;
+  double length = 0.0;
+  if (anim && anim->mDuration > 0)
+    length = anim->mDuration /
+             (anim->mTicksPerSecond > 0 ? anim->mTicksPerSecond : 25.0);
+  const int samples = length > 0.0 ? 16 : 1;
+
+  glm::vec3 lo(1e30f), hi(-1e30f);
+  for (int s = 0; s < samples; s++) {
+    skeleton.Update(length * s / samples);
+    for (size_t m = 0; m < meshes.size(); m++) {
+      glm::mat4 meshMat =
+          skeleton.globalInverseTransform * skeleton.NodeGlobal(meshNodes[m]);
+      for (const AnimatedVertex &v : meshes[m].getVertices()) {
+        glm::mat4 skin(0.0f);
+        float total = 0.0f;
+        for (int k = 0; k < NUM_BONES_PER_VEREX; k++) {
+          if (v.Weights[k] > 0.0f) {
+            skin += skeleton.boneMats[v.BoneIDs[k]] * v.Weights[k];
+            total += v.Weights[k];
+          }
+        }
+        glm::vec3 p = glm::vec3((total > 0.0f ? skin : meshMat) *
+                                glm::vec4(v.Position, 1.0f));
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
+      }
+    }
+  }
+  skeleton.Update(0.0);
+
+  glm::vec3 size = hi - lo;
+  float biggest = glm::max(size.x, glm::max(size.y, size.z));
+  if (biggest > 0.0f) {
+    fitScale = 1.8f / biggest;
+    fitCenter = (lo + hi) * 0.5f;
+  }
 }
 
-void AnimatedModel::AnimNodeProcess() {
-      if(scene->mNumAnimations == 0)
-           return;
-
-      for(int i = 0; i < scene->mAnimations[0]->mNumChannels; i++)
-           nodes_anim.push_back(scene->mAnimations[0]->mChannels[i]);
-      
-      //We only get data from the first mAnimation because 
-      //Assimp crushes all of the animation data into one
-      //large sequence of data known as mAnimation.
-      //Assimp does not support multiple mAnimations.
+void AnimatedModel::Draw(Shader *shader) {
+  shader->setInt("skinned", 1);
+  shader->setVector3("fitCenter", fitCenter.x, fitCenter.y, fitCenter.z);
+  shader->setFloat("fitScale", fitScale);
+  glUniformMatrix4fv(glGetUniformLocation(shader->getID(), "gBones"),
+                     skeleton.boneMats.size(), GL_FALSE,
+                     glm::value_ptr(skeleton.boneMats[0]));
+  for (unsigned int i = 0; i < meshes.size(); i++) {
+    // Meshes without bones follow their own node instead.
+    glm::mat4 meshMat =
+        skeleton.globalInverseTransform * skeleton.NodeGlobal(meshNodes[i]);
+    shader->setMatrix4("meshMat", glm::value_ptr(meshMat));
+    meshes[i].Draw(shader);
+  }
 }
-
-Bone* AnimatedModel::FindBone(std::string name) {
-     for(int i = 0; i < bones.size(); i++)
-     {
-         if(bones.at(i).getName() == name)
-             return &bones.at(i);
-     }
-     //This function simply scans our vector bones and checks if
-     //any name matches the name we're looking for, if it doesn't
-     //find any, we return nullptr.
-     //Keep in mind, the bones vector is empty at the point of writing this,
-     //but when this function is called it will already be filled up.
-     return nullptr;
-}
-
-aiNode* AnimatedModel::FindAiNode(std::string name) {
-     for(int i = 0; i < nodes.size(); i++)
-     {
-         if(nodes.at(i)->mName.data == name)
-             return nodes.at(i);
-     }
-     //This function's purpose is identical, except that instead of Bones,
-     //it's looking for an aiNode* inside our nodes vector.
-     //This vector has already been filled by our recursiveNodeProcess() function.
-     return nullptr;
-}
-
-aiNodeAnim* AnimatedModel::FindAiNodeAnim(std::string name) {
-     for(int i = 0; i < nodes_anim.size(); i++)
-     {
-         if(nodes_anim.at(i)->mNodeName.data == name)
-             return nodes_anim.at(i);
-     }
-     //This function finds the animation with the name we pass in, we called it
-     //right after calling our recursiveNodeProcess() function, but this function
-     //will only really come into play during the next tutorial, where we cover
-     //the actual animation portion of skeletal animation.
-     return nullptr;
-}
-
-int AnimatedModel::FindBoneIDByName(std::string name) {
-     for(int i = 0; i < bones.size(); i++)
-     {
-         if(bones.at(i).getName() == name)
-             return i;
-     }
-     //This function finds the position of a certain bone within our bones vector.
-     //This position is equal to the bone's ID, which is vital to determining the
-     //rigging of our model within the vertex shader.
-     return -1;    //In case we don't find a bone ID, we return -1.
-                   //Just to avoid any confusion later on as to whether or not the
-                   //ID was found. (It serves the same purpose as returning nullptr).
-}
-
