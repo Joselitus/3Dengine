@@ -181,7 +181,7 @@ int main(int argc, char **argv) {
   GameObject ping(&model);
 
   // The controller drives the penguin; the camera follows behind it
-  controller.attach(&ping, 4.0f, 1.5f);
+  controller.attach(&ping, 4.0f, 0.8f);
 
   // Main loop
   while (!glfwWindowShouldClose(window)) {
