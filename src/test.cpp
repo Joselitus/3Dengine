@@ -34,7 +34,9 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   // Initialise GLFW
   glewExperimental = true; // Needed for core profile
 
+#ifdef GLFW_PLATFORM // GLFW >= 3.4 only
   glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+#endif
 
   if (!glfwInit()) {
     fprintf(stderr, "Failed to initialize GLFW\n");
@@ -186,6 +188,7 @@ int main(int argc, char **argv) {
   // Main loop
   while (!glfwWindowShouldClose(window)) {
     // Clear the screen. It can cause flickering, so it's there nonetheless.
+    camera.resize();
     controller.update();
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

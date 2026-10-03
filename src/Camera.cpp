@@ -21,12 +21,12 @@ Camera::Camera(GLFWwindow * window, Shader * shader) {
 
 void Camera::resize() {
 	int width, height;
-	// TODO (fix this)
-	glfwGetWindowSize(this->window, &width, &height);
+	glfwGetFramebufferSize(this->window, &width, &height);
 	if (this->screenHeight != height || this->screenWidth != width) {
 		std::cout << width << ", " << height << std::endl;
 		float fwidth = (float)width;
 		float fheight = (float)height;
+		glViewport(0, 0, width, height);
 		this->projection = perspective(radians(45.0f), fwidth/fheight, 0.1f, 100.0f);
 		this->screenHeight = height;
 		this->screenWidth = width;
