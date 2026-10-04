@@ -11,7 +11,10 @@
 
 #include "AudioClip.h"
 #include "DynamicGameObject.h"
+#include "FloorMaterial.h"
+#include "ParticleEmitter.h"
 #include "GameObject.h"
+#include "MaterialMap.h"
 
 // How the stage finds the height of its floor. Chosen when the stage is
 // created and fixed for its whole life.
@@ -79,6 +82,7 @@ private:
   // FloorMode::DownwardRay: world-space triangles and a grid of cells, each
   // listing the triangles whose x/z footprint overlaps it
   std::vector<glm::vec3> triVerts; // 3 per triangle
+  std::vector<unsigned char> triMaterials; // the FloorMaterial of each one
   int cellsX = 0, cellsZ = 0;
   float cellSize = 1;
   std::vector<std::vector<unsigned int>> cells;
@@ -86,12 +90,17 @@ private:
   bool buildHeightField(const std::vector<glm::vec3> &verts);
   void buildTriangleGrid();
   bool heightFieldAt(float x, float z, float &height, glm::vec3 *normal) const;
-  bool rayAt(float x, float z, float maxY, float &height,
-             glm::vec3 *normal) const;
+  // `triangle`, if given, gets the index of the triangle that was hit
+  bool rayAt(float x, float z, float maxY, float &height, glm::vec3 *normal,
+             int *triangle = nullptr) const;
+
+  // What the floor is made of (see setFloor and materialAt)
+  std::shared_ptr<const MaterialMap> floorMaterials;
 
   std::map<std::string, std::shared_ptr<Model>> models; // loaded only once
   std::vector<std::shared_ptr<GameObject>> objects;
   std::vector<std::shared_ptr<DynamicGameObject>> dynamicObjects;
+  std::vector<std::shared_ptr<ParticleEmitter>> emitters;
 
 protected:
   // cellSize: side of the cells of the collision grid, in world units (a few
@@ -151,7 +160,15 @@ public:
   // rotation or scale. The lookup structure for the stage's FloorMode is
   // built here. Returns false (and the stage has no floor) if it can't be:
   // with HeightField, when the mesh is not a regular grid.
-  bool setFloor(std::shared_ptr<Model> mesh, const glm::vec3 &position);
+  //
+  // `materials` says what the floor is made of, place by place, laid over the
+  // floor's x/z bounds (see MaterialMap; MaterialMap::uniform for a floor of
+  // one material). **A HeightField floor needs it** (a height field only
+  // knows heights): without it setFloor fails. A DownwardRay floor can do
+  // without: the material of each triangle is then taken from the name of its
+  // material in the mesh file (floorMaterialFromName, e.g. "road" = asphalt).
+  bool setFloor(std::shared_ptr<Model> mesh, const glm::vec3 &position,
+                std::shared_ptr<const MaterialMap> materials = nullptr);
   // Moves a position (and stops a velocity) back inside the floor's bounds,
   // keeping `margin` away from the edge (e.g. the radius of a big object)
   void keepInsideFloor(glm::vec3 &position, glm::vec3 &velocity,
@@ -164,6 +181,20 @@ public:
   // object (a ceiling, a bridge) is ignored; HeightField mode ignores maxY.
   bool floorAt(float x, float z, float &height, glm::vec3 *normal = nullptr,
                float maxY = 1e30f) const;
+
+  // What the floor is made of at (x, z), for things that behave differently
+  // on different ground (a vehicle is slower on sand). Sand where there is no
+  // floor, or the floor has no such information.
+  FloorMaterial materialAt(float x, float z) const;
+
+  // Particle emitters (dust, smoke...) of the stage: it moves their particles
+  // every update and removes the ones that reach the floor. Whoever owns an
+  // emitter (e.g. the RV's wheels) moves it and sets its rate; the main loop
+  // draws them (ParticleRenderer).
+  void addEmitter(std::shared_ptr<ParticleEmitter> emitter);
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getEmitters() const {
+    return emitters;
+  }
 
   // Advances every object by dt seconds, applies the stage rules to the
   // dynamic ones and resolves the collisions

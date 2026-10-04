@@ -34,6 +34,7 @@ private:
   std::vector<Texture> textures;
   // Flat material colour, used when the material has no diffuse texture
   bool hasColor = false;
+  std::string materialName; // as named in the model file (e.g. the .mtl)
   glm::vec3 color = glm::vec3(1.0f);
 
   //  render data
@@ -46,6 +47,8 @@ public:
   virtual ~Mesh() = default;
   const std::vector<Vertex> &getVertices() const { return vertices; }
   const std::vector<unsigned int> &getIndices() const { return indices; }
+  void setMaterialName(const std::string &name) { materialName = name; }
+  const std::string &getMaterialName() const { return materialName; }
   void setColor(const glm::vec3 &c) { color = c; hasColor = true; }
   void Draw(Shader *shader);
 };

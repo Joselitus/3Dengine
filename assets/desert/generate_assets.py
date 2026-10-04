@@ -11,10 +11,15 @@ from PIL import Image
 OUT = os.path.dirname(os.path.abspath(__file__))
 TERRAIN_SIZE = 160.0   # dunes.obj covers [-80, 80] on x and z
 TERRAIN_RES = 192      # quads per side
+LOOP_TERRAIN_SIZE = 180.0  # dunes_loop.obj (the day desert) covers [-90, 90]
+LOOP_TERRAIN_RES = 180     # quads per side: 1 m each
 SAND_TILE = 5.0        # world units covered by one sand.jpg tile
-ROAD_WIDTH = 4.0
+ROAD_WIDTH = 8.0       # wide enough for the RV (2.4 m) with room to spare
 ROAD_TILE = 8.0        # world units along the road covered by one road.jpg tile
 ROAD_LIFT = 0.07       # the road floats this far above the dunes (no z-fighting)
+ROAD_SMOOTH = 8.0      # sigma (world units) of the smoothing of the road's height
+ROAD_BLEND = 6.0       # width of the slope that joins the road bed to the dunes
+ROAD_STEP = 0.5        # distance between the rows of the road ribbon
 
 
 # ------------------------------------------------------------------ textures
@@ -185,93 +190,144 @@ def dune_height(x, z):
     return d * smoothstep(5.0, 22.0, r)
 
 
-def make_dunes():
-    n = TERRAIN_RES
+def loop_point(t):
+    """The closed road: a ring around the starting clearing (t = 0 .. 2 pi). Its
+    radius wanders between about 31 and 45 m, so it winds without ever coming
+    close to the clearing, nor bending tighter than the RV can turn."""
+    r = (38.0 + 5.0 * np.sin(3 * t + 0.7) + 1.2 * np.sin(5 * t + 2.1) +
+         2.0 * np.sin(2 * t + 4.0))
+    return r * np.cos(t), r * np.sin(t)
+
+
+class Track:
+    """A closed road: its centre line (points every ROAD_STEP metres, going round
+    once), its width, and the height of the road bed all along it.
+
+    The road bed is the height of the dunes under the centre line, smoothed
+    (circularly, so there is no seam) so that the road ignores the small dunes.
+    terrain() then carves the bed into the dunes."""
+
+    def __init__(self, width, point_fn):
+        self.width = width
+        # dense samples, then points equally spaced along the curve
+        t = np.linspace(0.0, 2 * np.pi, 40001)
+        px, pz = point_fn(t)
+        s = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(px), np.diff(pz)))])
+        self.length = s[-1]
+        self.n = int(round(self.length / ROAD_STEP))
+        self.step = self.length / self.n
+        tt = np.interp(np.arange(self.n) * self.step, s, t)
+        self.x, self.z = point_fn(tt)
+        # tangent and the tightest bend (radius of curvature)
+        tx = np.roll(self.x, -1) - np.roll(self.x, 1)
+        tz = np.roll(self.z, -1) - np.roll(self.z, 1)
+        norm = np.hypot(tx, tz)
+        self.tx, self.tz = tx / norm, tz / norm
+        turn = np.abs(np.arctan2(np.roll(self.tz, -1) * self.tx - np.roll(self.tx, -1) * self.tz,
+                                 np.roll(self.tx, -1) * self.tx + np.roll(self.tz, -1) * self.tz))
+        self.min_radius = self.step / turn.max()
+        # road bed height: smoothed dune height, with the clearing kept flat
+        h = dune_height(self.x, self.z)
+        sigma = ROAD_SMOOTH / self.step
+        k = np.exp(-0.5 * (np.minimum(np.arange(self.n), self.n - np.arange(self.n)) / sigma) ** 2)
+        k /= k.sum()
+        h = np.real(np.fft.ifft(np.fft.fft(h) * np.fft.fft(k)))
+        self.h = h * smoothstep(5.0, 22.0, np.hypot(self.x, self.z))
+
+    def nearest(self, x, z):
+        """For every point of the arrays: the index of the nearest point of the
+        centre line, and the distance to it."""
+        x = np.asarray(x, dtype=float)
+        z = np.asarray(z, dtype=float)
+        fx, fz = x.ravel(), z.ravel()
+        index = np.empty(len(fx), dtype=int)
+        dist = np.empty(len(fx))
+        for lo in range(0, len(fx), 4000):
+            sl = slice(lo, lo + 4000)
+            d2 = (fx[sl, None] - self.x[None, :]) ** 2 + (fz[sl, None] - self.z[None, :]) ** 2
+            index[sl] = d2.argmin(axis=1)
+            dist[sl] = np.sqrt(d2[np.arange(len(index[sl])), index[sl]])
+        return index.reshape(x.shape), dist.reshape(x.shape)
+
+    def terrain(self, x, z):
+        """Dunes with the road bed carved/filled in along the road (arrays)."""
+        idx, dist = self.nearest(x, z)
+        base = dune_height(np.asarray(x, dtype=float), np.asarray(z, dtype=float))
+        w = 1.0 - smoothstep(self.width / 2 + 0.5, self.width / 2 + 0.5 + ROAD_BLEND, dist)
+        return base * (1 - w) + self.h[idx] * w
+
+
+def make_dunes(name, size, res, track=None):
+    """The dunes (a regular grid, which is what the stage's height field needs),
+    with the road bed carved into them if there is a track."""
+    n = res
     m = Mesh("sand")
-    xs = np.linspace(-TERRAIN_SIZE / 2, TERRAIN_SIZE / 2, n + 1)
+    xs = np.linspace(-size / 2, size / 2, n + 1)
+    gx, gz = np.meshgrid(xs, xs)                      # gz[j, i] = z of row j
+    heights = track.terrain(gx, gz) if track else dune_height(gx, gz)
     idx = np.zeros((n + 1, n + 1), dtype=int)
     for j, z in enumerate(xs):
         for i, x in enumerate(xs):
-            idx[j, i] = m.add_vertex((x, float(terrain_height(x, z)), z),
+            idx[j, i] = m.add_vertex((x, float(heights[j, i]), z),
                                      (x / SAND_TILE, z / SAND_TILE))
     for j in range(n):
         for i in range(n):
             a, b, c, d = idx[j, i], idx[j, i + 1], idx[j + 1, i], idx[j + 1, i + 1]
             m.f.append((a, c, b))     # counter-clockwise seen from above (+y)
             m.f.append((b, c, d))
-    m.write("dunes.obj")
+    m.write(name)
 
 
-def road_center(z):
-    """x of the road's centre line at depth z. It passes through the clearing at the
-    penguin and meanders away along -z (and +z, behind the camera)."""
-    return 5.0 * np.sin(z * 0.09 + 2.7) + 2.5 * np.sin(z * 0.19) - 5.0 * np.sin(2.7)
+# the numbers a material map is made of (the game's FloorMaterial, see
+# src/world/FloorMaterial.h)
+MATERIAL_SAND, MATERIAL_ASPHALT = 0, 1
+MATERIAL_MAP_STEP = 0.5   # metres per pixel
 
 
-_ROAD_Z = np.arange(-TERRAIN_SIZE / 2 - 4, TERRAIN_SIZE / 2 + 4, 0.25)
-_ROAD_X = road_center(_ROAD_Z)
-ROAD_SMOOTH = 8.0      # sigma (world units) of the smoothing of the road's height
-ROAD_BLEND = 4.0       # width of the slope that joins the road bed to the dunes
+def make_material_map(track, name, size):
+    """A greyscale image of what the floor is made of, for the game's logic (a
+    vehicle is slower on sand): each pixel is a material number. It covers the
+    floor exactly, [-size/2, size/2] in x and z: the columns go along +x and
+    the rows along +z (the first row is the minimum z edge). The asphalt is
+    wherever the road ribbon is."""
+    n = int(round(size / MATERIAL_MAP_STEP))
+    centres = -size / 2 + (np.arange(n) + 0.5) * (size / n)
+    gx, gz = np.meshgrid(centres, centres)            # gz[j, i]: row j <-> z
+    _, dist = track.nearest(gx, gz)
+    pixels = np.where(dist <= track.width / 2, MATERIAL_ASPHALT, MATERIAL_SAND)
+    Image.fromarray(pixels.astype(np.uint8), "L").save(os.path.join(OUT, name))
+    return float((pixels == MATERIAL_ASPHALT).mean())
 
 
-def _road_height_profile():
-    """Height of the road bed along the centre line: the dune height under the
-    centre line, smoothed so the road ignores the small dunes."""
-    h = np.array([dune_height(x, z) for x, z in zip(_ROAD_X, _ROAD_Z)])
-    k = np.arange(-4 * ROAD_SMOOTH, 4 * ROAD_SMOOTH + 0.25, 0.25)
-    k = np.exp(-0.5 * (k / ROAD_SMOOTH) ** 2)
-    k /= k.sum()
-    pad = len(k) // 2
-    h = np.convolve(np.pad(h, pad, mode="edge"), k, mode="valid")
-    # keep the clearing around the origin flat, like the dunes do
-    return h * smoothstep(5.0, 22.0, np.hypot(_ROAD_X, _ROAD_Z))
-
-
-_ROAD_H = _road_height_profile()
-
-
-def terrain_height(x, z):
-    """Dunes with the road bed carved/filled in along the road."""
-    h = dune_height(x, z)
-    d2 = (_ROAD_X - x) ** 2 + (_ROAD_Z - z) ** 2
-    i = int(np.argmin(d2))
-    w = 1.0 - smoothstep(ROAD_WIDTH / 2 + 0.5, ROAD_WIDTH / 2 + 0.5 + ROAD_BLEND,
-                         np.sqrt(d2[i]))
-    return h * (1 - w) + _ROAD_H[i] * w
-
-
-def make_road():
-    """A flat-bottomed ribbon laid on the road bed that terrain_height() makes."""
+def make_road(track, name):
+    """A flat-bottomed ribbon laid on the road bed that Track.terrain() makes. It
+    goes round the whole loop and closes on itself: the last row is the first
+    one again, and the texture repeats a whole number of times so there is no
+    seam."""
     m = Mesh("road")
-    step = 0.5
-    zs = np.arange(-TERRAIN_SIZE / 2 + 1, TERRAIN_SIZE / 2 - 1 + 1e-6, step)
     across = np.linspace(-1, 1, 5)
+    repeats = max(1, int(round(track.length / ROAD_TILE)))
     rows = []
-    length = 0.0
-    prev = None
-    for z in zs:
-        cx = road_center(z)
-        if prev is not None:
-            length += np.hypot(cx - prev[0], z - prev[1])
-        prev = (cx, z)
-        dx = road_center(z + 0.01) - road_center(z - 0.01)
-        nx, nz = 1.0, -dx / 0.02
-        ln = np.hypot(nx, nz)
-        nx, nz = nx / ln, nz / ln
-        y = float(np.interp(z, _ROAD_Z, _ROAD_H)) + ROAD_LIFT
-        row = []
-        for a in across:
-            row.append(m.add_vertex((cx + a * ROAD_WIDTH / 2 * nx, y,
-                                     z + a * ROAD_WIDTH / 2 * nz),
-                                    ((a + 1) / 2, length / ROAD_TILE)))
-        rows.append(row)
+    for i in range(track.n + 1):
+        k = i % track.n
+        nx, nz = -track.tz[k], track.tx[k]            # to the left of the direction of travel
+        v = i * track.step * repeats / track.length
+        rows.append([m.add_vertex((track.x[k] + a * track.width / 2 * nx,
+                                   float(track.h[k]) + ROAD_LIFT,
+                                   track.z[k] + a * track.width / 2 * nz),
+                                  ((a + 1) / 2, v)) for a in across])
+    # wind the triangles so that they face up
+    p = [np.array(m.v[rows[0][q]]) for q in (0, 1)] + [np.array(m.v[rows[1][0]])]
+    flip = np.cross(p[1] - p[0], p[2] - p[0])[1] < 0
     for k in range(len(rows) - 1):
-        for i in range(len(across) - 1):
-            a, b = rows[k][i], rows[k][i + 1]
-            c, d = rows[k + 1][i], rows[k + 1][i + 1]
+        for q in range(len(across) - 1):
+            a, b = rows[k][q], rows[k][q + 1]
+            c, d = rows[k + 1][q], rows[k + 1][q + 1]
+            if flip:
+                a, b, c, d = b, a, d, c
             m.f.append((a, b, c))
             m.f.append((b, d, c))
-    m.write("road.obj")
+    m.write(name)
 
 
 def tube(m, path, radius_fn, sides=16, ribs=0, rib_depth=0.0, v_scale=1.0):
@@ -381,10 +437,19 @@ if __name__ == "__main__":
     make_rock(rng)
     make_road_texture(rng)
     write_mtl()
-    make_dunes()
+    # the dunes alone (the night desert), and the day desert's: a road winding
+    # round the starting clearing in a closed loop, carved into bigger dunes
+    make_dunes("dunes.obj", TERRAIN_SIZE, TERRAIN_RES)
+    track = Track(ROAD_WIDTH, loop_point)
+    make_dunes("dunes_loop.obj", LOOP_TERRAIN_SIZE, LOOP_TERRAIN_RES, track)
+    print("road loop: %.0f m long, %.0f m wide, tightest bend radius %.1f m" %
+          (track.length, ROAD_WIDTH, track.min_radius))
+    assert track.min_radius > ROAD_WIDTH / 2 + 2, "the road would fold over itself"
     make_cactus_mesh("cactus_a.obj", 1, [(1, 0.9, 0.9), (-1, 1.5, 0.7)])
     make_cactus_mesh("cactus_b.obj", 2, [(-1, 1.1, 1.0)])
     make_rock_mesh("rock_a.obj", 3, 0.6, 0.6)
     make_rock_mesh("rock_b.obj", 4, 0.35, 0.8)
-    make_road()
+    make_road(track, "road.obj")
+    share = make_material_map(track, "dunes_loop_materials.png", LOOP_TERRAIN_SIZE)
+    print("material map: %.1f%% of the floor is asphalt" % (100 * share))
     print("done")

@@ -109,6 +109,11 @@ Mesh Model::processMesh(aiMesh * mesh, const aiScene * scene) {
 	}  
 
     Mesh result(vertices, indices, textures);
+    if (mesh->mMaterialIndex < scene->mNumMaterials) {
+        aiString name;
+        if (scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_NAME, name) == AI_SUCCESS)
+            result.setMaterialName(name.C_Str());
+    }
     if (hasColor)
         result.setColor(vec3(color.r, color.g, color.b));
     return result;

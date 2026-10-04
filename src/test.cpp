@@ -36,6 +36,7 @@
 #include "Stage.h"
 #include "Skeleton.h"
 #include "MusicPlayer.h"
+#include "ParticleRenderer.h"
 #include "SoundEngine.h"
 #include "UIManager.h"
 #include "Walker.h"
@@ -202,47 +203,89 @@ public:
     cameraHeight = EYE_HEIGHT;
 
     // Desert scenery
-    auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes.obj"));
+    auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes_loop.obj"));
     ground->setPosition(0.0f, GROUND_Y, 0.0f);
     ground->setCollidable(false); // it is the floor, not an obstacle
     add(ground);
     // The dunes are a regular grid of heights, so they are the height map
-    setFloor(loadModel("../assets/desert/dunes.obj"), vec3(0.0f, GROUND_Y, 0.0f));
-    auto road = make_shared<GameObject>(loadModel("../assets/desert/road.obj")); // winds through the dunes
+    // and a height field needs a material map: asphalt where the road is, sand
+    // everywhere else (the RV is slower on sand)
+    auto materials =
+        MaterialMap::loadImage("../assets/desert/dunes_loop_materials.png");
+    if (!materials) {
+      fprintf(stderr, "No material map: the whole floor is sand\n");
+      materials = MaterialMap::uniform(FloorMaterial::Sand);
+    }
+    setFloor(loadModel("../assets/desert/dunes_loop.obj"),
+             vec3(0.0f, GROUND_Y, 0.0f), materials);
+    // The road: 8 m wide, a closed loop winding round the starting clearing
+    // (about 250 m long), carved into the dunes
+    auto road = make_shared<GameObject>(loadModel("../assets/desert/road.obj"));
     road->setPosition(0.0f, GROUND_Y, 0.0f);
     road->setCollidable(false);
     add(road);
 
-    // model, x, z, terrain height at (x, z) (see terrain_height in
-    // generate_assets.py), rotation around y, uniform scale
+    // model, x, z, rotation around y, uniform scale. Scattered by a script
+    // (seeded) over the dunes, never on the road (at least 7 m from its centre
+    // line) nor in the starting clearing: 14 inside the loop, 30 outside it
     struct Prop {
       const char *model;
-      float x, z, height, yaw, scale;
+      float x, z, yaw, scale;
     };
     const char *cactusA = "../assets/desert/cactus_a.obj";
     const char *cactusB = "../assets/desert/cactus_b.obj";
     const char *rockA = "../assets/desert/rock_a.obj";
     const char *rockB = "../assets/desert/rock_b.obj";
     const Prop propList[] = {
-        {cactusA, -4.5f, -8, 0.18f, 0.5f, 1.0f},
-        {cactusA, 8, -16, 1.45f, 2.0f, 1.3f},
-        {cactusA, -16, -24, 4.61f, 4.0f, 1.6f},
-        {cactusA, 18, -30, 1.17f, 1.0f, 1.2f},
-        {cactusB, 5.5f, -10, 0.72f, 3.0f, 1.1f},
-        {cactusB, -9, -14, 1.61f, 5.5f, 1.2f},
-        {cactusB, 14, -22, 1.62f, 0.8f, 1.5f},
-        {rockA, -4, -6, 0.03f, 0.3f, 1.0f},
-        {rockA, 11, -9, 2.23f, 2.5f, 1.8f},
-        {rockA, -20, -12, 1.90f, 4.5f, 2.5f},
-        {rockB, 3.5f, -4.5f, 0.01f, 1.2f, 1.0f},
-        {rockB, -8, -11, 1.03f, 3.3f, 1.4f},
-        {rockB, 7, -18, 1.11f, 5.0f, 1.7f},
-        {rockB, -3, -14, 0.73f, 0.1f, 1.1f},
+        {rockA, 7.1f, -18.7f, 0.3f, 1.3f},
+        {cactusA, -13.3f, 8.6f, 6.3f, 0.9f},
+        {cactusB, 1.8f, 18.4f, 5.6f, 1.8f},
+        {cactusA, -7.5f, -15.2f, 1.7f, 1.4f},
+        {rockA, 19.1f, 8.2f, 1.4f, 2.2f},
+        {cactusA, 14.6f, -15.1f, 0.0f, 1.5f},
+        {rockB, -6.4f, 12.5f, 0.9f, 1.4f},
+        {cactusB, -17.1f, -0.7f, 5.9f, 0.9f},
+        {cactusB, 7.2f, -10.6f, 2.5f, 1.8f},
+        {cactusB, -20.0f, -7.4f, 4.2f, 1.6f},
+        {rockB, 16.9f, -6.6f, 5.1f, 2.0f},
+        {cactusB, -8.9f, 19.7f, 2.6f, 0.9f},
+        {rockB, 8.4f, 20.2f, 2.5f, 1.1f},
+        {rockA, 13.0f, 15.6f, 3.1f, 1.3f},
+        {rockB, 8.7f, -64.6f, 2.8f, 1.3f},
+        {cactusA, -72.6f, -81.5f, 5.8f, 1.2f},
+        {rockA, 63.9f, -3.2f, 5.4f, 1.9f},
+        {cactusB, -26.7f, 48.2f, 4.6f, 1.4f},
+        {cactusA, 32.4f, -81.1f, 1.3f, 1.0f},
+        {cactusA, -48.7f, -74.0f, 5.6f, 1.4f},
+        {cactusB, 46.8f, 72.3f, 2.1f, 1.5f},
+        {rockB, 53.1f, -44.2f, 4.6f, 1.7f},
+        {cactusA, -0.9f, -73.7f, 3.0f, 1.4f},
+        {rockA, 54.6f, -78.7f, 3.8f, 1.6f},
+        {rockB, -50.7f, 80.4f, 1.8f, 2.3f},
+        {cactusA, -41.5f, 59.2f, 1.6f, 1.5f},
+        {rockA, -71.2f, -50.4f, 3.4f, 1.7f},
+        {cactusA, -1.9f, 69.3f, 1.6f, 1.6f},
+        {cactusA, -50.3f, -28.9f, 2.3f, 1.7f},
+        {cactusA, -53.2f, -82.0f, 2.6f, 1.1f},
+        {rockB, 16.7f, 78.9f, 3.8f, 1.3f},
+        {rockB, 69.1f, -65.3f, 4.9f, 1.5f},
+        {rockA, 42.6f, 53.0f, 6.0f, 1.5f},
+        {cactusB, -20.6f, 62.3f, 2.3f, 1.2f},
+        {cactusB, -72.2f, -36.5f, 3.4f, 1.0f},
+        {cactusA, -9.5f, -77.9f, 0.8f, 1.7f},
+        {cactusA, -20.8f, 73.9f, 5.0f, 1.3f},
+        {rockB, -78.9f, -70.9f, 1.6f, 1.9f},
+        {cactusA, 64.4f, 73.8f, 1.2f, 1.4f},
+        {cactusB, 35.0f, -50.9f, 2.4f, 1.3f},
+        {cactusB, 29.9f, 47.3f, 0.4f, 1.3f},
+        {rockA, -30.1f, 63.4f, 0.9f, 2.3f},
+        {cactusB, -60.6f, 2.4f, 5.1f, 1.2f},
+        {rockB, -79.8f, 81.9f, 1.2f, 1.9f},
     };
     for (const Prop &p : propList) {
       auto o = make_shared<GameObject>(loadModel(p.model));
       // sink the base a little so nothing floats on the slopes
-      o->setPosition(p.x, GROUND_Y + p.height - 0.05f, p.z);
+      o->setPosition(p.x, groundAt(p.x, p.z) - 0.05f, p.z);
       o->setYaw(p.yaw);
       o->setScale(p.scale);
       add(o);
@@ -268,6 +311,9 @@ public:
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
     addDynamic(rv);
+    // The dust its wheels throw up on sand (the stage moves and removes it)
+    for (const auto &emitter : rv->getDust())
+      addEmitter(emitter);
     // Using its door gets the player in (see enterRV)
     rv->setEnterAction([this]() { enterRV(); });
     interactables.push_back(rv.get());
@@ -372,6 +418,9 @@ int main(int argc, char **argv) {
   Controls controls;
   controls.readFrom(settings);
   Controller controller(window, &camera, controls);
+
+  // Draws the particles (dust...) of the current map
+  ParticleRenderer particles;
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
@@ -497,6 +546,7 @@ int main(int argc, char **argv) {
     // Draw: the map's sky (if any) and the map, then the interface on top
     shader.setFloat("time", (float)now);
     stage->render(&shader, camera.getPosition(), now);
+    particles.draw(stage->getEmitters(), camera); // over the world
     ui.draw(); // last, over everything
 
     // Swap buffers

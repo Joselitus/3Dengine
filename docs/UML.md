@@ -159,8 +159,10 @@ classDiagram
         +loadMusic(path, loop, volume) bool
         +add(GameObject)
         +addDynamic(DynamicGameObject)
-        +setFloor(mesh, position) bool
+        +setFloor(mesh, position, materials) bool
         +floorAt(x, z, height, normal, maxY) bool
+        +materialAt(x, z) FloorMaterial
+        +addEmitter(emitter)
         +keepInsideFloor(position, velocity, margin)
         +update(dt)
         +Draw(shader, time)
@@ -172,6 +174,16 @@ classDiagram
         <<enumeration>>
         HeightField
         DownwardRay
+    }
+    class FloorMaterial {
+        <<enumeration>>
+        Sand
+        Asphalt
+    }
+    class MaterialMap {
+        +uniform(material)$ MaterialMap
+        +loadImage(path)$ MaterialMap
+        +at(u, v) FloorMaterial
     }
     class GameStage {
         <<abstract>>
@@ -261,6 +273,7 @@ classDiagram
         -bool occupied
         +setWheelModels(left, right)
         +setEnterAction(action)
+        +getDust() ParticleEmitter[]
         +seatPosition() vec3
         +doorPosition(outside) vec3
         +contactFloor(stage, dt) bool
@@ -310,11 +323,14 @@ classDiagram
     class AnimatedModel
     class Camera
     class UIPanel
+    class ParticleEmitter
 
     Stage <|-- GameStage
     GameStage <|-- TestStage
     GameStage <|-- SceneStage
     Stage --> FloorMode
+    Stage o-- MaterialMap : floorMaterials (obligatorio con HeightField)
+    MaterialMap ..> FloorMaterial
     Stage "1" *-- "*" GameObject : objects
     Stage "1" *-- "*" DynamicGameObject : dynamicObjects
     Stage o-- Model : floor_mesh y caché de modelos
@@ -323,6 +339,8 @@ classDiagram
     GameStage o-- Interactable : interactables
     SceneStage ..> SceneFile : parsea
     TestStage *-- RV
+    Stage "1" *-- "*" ParticleEmitter : emitters
+    RV "1" *-- "4" ParticleEmitter : polvo, uno por rueda
 
     GameObject <|-- DynamicGameObject
     DynamicGameObject <|-- PlayableCharacter
@@ -451,7 +469,14 @@ classDiagram
         +place(origin, yaw)
         +setInput(throttle, steering)
         +step(dt, floor)
+        +setSurfaceQuery(query)
         +getWheels() WheelState[]
+    }
+    class Surface {
+        <<struct>>
+        +float grip
+        +float rolling
+        +float topSpeed
     }
     class VehicleParams {
         <<struct>>
@@ -489,6 +514,8 @@ classDiagram
     note for VehicleParams "es VehicleBody::Params"
     VehicleParams *-- Wheel
     VehicleBody *-- WheelState
+    VehicleBody ..> Surface : por rueda, según el suelo
+    RV ..> Stage : materialAt, para la Surface de cada rueda
 
     Stage --> FloorMode
     Stage *-- Body : bodies
@@ -505,6 +532,8 @@ classDiagram
 2. **Forma contra suelo:** los puntos más bajos de la forma (`floorSamples`: esquinas y la cara más baja de una caja, el punto más bajo de una cápsula) no pueden quedar bajo el suelo, **de cualquier lado que esté boca arriba**. Se empuja el objeto hacia arriba con `applyCollision`.
 3. **Forma contra forma:** el `Stage` coloca cada objeto dinámico en la rejilla (celdas de 8 m) y **solo compara los pares que comparten celda**. Un choque separa los objetos: se mueve solo el dinámico contra uno estático, y entre dos dinámicos se mueve más el más ligero (`getMass`). Se quita la velocidad con la que se acercaban, sin rebote. Son dos pasadas.
 4. Se repite la comprobación del suelo, por si el empujón metió algo en el terreno.
+
+**Materiales:** además de la altura, el `Stage` dice de qué es el suelo (`materialAt`, un `FloorMaterial`: arena o asfalto), a partir de un `MaterialMap` que recibe con el suelo (obligatorio con `HeightField`). Cada rueda del RV lo pregunta y recibe una `Surface` (agarre, resistencia a rodar y velocidad máxima): en arena va más lento.
 
 **Suelo:** `FloorMode::HeightField` interpola una rejilla regular de alturas (O(1), no admite voladizos). `FloorMode::DownwardRay` lanza un rayo vertical contra los triángulos, indexados en otra rejilla (admite cualquier malla). Se elige al crear el `Stage` y no cambia.
 
@@ -585,6 +614,28 @@ classDiagram
         +float end_time
         +int priority
     }
+    class ParticleEmitter {
+        -vec3 position
+        -vec3 direction
+        -float rate
+        +setPosition(p)
+        +setDirection(d)
+        +setBaseVelocity(v)
+        +setRate(perSecond)
+        +setGround(function)
+        +update(dt)
+        +getParticles() Particle[]
+    }
+    class Particle {
+        <<struct>>
+        +vec3 position
+        +vec3 velocity
+        +float age
+        +float life
+    }
+    class ParticleRenderer {
+        +draw(emitters, camera)
+    }
     class Camera {
         -mat4 projection
         -mat4 view
@@ -596,6 +647,9 @@ classDiagram
         +attachTo(target, distance, height)
         +follow()
         +getForward() vec3
+        +getViewProjection() mat4
+        +getRight() vec3
+        +getUp() vec3
     }
     class Light {
         -vec3 color
@@ -620,6 +674,10 @@ classDiagram
     Model ..> Shader : Draw
     AnimatedModel ..> Shader : Draw
     Camera --> Shader : escribe projection, view, model
+    ParticleEmitter "1" *-- "*" Particle
+    ParticleRenderer ..> ParticleEmitter : dibuja sus partículas
+    ParticleRenderer ..> Camera : getViewProjection, getRight, getUp
+    ParticleRenderer --> Shader : particle.vert / particle.frag
     Light --> Shader : escribe lightPosition, lightColor
     Camera --> GameObject : target
     GameObject o-- Model : parts
@@ -1003,6 +1061,7 @@ sequenceDiagram
     participant P as PlayableCharacter
     participant S as GameStage
     participant K as Camera
+    participant P as ParticleRenderer
 
     M->>M: dt = tiempo desde el frame anterior
     opt hay un cambio de mapa pendiente
@@ -1027,6 +1086,7 @@ sequenceDiagram
     M->>P: followCamera()
     P->>K: follow()
     M->>S: render(shader, cámara, tiempo)
+    M->>P: draw(emisores del mapa, cámara)
     M->>U: draw()
 ```
 

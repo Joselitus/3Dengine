@@ -29,6 +29,14 @@ bool Stage::loadMusic(const string &path, bool loop, float volume) {
   return true;
 }
 
+void Stage::addEmitter(shared_ptr<ParticleEmitter> emitter) {
+  // The particles that reach the floor go (there is no floor outside it)
+  emitter->setGround([this](float x, float z, float &height) {
+    return floorAt(x, z, height);
+  });
+  emitters.push_back(emitter);
+}
+
 shared_ptr<GameObject> Stage::add(shared_ptr<GameObject> object) {
   objects.push_back(object);
   registerBody(object.get(), nullptr);
@@ -54,6 +62,9 @@ void Stage::update(double dt) {
   // The collisions may have pushed them into the floor
   for (auto &object : dynamicObjects)
     collideShapeWithFloor(*object);
+  // The emitters, once their owners have moved them
+  for (auto &emitter : emitters)
+    emitter->update(dt);
 }
 
 void Stage::Draw(Shader *shader, double time) {
@@ -74,19 +85,29 @@ static vec3 triangleNormal(const vec3 &a, const vec3 &b, const vec3 &c) {
   return n.y < 0.0f ? -n : n;
 }
 
-bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position) {
+bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position,
+                     shared_ptr<const MaterialMap> materials) {
   if (floor_mesh) {
     cerr << "Stage: the floor can only be set once" << endl;
     return false;
   }
+  if (floorMode == FloorMode::HeightField && !materials) {
+    cerr << "Stage: a HeightField floor needs a material map" << endl;
+    return false;
+  }
   vector<vec3> verts;
   vector<unsigned int> indices;
+  vector<unsigned char> meshMaterials; // one per triangle, from the mesh
   for (const Mesh &m : mesh->meshes) {
     unsigned int base = verts.size();
     for (const Vertex &v : m.getVertices())
       verts.push_back(v.Position + position);
     for (unsigned int i : m.getIndices())
       indices.push_back(base + i);
+    unsigned char material =
+        (unsigned char)floorMaterialFromName(m.getMaterialName());
+    meshMaterials.insert(meshMaterials.end(), m.getIndices().size() / 3,
+                         material);
   }
   if (verts.empty() || indices.size() < 3) {
     cerr << "Stage: the floor mesh is empty" << endl;
@@ -109,10 +130,27 @@ bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position) {
     triVerts.clear();
     for (unsigned int i : indices)
       triVerts.push_back(verts[i]);
+    triMaterials = meshMaterials;
     buildTriangleGrid();
   }
+  floorMaterials = materials;
   floor_mesh = mesh;
   return true;
+}
+
+FloorMaterial Stage::materialAt(float x, float z) const {
+  if (!floor_mesh || x < minX || x > maxX || z < minZ || z > maxZ)
+    return FloorMaterial::Sand;
+  if (floorMaterials)
+    return floorMaterials->at((x - minX) / std::max(maxX - minX, 1e-6f),
+                              (z - minZ) / std::max(maxZ - minZ, 1e-6f));
+  // No map (a DownwardRay floor): the material of the triangle under the point
+  float height;
+  int triangle = -1;
+  if (rayAt(x, z, 1e30f, height, nullptr, &triangle) && triangle >= 0 &&
+      (size_t)triangle < triMaterials.size())
+    return (FloorMaterial)triMaterials[triangle];
+  return FloorMaterial::Sand;
 }
 
 // The grid is read off the vertices: every distinct x and z is a grid line
@@ -215,8 +253,8 @@ bool Stage::heightFieldAt(float x, float z, float &height, vec3 *normal) const {
 }
 
 // Vertical ray: a triangle is hit if (x, z) is inside its x/z footprint
-bool Stage::rayAt(float x, float z, float maxY, float &height,
-                  vec3 *normal) const {
+bool Stage::rayAt(float x, float z, float maxY, float &height, vec3 *normal,
+                  int *triangle) const {
   int cx = (int)floor((x - minX) / cellSize);
   int cz = (int)floor((z - minZ) / cellSize);
   if (x < minX || x > maxX || z < minZ || z > maxZ || cx < 0 || cz < 0 ||
@@ -242,6 +280,8 @@ bool Stage::rayAt(float x, float z, float maxY, float &height,
     height = y;
     if (normal)
       *normal = triangleNormal(a, b, c);
+    if (triangle)
+      *triangle = (int)t;
   }
   return hit;
 }

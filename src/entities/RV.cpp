@@ -11,6 +11,21 @@ using namespace glm;
 #define RV_ACCELERATION 14.0f
 // Mass of the RV, kg
 #define RV_MASS 3000.0f
+// How the ground changes the RV (see VehicleBody::Surface; asphalt is the
+// reference): on sand the tyres grip less, it is much harder to roll and the
+// engine only takes it to half the speed
+#define SAND_GRIP 0.75f
+#define SAND_ROLLING 2.5f
+#define SAND_TOP_SPEED 0.5f
+// The dust a wheel throws up on sand: the particles go backwards (against the
+// direction of travel) and upwards, and then fall. It starts above a walking
+// pace, and the faster it goes, the more there is.
+#define DUST_MIN_SPEED 1.5f       // m/s
+#define DUST_RATE 45.0f           // particles per second and wheel at 10 m/s
+#define DUST_MAX_RATE_SPEED 15.0f // the rate stops growing at this speed
+#define DUST_BACKWARDS 0.75f      // direction: this much backwards...
+#define DUST_UPWARDS 1.3f         // ...and this much upwards
+#define DUST_INHERIT 0.25f        // of the RV's own velocity that they take
 // Without gravity the suspension has nothing to carry
 #define DEFAULT_GRAVITY 9.81f
 
@@ -47,7 +62,23 @@ static const float CHASSIS_BOTTOM = CHASSIS_LOW - SKIN;
 static const float CHASSIS_TOP = CHASSIS_HIGH + SKIN;
 
 RV::RV(std::shared_ptr<Model> model)
-    : PlayableCharacter(model, chassisShape()) {}
+    : PlayableCharacter(model, chassisShape()) {
+  ParticleSettings settings; // sand dust: tan, soft, heavy enough to fall
+  settings.lifeMin = 1.0f;
+  settings.lifeMax = 1.8f;
+  settings.speedMin = 2.5f;
+  settings.speedMax = 6.0f;
+  settings.spread = 0.5f;
+  settings.sizeStart = 0.3f;
+  settings.sizeEnd = 1.3f;
+  settings.color = vec3(0.95f, 0.89f, 0.76f); // paler than the sand it comes from
+  settings.alpha = 0.85f;
+  settings.gravity = 7.0f;
+  settings.drag = 1.2f;
+  settings.maxParticles = 400;
+  for (unsigned i = 0; i < 4; i++)
+    dust.push_back(std::make_shared<ParticleEmitter>(settings, 100 + i));
+}
 
 float RV::getMass() const { return RV_MASS; }
 
@@ -57,6 +88,16 @@ void RV::applyCollision(const vec3 &push, const vec3 &velocityChange) {
     body->setCentreOfMass(body->getCentreOfMass() + push);
     body->setVelocity(body->getVelocity() + velocityChange);
   }
+}
+
+static VehicleBody::Surface surfaceOf(FloorMaterial material) {
+  VehicleBody::Surface surface; // asphalt: as is
+  if (material == FloorMaterial::Sand) {
+    surface.grip = SAND_GRIP;
+    surface.rolling = SAND_ROLLING;
+    surface.topSpeed = SAND_TOP_SPEED;
+  }
+  return surface;
 }
 
 VehicleBody::Params RV::vehicleParams(float gravity, float maxSpeed) {
@@ -165,11 +206,43 @@ void RV::placeWheels() {
   }
 }
 
+// Each wheel that is on sand and moving throws dust up and back from where
+// its tyre meets the ground; on asphalt, or in the air, it throws nothing
+void RV::updateDust(const Stage &stage) {
+  vec3 horizontal(velocity.x, 0.0f, velocity.z);
+  float speed = length(horizontal);
+  vec3 away = speed > 1e-3f ? -horizontal / speed : vec3(0.0f); // against the travel
+  const VehicleBody::Params &params = body->getParams();
+  for (size_t i = 0; i < dust.size(); i++) {
+    const VehicleBody::WheelState &wheel = body->getWheels()[i];
+    // the point of the tyre on the ground
+    vec3 anchor = params.wheels[i].anchor;
+    vec3 contact = position + vec3(rotation * vec4(anchor.x,
+                                                   anchor.y - wheel.length - WHEEL_RADIUS,
+                                                   anchor.z, 0.0f));
+    bool onSand = wheel.onGround &&
+                  stage.materialAt(contact.x, contact.z) == FloorMaterial::Sand;
+    ParticleEmitter &emitter = *dust[i];
+    if (!onSand || speed < DUST_MIN_SPEED) {
+      emitter.setRate(0.0f);
+      continue;
+    }
+    emitter.setPosition(contact + vec3(0.0f, 0.05f, 0.0f));
+    emitter.setDirection(away * DUST_BACKWARDS + vec3(0.0f, DUST_UPWARDS, 0.0f));
+    emitter.setBaseVelocity(velocity * DUST_INHERIT);
+    emitter.setRate(DUST_RATE * std::min(speed, DUST_MAX_RATE_SPEED) / 10.0f);
+  }
+}
+
 bool RV::contactFloor(const Stage &stage, double dt) {
   if (!body) {
     body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
     body->place(position, facing);
   }
+  // What each wheel drives on, from the stage's floor
+  body->setSurfaceQuery([&stage](float x, float z) {
+    return surfaceOf(stage.materialAt(x, z));
+  });
   body->setHandbrake(!occupied); // an empty RV stays where it is
   body->setInput(throttle, -steering);
   body->step(dt, [&stage](float x, float z, float maxY, float &height,
@@ -193,5 +266,6 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   velocity = body->getVelocity();
   grounded = body->isOnGround();
   placeWheels();
+  updateDust(stage);
   return true;
 }

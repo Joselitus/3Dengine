@@ -8,6 +8,7 @@ Este documento explica cómo está montado el motor 3D y cómo se dibuja un fram
 src/                 motor + juego (C++11, OpenGL 3.3 core)
   test.cpp           main: lista de mapas, cambio de mapa, TestStage (el mapa de día) y bucle principal
   render/            mallas, modelos, animación, Shader, Light, Camera, myopengl
+  effects/           ParticleEmitter (simulación) y ParticleRenderer (dibujo) de las partículas
   physics/           CollisionShape (cápsula, caja) y VehicleBody (chasis sobre muelles)
   world/             GameObject, DynamicGameObject, PlayableCharacter, Stage, GameStage, SceneStage, SceneFile, Interactable
   entities/          RV, Walker, Npc, Satellite, Readable
@@ -16,7 +17,7 @@ src/                 motor + juego (C++11, OpenGL 3.3 core)
   dialogue/          Dialogue, LineNarrator, Typewriter
   ui/                UIManager, UIRenderer, los UI* y los menús (Pause, Options, Controls, Settings, Camera, ConfirmDialog, MapSelector)
   core/              Settings (ajustes entre sesiones)
-  shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag; shader.vert está en desuso
+  shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag, particle.vert/particle.frag; shader.vert está en desuso
   third_party/       miniaudio, stb_image, stb_easy_font (se compilan con -w)
   makefile           compila todos los .cpp de src/ (en cualquier subdirectorio) y genera ../test/test.
                      Cada subdirectorio es un include path: los .h se incluyen por su nombre, sin ruta
@@ -64,13 +65,15 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 | `DynamicGameObject` | `GameObject` que se mueve: velocidad, aceleración, velocidad máxima, masa, gravedad y **rozamiento** (`setDrag`, en 1/s: cómo muere la velocidad horizontal; 0 por defecto, o sea, nunca). Quien lo controla lo guía con `steerTowards` (aceleración); el `Stage` lo mueve. Ganchos virtuales para el stage: `contactFloor` (el objeto lleva su propio suelo, como el RV) y `applyCollision` (cómo recibe un empujón). |
 | `PlayableCharacter` | Personaje que maneja el `Controller` (abstracta). Cada uno decide cómo responde a la entrada (`control`) y cómo lo sigue la cámara (`attachCamera`, `followCamera`). |
 | `Walker` | Personaje a pie: anda en la dirección de la cámara y se orienta hacia donde camina. Con distancia de cámara 0 es primera persona y se oculta a sí mismo. Es el jugador de los dos mapas (en el de día puede subir al RV). |
-| `RV` | Autocaravana del mapa de día (también `Interactable`: se sube por su puerta): W/S aceleran y A/D giran las ruedas delanteras, y la cámara orbita libremente sin girar la malla. Es un `VehicleBody` (chasis sobre 4 muelles) con las ruedas como piezas aparte. Ver [El RV](#el-rv-vehículo-con-suspensión). Su forma de colisión es una caja larga. |
+| `RV` | Autocaravana del mapa de día (también `Interactable`: se sube por su puerta): W/S aceleran y A/D giran las ruedas delanteras, y la cámara orbita libremente sin girar la malla. Es un `VehicleBody` (chasis sobre 4 muelles) con las ruedas como piezas aparte. Ver [El RV](#el-rv-vehículo-con-suspensión). Su forma de colisión es una caja larga. Cada rueda tiene un emisor de **polvo** que echa en la arena. Ver [Partículas](#partículas). |
 | `Satellite` | `GameObject` + `Interactable`: cubo orientable en azimut y cénit. Ver [Satélite](#satélite). |
-| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez, tiene el suelo (height field o rayo hacia abajo, `floorAt`) y la **rejilla de colisiones**. Cada frame actualiza los objetos, aplica `apply()` a los dinámicos y resuelve las colisiones. Ver [Suelo y colisiones](#suelo-y-colisiones). Tiene la **música de fondo** del nivel (`setMusic`/`loadMusic`, null = sin música; en bucle por defecto). Ver [Música de fondo](#música-de-fondo). |
+| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez, tiene el suelo (height field o rayo hacia abajo, `floorAt`) y la **rejilla de colisiones**. Cada frame actualiza los objetos, aplica `apply()` a los dinámicos y resuelve las colisiones. Ver [Suelo y colisiones](#suelo-y-colisiones). Tiene la **música de fondo** del nivel (`setMusic`/`loadMusic`, null = sin música; en bucle por defecto). Ver [Música de fondo](#música-de-fondo). También dice **de qué es el suelo** en cada punto (`materialAt`), a partir del mapa de materiales que se le da con el suelo. Ver [Materiales del suelo](#materiales-del-suelo). Tiene los **emisores de partículas** del nivel (`addEmitter`), que mueve cada frame. |
+| `FloorMaterial`, `MaterialMap` | De qué es el suelo (arena, asfalto...) y el mapa que lo dice punto a punto (una imagen de números de material sobre el suelo, o uno uniforme). Un suelo de tipo `HeightField` lo necesita. Ver [Materiales del suelo](#materiales-del-suelo). |
+| `ParticleEmitter`, `ParticleRenderer` | Partículas muy básicas: el emisor las simula (nacen a un ritmo, en un cono, con gravedad y rozamiento, y se desvanecen) y el renderizador las dibuja como discos que miran a la cámara. Ver [Partículas](#partículas). |
 | `CollisionShape`, `Capsule`, `Box` | Volumen de colisión de un objeto (abstracta + pastilla vertical + caja orientada), con la prueba de choque entre cualquier par (`collide`) y los puntos bajos que no pueden quedar bajo el suelo (`floorSamples`). Ver [Suelo y colisiones](#suelo-y-colisiones). |
 | `VehicleBody` | Física de un vehículo con ruedas, sin OpenGL: cuerpo rígido con masa e inercia sobre muelles amortiguados (un "vehículo de rayos"), neumáticos y autoenderezado. Lo usa `RV`. Ver [El RV](#el-rv-vehículo-con-suspensión). |
 | `GameStage` | Mapa jugable (abstracta, hereda de `Stage`): añade todo lo que el juego necesita para ejecutarlo y cambiarlo en marcha. Incluye el `Environment` (dirección y color de la luz, color del horizonte), el cielo opcional (`setSky`) y el jugador con la cámara que quiere (distancia, altura). También tiene los interactuables, una regla `apply()` por defecto (suelo) y `render()` (cielo alrededor de la cámara + stage). Puede **cambiar de jugador** en marcha: `setPlayer(personaje, distancia, altura, yaw)` marca el cambio y el bucle principal lo recoge con `takePlayerChange()` y vuelve a conectar el `Controller`. `leaveVehicle()` (tecla de bajar) y `interactionsEnabled()` son ganchos virtuales para los mapas con vehículos. |
-| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo), carretera, cactus, rocas, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador empieza siendo el pingüino a pie, en primera persona**; al usar la puerta del `RV` pasa a conducirlo, en tercera persona (cámara a 12 de distancia y 3.5 de altura), y con Mayús vuelve a pie. Ver [Subir y bajar del RV](#subir-y-bajar-del-rv). El suelo y la carretera no son colisionables. |
+| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo, `dunes_loop.obj`, de 180 × 180 m), una **carretera de 8 m de ancho que forma un circuito cerrado de unos 250 m** alrededor del claro de salida (`road.obj`), 44 cactus y rocas repartidos fuera de la carretera, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador empieza siendo el pingüino a pie, en primera persona**; al usar la puerta del `RV` pasa a conducirlo, en tercera persona (cámara a 12 de distancia y 3.5 de altura), y con Mayús vuelve a pie. Ver [Subir y bajar del RV](#subir-y-bajar-del-rv). El suelo y la carretera no son colisionables. |
 | `SceneStage` | Mapa a partir de un `.scene` ("Desierto de noche" = `desert.scene`): suelo, objetos (apoyados con `ground`), efectos, cielo, luz y un `Walker` como jugador. |
 | `MapSelector` | Menú de depuración (tecla Z) para cambiar de mapa (subclase de `UIPanel`). Ver [Mapas](#mapas-y-selector-de-depuración). |
 | `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject`: en primera persona (distancia 0, a la altura de los ojos) o en tercera, desde detrás. El FOV (`setFov`) y la sensibilidad (`setSensitivity`) se pueden cambiar en marcha. |
@@ -108,6 +111,7 @@ stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las c
 player->followCamera()       la cámara sigue al jugador ya movido
 glClear(horizonte del mapa)
 stage->render(shader, camPos, t)   cielo del mapa (si tiene) y después cada GameObject
+particles.draw(emisores)     las partículas del mapa (polvo...), tras el mundo: discos que miran a la cámara
 ui.draw()                    interfaz 2D encima de todo
 glfwSwapBuffers / glfwPollEvents
 ```
@@ -412,6 +416,16 @@ Todo esto vive en `Stage` (y en `physics/`). Un objeto nunca sabe nada del suelo
 
 `Stage::floorAt(x, z, altura, normal, maxY)` da la altura y la normal. Los dos modos dan la misma altura (diferencia < 1e-5 en las pruebas).
 
+### Materiales del suelo
+
+Además de la altura y la normal, un `Stage` dice **de qué material es el suelo** en cada punto: `Stage::materialAt(x, z)`, que devuelve un `FloorMaterial` (hoy `Sand` y `Asphalt`; para otro material, añádelo al `enum` de `FloorMaterial.h` y a `floorMaterialName`). Quien conduce o anda sobre el suelo se comporta según el material: el RV va más lento sobre arena. Fuera del suelo, o sin información, la respuesta es `Sand`.
+
+- **`MaterialMap`** es una rejilla de materiales extendida sobre todo el suelo. En una imagen PNG de 8 bits en gris cada píxel es un número de material (0 = arena, 1 = asfalto, los números de `FloorMaterial`): las columnas van a lo largo de +x y las filas, de +z (la primera fila es el borde de z mínima), y la imagen cubre exactamente los límites x/z del suelo. `MaterialMap::loadImage(ruta)` la lee y `MaterialMap::uniform(material)` hace una de un solo material.
+- **`setFloor(malla, posición, materiales)`:**
+  - Con `FloorMode::HeightField` **el mapa es obligatorio**: un campo de alturas solo sabe alturas, así que sin mapa `setFloor` falla y el stage se queda sin suelo. Un suelo de un solo material pasa `MaterialMap::uniform(...)` (así hace `SceneStage`, con arena).
+  - Con `FloorMode::DownwardRay` es opcional: sin mapa, el material de cada triángulo sale del nombre de su material en el fichero de la malla (`floorMaterialFromName`: `road` y `asphalt` son asfalto, cualquier otro nombre es arena). Si se da un mapa, manda el mapa.
+- **El mapa del desierto de día** (`assets/desert/dunes_loop_materials.png`, 360 × 360 píxeles de 0.5 m) lo genera `generate_assets.py` junto al terreno y la carretera: asfalto donde está la cinta de la carretera (8 m) y arena en el resto. Comprobado contra la geometría de la carretera en 20 000 puntos sin ningún fallo, en los dos modos de suelo.
+
 ### Formas de colisión
 
 Cada `GameObject` tiene una `CollisionShape`:
@@ -451,8 +465,25 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
 - **Neumáticos:** dan tracción, freno y agarre lateral, limitados por la carga de cada rueda (círculo de fricción). Las delanteras dirigen (menos ángulo a más velocidad), así que el giro sale de las fuerzas de los neumáticos. La velocidad máxima (`setMaxSpeed`) es la real: el motor tapa el rozamiento de rodadura.
 - **Esquinas del chasis:** ocho puntos de contacto elásticos, con rozamiento, algo por fuera de la caja de colisión. Entran en juego antes que la corrección dura del stage, así que un RV volcado se desliza, rueda y se frena con fricción en vez de "flotar" sin rozamiento. La fuerza de cada uno está limitada para que un choque fuerte no lo dispare.
 - **Autoenderezado (tentetieso):** una aceleración angular lo devuelve siempre a apoyarse en las ruedas: suave si está algo inclinado y fuerte pasado ~26°, amortiguada para que se asiente. En el aire solo funciona al 15% (no hay nada contra lo que empujar). Desde cualquier postura, incluso boca abajo, vuelve a las ruedas en 1 a 2 s.
+- **Arena y asfalto:** cada rueda pregunta de qué es el suelo bajo ella (`Stage::materialAt`, a través de `VehicleBody::setSurfaceQuery`) y recibe una `VehicleBody::Surface` con tres multiplicadores de los parámetros del vehículo: el agarre de los neumáticos, la resistencia a rodar y la velocidad máxima del motor. El asfalto es la referencia (todo 1). **En arena** (`SAND_*` en `RV.cpp`): agarre 0.75, resistencia a rodar ×2.5 y velocidad máxima ×0.5. La velocidad máxima es la media de las cuatro ruedas, así que con medio coche en la arena va a medias y se desvía hacia el lado lento. Medido en llano: 20 m/s en asfalto y 8.6 en arena; una vuelta al circuito a todo gas, 17.6 s por la carretera frente a 29.3 s si todo fuera arena.
 - **Control:** `control()` solo guarda el acelerador (W/S) y la dirección (A/D); la dirección de la cámara se ignora a propósito. El `Stage` llama a `RV::contactFloor`, que avanza el `VehicleBody` y copia su posición y su orientación al objeto.
 - **Constantes:** la masa, el centro de masas, las esquinas y la forma del chasis están en `RV.cpp`; los parámetros de suspensión, neumáticos y autoenderezado, en `VehicleBody::Params` (`VehicleBody.h`).
+
+## Partículas
+
+Un sistema de partículas muy básico (`effects/`): cada partícula es un disco, y su movimiento lo calcula `ParticleEmitter` (sin OpenGL) y lo dibuja `ParticleRenderer`.
+
+- **`ParticleEmitter`:** nace a un ritmo (`setRate`, partículas por segundo; 0 = apagado) desde una posición (`setPosition`), dentro de un cono alrededor de una dirección (`setDirection`, con `spread` de semiángulo) y con una velocidad aleatoria entre `speedMin` y `speedMax` más una velocidad base (`setBaseVelocity`, por ejemplo la del propio vehículo). Cada partícula:
+  - **cae por la gravedad** (`gravity`, m/s², hacia abajo) y la frena el aire (`drag`, 1/s, exponencial);
+  - crece de `sizeStart` a `sizeEnd` (el radio del disco) y se desvanece (su opacidad baja al cuadrado con la vida);
+  - desaparece al acabar su vida (entre `lifeMin` y `lifeMax`) o al llegar al suelo (`setGround`, que da la altura del suelo en x, z).
+  - El ritmo no depende de los FPS, hay un máximo de partículas vivas (`maxParticles`) y todo es reproducible con la misma semilla. Los ajustes son un `ParticleSettings`.
+- **`Stage::addEmitter`** registra un emisor: el stage lo actualiza cada frame (después de mover los objetos, así que su dueño ya lo ha colocado) y le da la función del suelo para que las partículas que lo alcanzan se vayan.
+- **`ParticleRenderer`** (creado en `main` tras la ventana) dibuja todas las partículas de todos los emisores del mapa de una vez, **después del mundo y antes de la interfaz**:
+  - cada partícula es un cuadrado que mira a la cámara (con `Camera::getRight/getUp/getViewProjection`) y su propio shader (`particle.vert`/`particle.frag`), que recorta un disco con el borde suave;
+  - **mezcla con transparencia**, de la más lejana a la más cercana para que los discos solapados se mezclen bien, con **prueba de profundidad** (el terreno y los objetos los tapan) pero **sin escribir profundidad** (no tapan nada);
+  - deja el programa y el estado de GL como los encontró; hasta 4096 partículas a la vez (si hay más, se omiten las más lejanas).
+- **El polvo del RV:** cada rueda tiene su emisor (`RV::getDust()`, que `TestStage` da al stage). Cada frame, `RV::updateDust` mira si la rueda está en el suelo, de qué es el suelo bajo ella (`Stage::materialAt`) y a qué velocidad va: **solo en arena** y por encima de 1.5 m/s la rueda lanza polvo desde donde el neumático toca el suelo, **hacia atrás (contra el sentido de la marcha) y hacia arriba**, con un cuarto de la velocidad del RV; cuanto más rápido va, más polvo (45/s por rueda a 10 m/s, hasta 15 m/s). En asfalto, en el aire o parado, el ritmo es 0 y el polvo que ya salió termina de caer. Las constantes `DUST_*` y los ajustes del polvo (color pálido, discos que crecen hasta 1.3 m de radio, gravedad 7) están en `RV.cpp`. Medido, relativo al RV: unos 7.8 m/s hacia atrás y 3.1 m/s hacia arriba al nacer, hasta 1.7 m de altura, y sin partículas bajo el suelo.
 
 ## Subir y bajar del RV
 
@@ -508,7 +539,12 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 
 - `desert/`, `sky/` y `creature/` se generan con `python3 assets/<dir>/generate_*.py` (necesita numpy y Pillow). La salida es reproducible porque usan semilla. **No edites los OBJ ni los JPG a mano: cambia el script y regenera.**
 - `music/` (`generate_desert_music.py`, solo numpy): **`desert.wav`**, la música de fondo del mapa de día (ver [Música de fondo](#música-de-fondo)). Es un bucle sin costura de 76.8 s (24 compases a 75 BPM), WAV de 16 bits, estéreo, a 32 kHz (unos 9.8 MB), que `AudioClip::loadWav` ya sabe leer. Árido, de aire flamenco/western en La con la cadencia andaluza (Am–G–F–E): guitarra clásica en arpegio y un banjo con la melodía (con trémolo en las notas largas), sintetizados con cuerda pulsada Karplus-Strong; un bordón grave en quinta, viento y un tambor de marco. Estructura: intro (compases 0–3), guitarra (4–11), guitarra + banjo + tambor (12–19) y final que vuelve a la intro (20–23). La reverberación es una convolución circular y el bordón y el viento tienen ciclos enteros en la duración del bucle, por eso no se oye el salto. Los niveles y las notas se ajustan con constantes al principio del script (`BPM`, `BANJO_GAIN`, `DRONE`, `MELODY`, `PROGRESSION`...).
-- Las alturas `y` de los objetos del desierto salen de `dune_height(x, z)` en `generate_assets.py`: `y = -1 + dune_height(x, z) - 0.05`. El visor muestra la `y` sugerida al pasar el cursor por las dunas.
+- **El desierto** (`generate_assets.py`) genera tres mallas de terreno y carretera:
+  - `dunes.obj`: solo las dunas (160 × 160 m), para el mapa de noche.
+  - `dunes_loop.obj` y `road.obj`: las del mapa de día. La carretera es un circuito **cerrado** (`loop_point`, un anillo de 31 a 45 m del claro, con curvas de al menos 16 m de radio, que es lo que gira el RV) y **8 m de ancho** (`ROAD_WIDTH`, el RV mide 2.4). La clase `Track` guarda su línea central (un punto cada 0.5 m, dando la vuelta una vez) y la altura del lecho: la altura de las dunas bajo la línea, suavizada de forma circular (sin salto donde se cierra) para que la carretera ignore las dunas pequeñas. `Track.terrain` talla ese lecho en las dunas, con una rampa de 6 m a cada lado, y `make_road` tiende una cinta sobre él que se cierra sobre sí misma (la última fila es la primera y la textura se repite un número entero de veces).
+  - El script imprime la longitud del circuito y la curva más cerrada, y falla si la carretera se doblaría sobre sí misma. Se cambia la forma en `loop_point` y se regenera.
+  - El script también escribe `dunes_loop_materials.png`, el mapa de materiales (ver [Materiales del suelo](#materiales-del-suelo)); si se cambia `loop_point`, se regenera junto con el terreno y la carretera.
+  - Las alturas de los objetos del mapa de día se piden al suelo en tiempo de ejecución (`groundAt`), ya no están escritas a mano; los `.scene` usan `ground`. Los 44 adornos de `TestStage` los reparte un script con semilla, a más de 7 m de la línea central y fuera del claro (14 dentro del anillo y 30 fuera). El visor muestra la `y` sugerida al pasar el cursor por las dunas.
 - Las texturas se cargan con `stb_image` a partir del `map_Kd`/`map_Ks` del material, relativo al directorio del modelo. Assimp invierte las UV (`aiProcess_FlipUVs`).
 
 ## Recetas
@@ -518,6 +554,10 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 **Añadir un modelo nuevo.** Copia el OBJ+MTL+textura en `assets/<algo>/` y cárgalo con `loadModel`. El stage lo carga una sola vez, aunque se use en varios objetos.
 
 **Un personaje controlable nuevo.** Hereda de `PlayableCharacter` (ver `Walker` y `RV`): `control()` recibe la entrada, `update(dt)` la convierte en movimiento (con `steerTowards`) y `attachCamera`/`followCamera` deciden la cámara. Después, `controller.attach(personaje, distancia, altura)`.
+
+**Añadir un material del suelo.** Añádelo al `enum class FloorMaterial` (antes de `Count`) y a `floorMaterialName` (y a `floorMaterialFromName` si una malla lo nombra); pinta su número en el mapa de materiales; y haz que lo tengan en cuenta quienes se comporten distinto sobre él (en el RV, `surfaceOf` en `RV.cpp`).
+
+**Añadir un emisor de partículas.** Crea un `ParticleEmitter` con sus `ParticleSettings` (color, tamaño, gravedad, vida...), dáselo al stage con `addEmitter` (y guárdalo para moverlo) y, cada frame, ponle `setPosition`, `setDirection` y `setRate` (0 lo apaga). `main` ya dibuja todos los emisores del mapa. Para un efecto ligado a un objeto, mira `RV::updateDust`.
 
 **Dar otra forma de colisión a un objeto.** Pásala como último argumento del constructor: `make_shared<GameObject>(modelo, make_shared<Box>(medioTamaño, centro))` (o una `Capsule(radio, alto, base)`). Sin ella, el objeto recibe una cápsula ajustada al modelo. Si un objeto no debe chocar con nada (el suelo, la carretera, decoración), llama a `setCollidable(false)` **antes** de `add()`.
 
@@ -537,5 +577,6 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 - Al cambiar de mapa se vuelven a cargar todos sus modelos (no hay caché entre mapas).
 - El volumen no se puede ajustar en Opciones (existe `SoundEngine::setMasterVolume`). La voz de espeak-ng es robótica.
 - Los subtítulos avanzan en proporción al tiempo de audio, no palabra a palabra.
+- Las partículas son discos lisos: sin textura, sin iluminación y sin niebla (el polvo lejano no se funde con el horizonte).
 - Nunca se liberan los recursos GL (VAO/VBO/texturas). Las texturas no se comparten entre modelos distintos.
 - `Model` ignora las transformaciones de los nodos del fichero. Si un OBJ/FBX estático depende de ellas, aparecerá mal colocado.

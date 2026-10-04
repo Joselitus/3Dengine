@@ -90,6 +90,19 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
   float step = params.steerRate * h;
   steerAngle += clamp(wanted - steerAngle, -step, step);
 
+  // The ground under each wheel, and what the engine can do with it: the top
+  // speed is the mean over the wheels (a vehicle half on sand is half slowed)
+  std::vector<Surface> surface(params.wheels.size());
+  float topSpeed = 0.0f;
+  for (size_t i = 0; i < params.wheels.size(); i++) {
+    if (surfaces) {
+      vec3 anchor = origin + R * params.wheels[i].anchor;
+      surface[i] = surfaces(anchor.x, anchor.z);
+    }
+    topSpeed += surface[i].topSpeed / params.wheels.size();
+  }
+  float maxSpeed = params.maxSpeed * topSpeed;
+
   // Engine and brake: the total force along the heading, shared by the wheels
   // that touch the floor
   float drive = 0.0f;
@@ -99,10 +112,10 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     else
       // (the rolling drag is made up for, so maxSpeed is the real top speed)
       drive = params.mass * (params.acceleration *
-                                 max(0.0f, 1.0f - speed / params.maxSpeed) +
+                                 max(0.0f, 1.0f - speed / maxSpeed) +
                              params.rolling * max(speed, 0.0f)) * throttle;
   } else if (throttle < 0.0f) {
-    float reverseMax = params.maxSpeed * params.reverseFactor;
+    float reverseMax = maxSpeed * params.reverseFactor;
     if (speed > 0.5f)
       drive = params.mass * params.braking * throttle; // brakes
     else
@@ -156,14 +169,16 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     vec3 side = normalize(cross(n, heading));
     float along = dot(pointVelocity, heading);
     float across = dot(pointVelocity, side);
-    float alongForce = perWheel - params.rolling * wheelMass * along;
+    const Surface &ground = surface[i];
+    float alongForce =
+        perWheel - params.rolling * ground.rolling * wheelMass * along;
     if (handbrake) // proportional so it stops the wheel instead of reversing it
       alongForce -= clamp(wheelMass * along / h,
                           -params.mass * params.braking / params.wheels.size(),
                           params.mass * params.braking / params.wheels.size());
-    float sideForce = -params.grip * wheelMass * across / h;
+    float sideForce = -params.grip * ground.grip * wheelMass * across / h;
     vec3 tyre = heading * alongForce + side * sideForce;
-    float limit = params.friction * load;
+    float limit = params.friction * ground.grip * load;
     float tyreLength = glm::length(tyre);
     if (tyreLength > limit)
       tyre *= limit / tyreLength;

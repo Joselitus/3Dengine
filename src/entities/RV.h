@@ -6,6 +6,7 @@
 
 #include "Camera.h"
 #include "Interactable.h"
+#include "ParticleEmitter.h"
 #include "PlayableCharacter.h"
 #include "VehicleBody.h"
 
@@ -33,6 +34,11 @@ private:
   bool hasWheels = false;
   bool occupied = false;             // someone is driving it
   std::function<void()> enterAction; // what using the door does
+  // Dust thrown up by each wheel (same order as wheelParts) while it drives on
+  // sand
+  std::vector<std::shared_ptr<ParticleEmitter>> dust;
+
+  void updateDust(const Stage &stage);
 
   void placeWheels();
 
@@ -41,6 +47,11 @@ public:
   explicit RV(std::shared_ptr<Model> model);
 
   float getMass() const override;
+  // The wheels' dust emitters: give them to the stage (Stage::addEmitter) to
+  // have them updated and drawn
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getDust() const {
+    return dust;
+  }
   // The body of the vehicle is moved too
   void applyCollision(const glm::vec3 &push,
                       const glm::vec3 &velocityChange) override;

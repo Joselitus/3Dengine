@@ -36,7 +36,9 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
     auto floor = make_shared<GameObject>(loadModel(prefix + file.floor));
     floor->setPosition(f.x, f.y, f.z);
     add(floor);
-    setFloor(loadModel(prefix + file.floor), f);
+    // (a .scene has no material map: its floor is all sand)
+    setFloor(loadModel(prefix + file.floor), f,
+             MaterialMap::uniform(FloorMaterial::Sand));
   }
 
   for (const SceneObject &o : file.objects) {

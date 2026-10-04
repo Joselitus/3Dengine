@@ -26,6 +26,17 @@ public:
                              glm::vec3 &normal)>
       FloorQuery;
 
+  // What the ground is like under a wheel: the tyres' grip, how hard it is to
+  // roll over it, and how fast the engine can take the vehicle on it. All are
+  // multipliers of the vehicle's own Params, so 1 = as on a good road.
+  struct Surface {
+    float grip = 1.0f;     // of the tyre force limit and the sideways grip
+    float rolling = 1.0f;  // of the rolling drag (sand: much more)
+    float topSpeed = 1.0f; // of Params::maxSpeed (the engine's cut-off)
+  };
+  // The surface at a place in the world (x, z)
+  typedef std::function<Surface(float x, float z)> SurfaceQuery;
+
   struct Wheel {
     glm::vec3 anchor; // where the suspension is fixed, in the chassis frame
     bool steered;
@@ -93,6 +104,10 @@ public:
   // suspension settled (as if it had been standing there)
   void place(const glm::vec3 &origin, float yaw);
 
+  // Where to ask what the ground is like under each wheel (without it, every
+  // wheel is on a good road). It is asked in every physics step.
+  void setSurfaceQuery(const SurfaceQuery &query) { surfaces = query; }
+
   // Holds the vehicle still: the tyres brake it (nobody is driving it)
   void setHandbrake(bool on) { handbrake = on; }
 
@@ -133,6 +148,7 @@ private:
   glm::vec3 angular = glm::vec3(0.0f);
   float throttle = 0.0f, steering = 0.0f;
   bool handbrake = false;
+  SurfaceQuery surfaces;
   float steerAngle = 0.0f;
   std::vector<WheelState> wheelStates;
 

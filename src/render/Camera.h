@@ -74,6 +74,12 @@ public:
   void attachTo(GameObject *target, float distance, float height);
   void follow();
   glm::vec3 getPosition() { return position; }
+  // For drawing things of its own (particles) the way the world shader does:
+  // gl_Position = projection * model * view * world
+  glm::mat4 getViewProjection() const { return projection * model * view; }
+  // The camera's right and up directions in the world (for billboards)
+  glm::vec3 getRight() const { return glm::vec3(model[0][0], model[1][0], model[2][0]); }
+  glm::vec3 getUp() const { return glm::vec3(model[0][1], model[1][1], model[2][1]); }
   // World-space direction the camera looks in (e.g. the listener's facing)
   glm::vec3 getForward() const {
     return glm::vec3(glm::inverse(model) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
