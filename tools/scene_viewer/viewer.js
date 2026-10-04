@@ -30,18 +30,18 @@ const FOV = 45;                  // Camera.cpp, perspective()
 const SENSIVILITY = 0.005;       // Camera.h
 const MAX_PITCH_PIXELS = 250;    // Controller.cpp
 const PLAYER_HEIGHT = 1.8;       // AnimatedModel::computeFit
-const BREATH_AMPLITUDE = 2.0;    // Scene.cpp
+const BREATH_AMPLITUDE = 2.0;    // SceneStage::BREATH_AMPLITUDE
 const LIGHT_DISTANCE = 100;      // test.cpp, the moon is a far point light
-const PROP_SINK = 0.05;          // see the comment in desert.scene
+const PROP_SINK = 0.05;          // SceneStage::PROP_SINK, see desert.scene
 
 // ------------------------------------------------------------ scene file
 // Mirror of SceneFile::load (src/SceneFile.cpp). Keep both in sync.
 function parseScene(text, path) {
   const scene = {
     moon: new THREE.Vector3(0, 1, 0), light: new THREE.Vector3(1, 1, 1),
-    fog: new THREE.Vector3(0, 0, 0), sky: '', player: '',
-    playerPosition: new THREE.Vector3(), cameraDistance: 4, cameraHeight: 0.8,
-    objects: [],
+    fog: new THREE.Vector3(0, 0, 0), sky: '', player: '', floor: null,
+    playerPosition: new THREE.Vector3(), playerOnGround: false,
+    cameraDistance: 4, cameraHeight: 0.8, objects: [],
   };
   const lines = text.split('\n');
   for (let n = 0; n < lines.length; n++) {
@@ -55,6 +55,14 @@ function parseScene(text, path) {
         throw new Error(`${where}: wrong arguments for '${command}'`);
       return v;
     };
+    // A height: a number, or "ground" (stand on the floor)
+    const height = (i) => {
+      if (args[i] === 'ground') return { y: 0, onGround: true };
+      const y = Number(args[i]);
+      if (args[i] === undefined || Number.isNaN(y))
+        throw new Error(`${where}: wrong arguments for '${command}'`);
+      return { y, onGround: false };
+    };
     const str = (i) => {
       if (args[i] === undefined) throw new Error(`${where}: wrong arguments for '${command}'`);
       return args[i];
@@ -64,18 +72,27 @@ function parseScene(text, path) {
       case 'light': scene.light.fromArray(nums(0, 3)); break;
       case 'fog': scene.fog.fromArray(nums(0, 3)); break;
       case 'sky': scene.sky = str(0); break;
-      case 'player':
-        scene.player = str(0);
-        scene.playerPosition.fromArray(nums(1, 3));
+      case 'floor':
+        scene.floor = { model: str(0), position: new THREE.Vector3().fromArray(nums(1, 3)),
+          yaw: 0, scale: 1, effect: 'lit', onGround: false, line: n + 1 };
         break;
+      case 'player': {
+        scene.player = str(0);
+        const h = height(2);
+        scene.playerPosition.set(nums(1, 1)[0], h.y, nums(3, 1)[0]);
+        scene.playerOnGround = h.onGround;
+        break;
+      }
       case 'camera': [scene.cameraDistance, scene.cameraHeight] = nums(0, 2); break;
       case 'object': {
-        const [x, y, z, yaw, scale] = nums(1, 5);
+        const [x] = nums(1, 1);
+        const { y, onGround } = height(2);
+        const [z, yaw, scale] = nums(3, 3);
         const effect = args[6] || 'lit';
         if (!['lit', 'emissive', 'breathe'].includes(effect))
           throw new Error(`${where}: unknown effect '${effect}'`);
         scene.objects.push({ model: str(0), position: new THREE.Vector3(x, y, z),
-          yaw, scale, effect, line: n + 1 });
+          onGround, yaw, scale, effect, line: n + 1 });
         break;
       }
       default: throw new Error(`${where}: unknown command '${command}'`);
@@ -310,7 +327,9 @@ async function build(text) {
   const root = new THREE.Group();
   const entries = [];
 
-  const pending = desc.objects.map(async (o, i) => {
+  // The floor is shown (and listed) like any other object
+  const all = desc.floor ? [desc.floor, ...desc.objects] : desc.objects;
+  const pending = all.map(async (o, i) => {
     const object = instantiate(await loadObj(o.model), o.effect);
     object.position.copy(o.position);
     object.rotation.y = o.yaw;
@@ -338,8 +357,25 @@ async function build(text) {
     pending.push(loadPlayer(desc.player).then(p => { player = p; }));
 
   await Promise.all(pending);
+
+  // "ground" heights, like SceneStage: the floor right below (x, z)
+  const floor = desc.floor ? entries[0].object : null;
+  if (floor) floor.updateMatrixWorld(true);
+  const groundAt = (x, z) => {
+    if (!floor) return 0;
+    const ray = new THREE.Raycaster(new THREE.Vector3(x, 1e4, z), new THREE.Vector3(0, -1, 0));
+    const hit = ray.intersectObject(floor, true)[0];
+    return hit ? hit.point.y : desc.floor.position.y;
+  };
+  for (const e of entries)
+    if (e.onGround) {
+      e.position = e.position.clone().setY(groundAt(e.position.x, e.position.z) - PROP_SINK);
+      e.object.position.copy(e.position);
+    }
   if (player) {
     player.group.position.copy(desc.playerPosition);
+    if (desc.playerOnGround)
+      player.group.position.y = groundAt(desc.playerPosition.x, desc.playerPosition.z);
     root.add(player.group);
   }
   return { desc, root, entries, sky, player, text };
@@ -533,7 +569,7 @@ function frame() {
   if (animate) globals.time.value += dt;
   if (state && state.player && animate) state.player.mixer.update(dt);
   if (view === 'player') updatePlayerCamera(); else controls.update();
-  // In first person the game doesn't draw the player (see Scene::setPlayerVisible)
+  // In first person the game doesn't draw the player (see Walker::attachCamera)
   if (state && state.player)
     state.player.group.visible = view !== 'player' || state.desc.cameraDistance > 0;
   if (state && state.sky) state.sky.position.copy(camera.position);

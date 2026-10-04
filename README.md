@@ -1,6 +1,6 @@
 # 3Dengine
 
-Basic 3D engine: a small C++/OpenGL 3.3 engine and the game being built on top of it. The current level is a desert by day with a road, a parked RV and a satellite you can aim; you walk around as a penguin, in first person (head height).
+Basic 3D engine: a small C++/OpenGL 3.3 engine and the game being built on top of it. Two maps: a desert by day (road, parked RV, a satellite you can aim) and the desert at night (stars, moon, a creature). You walk around as a penguin, in first person (head height). Press Z for the debug map selector.
 
 ## Build and run
 
@@ -15,11 +15,11 @@ make
 
 It can be launched from any directory: at startup it moves to `src/` (found next to the binary), where the shader and asset paths are relative to.
 
-Controls: mouse looks around, WASD walks (the floor keeps you on the dunes), E uses the object in front (e.g. the satellite: its panel sets azimuth and zenith), Esc closes a panel or quits.
+Controls: mouse looks around, WASD walks (the floor keeps you on the dunes), E uses the object in front (e.g. the satellite: its panel sets azimuth and zenith), Esc closes a panel, or opens the pause menu (Resume; Options: mouse sensitivity, field of view and the list of all controls; Exit, or the X key, quits). Z opens the debug map selector.
 
 ## View a scene without running the game
 
-Note: the viewer reads `.scene` files, which the game no longer uses since the `Stage` rework; it shows the older night-time desert.
+The viewer shows maps written as `.scene` files (the night desert, `assets/scenes/desert.scene`); maps built in code (the day desert) are not shown.
 
 ```bash
 python3 tools/scene_viewer/serve.py                          # interactive, in the browser

@@ -11,6 +11,11 @@ void Light::moveTo(float x, float y, float z) {
 	this->position = vec3(x, y, z);
 	this->update();
 }
+void Light::setColor(float r, float g, float b) {
+	this->color = vec3(r, g, b);
+	this->update();
+}
+
 void Light::update() {
 	this->shader->setVector3("lightPosition", this->position.x, this->position.y, this->position.z);
 	this->shader->setVector3("lightColor", this->color.x, this->color.y, this->color.z);

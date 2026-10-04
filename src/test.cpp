@@ -3,19 +3,28 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <GLFW/glfw3.h>
+#include <functional>
 #include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "AnimatedMesh.h"
 #include "AnimatedModel.h"
 #include "Camera.h"
 #include "Controller.h"
+#include "Controls.h"
+#include "GameStage.h"
 #include "GameObject.h"
 #include "InteractionSystem.h"
 #include "Light.h"
+#include "MapSelector.h"
 #include "PlayableCharacter.h"
 #include "RV.h"
 #include "Satellite.h"
 #include "Model.h"
+#include "PauseMenu.h"
+#include "SceneStage.h"
 #include "Shader.h"
 #include "Stage.h"
 #include "Skeleton.h"
@@ -100,17 +109,14 @@ GLFWwindow *initializeGLFW(const char *windowname) {
 // The desert: dunes with a road winding through them, cacti and rocks, a
 // parked RV, a satellite the player can orient, and the player: a penguin
 // on foot, seen in first person.
-class TestStage : public Stage {
+class TestStage : public GameStage {
 private:
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
   std::shared_ptr<RV> rv;
-  std::shared_ptr<Walker> player;
-  std::vector<Interactable *> interactables; // owned by the stage
 
   // Ground height at (x, z), or GROUND_Y where there is no floor
   float groundAt(float x, float z) const {
-    float height;
-    return floorAt(x, z, height) ? height : GROUND_Y;
+    return GameStage::groundAt(x, z, GROUND_Y);
   }
 
 protected:
@@ -120,7 +126,17 @@ protected:
   }
 
 public:
-  TestStage(FloorMode mode) : Stage(mode) {
+  TestStage(FloorMode mode) : GameStage(mode) {
+    // Daylight: plain blue sky (the clear colour), distant geometry fades
+    // into it; warm white sunlight
+    environment.lightDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
+    environment.lightColor = vec3(0.85f, 0.83f, 0.78f);
+    environment.horizon = vec3(0.45f, 0.68f, 0.92f);
+    // First person: the camera at the eyes, 1.6 above the feet (the
+    // penguin is 1.8 tall)
+    cameraDistance = 0.0f;
+    cameraHeight = 1.6f;
+
     // Desert scenery
     auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes.obj"));
     ground->setPosition(0.0f, GROUND_Y, 0.0f);
@@ -186,11 +202,12 @@ public:
     // The player: the penguin on foot, its feet on the floor. It is drawn
     // centred on its position (AnimatedModel fits it to 1.8 units around the
     // origin), which only shows if the camera is moved out of first person.
-    player = make_shared<Walker>(
+    auto walker = make_shared<Walker>(
         make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx"));
-    player->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
-    player->setGravity(25.0f);
-    addDynamic(player);
+    walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
+    walker->setGravity(25.0f);
+    addDynamic(walker);
+    player = walker;
 
     // A satellite next to the start, within reach (see Interactable)
     auto satellite = make_shared<Satellite>(loadModel("../assets/cube/cube.obj"),
@@ -198,11 +215,6 @@ public:
     add(satellite);
     add(satellite->getMount());
     interactables.push_back(satellite.get());
-  }
-
-  std::shared_ptr<PlayableCharacter> getPlayer() { return player; }
-  const std::vector<Interactable *> &getInteractables() const {
-    return interactables;
   }
 };
 
@@ -243,31 +255,77 @@ int main(int argc, char **argv) {
   // Creation of camera
   Camera camera(window, &shader);
   camera.reposition(0.0, 0.0, 3.0);
-  Controller controller(window, &camera);
+  // Which key does what, read by everything that handles input
+  Controls controls;
+  Controller controller(window, &camera, controls);
 
-  // Daylight: plain blue sky (the clear colour), distant geometry fades into it
-  const vec3 sunDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
-  const vec3 horizon = vec3(0.45f, 0.68f, 0.92f);
-
-  // Creation of light
-  Light light(0.85f, 0.83f, 0.78f, &shader); // warm white sunlight
-  light.moveTo(sunDir.x * 100, sunDir.y * 100, sunDir.z * 100); // sun
-
-  shader.setVector3("moonDir", sunDir.x, sunDir.y, sunDir.z);
-  shader.setVector3("fogColor", horizon.x, horizon.y, horizon.z);
+  // The single light (the sun or the moon, set by each map)
+  Light light(1.0f, 1.0f, 1.0f, &shader);
   shader.setInt("unlit", 0);
 
-  TestStage stage(floorMode);
-
-  // The controller moves the player; the camera is at its eyes (distance 0 =
-  // first person, 1.6 above its feet: the penguin is 1.8 tall)
-  controller.attach(stage.getPlayer().get(), 0.0f, 1.6f);
-
-  // 2D interface over the scene, and the system that opens it (key E)
+  // 2D interface over the scene
   UIManager ui(window);
-  InteractionSystem interaction(window, &ui, &controller);
-  for (Interactable *object : stage.getInteractables())
-    interaction.add(object);
+  // Objects the player can use (key E), each with its own panel
+  InteractionSystem interaction(window, &ui, controls);
+
+  // The maps, in the order the debug selector (key Z) lists them
+  struct Map {
+    std::string name;
+    std::function<std::unique_ptr<GameStage>()> create; // nullptr on error
+  };
+  const std::vector<Map> maps = {
+      {"Desierto de dia",
+       [floorMode]() {
+         return std::unique_ptr<GameStage>(new TestStage(floorMode));
+       }},
+      {"Desierto de noche",
+       [floorMode]() -> std::unique_ptr<GameStage> {
+         return SceneStage::load("../assets/scenes/desert.scene",
+                                 "../assets", floorMode);
+       }},
+  };
+  std::unique_ptr<GameStage> stage;
+  int currentMap = -1;
+  int requestedMap = 0; // switched to at a safe point of the main loop
+
+  // Replaces the current map: nothing may still point into the old one (its
+  // panels, the interaction targets, the controller's character)
+  auto switchMap = [&](int index) {
+    std::unique_ptr<GameStage> next = maps[index].create();
+    if (!next) {
+      fprintf(stderr, "Could not load the map '%s'\n", maps[index].name.c_str());
+      return;
+    }
+    ui.closeAll();
+    interaction.clear();
+    stage = std::move(next);
+    currentMap = index;
+    for (Interactable *object : stage->getInteractables())
+      interaction.add(object);
+    controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
+                      stage->getCameraHeight());
+
+    const Environment &env = stage->getEnvironment();
+    vec3 lightPosition = env.lightDir * 100.0f; // far: almost directional
+    light.setColor(env.lightColor.r, env.lightColor.g, env.lightColor.b);
+    light.moveTo(lightPosition.x, lightPosition.y, lightPosition.z);
+    shader.setVector3("moonDir", env.lightDir.x, env.lightDir.y, env.lightDir.z);
+    shader.setVector3("fogColor", env.horizon.r, env.horizon.g, env.horizon.b);
+  };
+
+  // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
+  // key ends the game), the Maps key (Z) the debug map selector
+  auto quit = [window]() { glfwSetWindowShouldClose(window, true); };
+  MenuContext menus = {ui, camera, controls, quit};
+  ui.bindKey(GLFW_KEY_ESCAPE, [&]() { ui.open(new PauseMenu(menus)); });
+  std::vector<std::string> mapNames;
+  for (const Map &map : maps)
+    mapNames.push_back(map.name);
+  int mapsKey = controls.key(Action::Maps);
+  ui.bindKey(mapsKey, [&, mapsKey]() {
+    ui.open(new MapSelector(mapNames, currentMap, mapsKey,
+                            [&](int index) { requestedMap = index; }));
+  });
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -277,19 +335,32 @@ int main(int argc, char **argv) {
     double dt = now - lastTime;
     lastTime = now;
 
+    // A map change asked for (at start, or from the selector) happens here,
+    // outside of any UI callback
+    if (requestedMap >= 0) {
+      if (requestedMap != currentMap)
+        switchMap(requestedMap);
+      requestedMap = -1;
+      if (!stage)
+        break; // not even the first map could be loaded
+    }
+
     camera.resize();
-    // The interface first: opening a panel pauses the controller this frame
-    interaction.update(stage.getPlayer()->getPosition());
+    // The interface first: while any panel (menu or object) is open, the
+    // player's controls are paused and the cursor is free
+    interaction.update(stage->getPlayer()->getPosition());
     ui.update();
+    controller.setEnabled(!ui.hasPanels());
     controller.update();
-    stage.update(dt);
-    stage.getPlayer()->followCamera();
+    stage->update(dt);
+    stage->getPlayer()->followCamera();
+    const vec3 &horizon = stage->getEnvironment().horizon;
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Draw (the clear colour is the sky)
+    // Draw: the map's sky (if any) and the map, then the interface on top
     shader.setFloat("time", (float)now);
-    stage.Draw(&shader, now);
+    stage->render(&shader, camera.getPosition(), now);
     ui.draw(); // last, over everything
 
     // Swap buffers

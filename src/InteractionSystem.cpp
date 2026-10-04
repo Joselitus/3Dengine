@@ -5,11 +5,9 @@
 
 using namespace std;
 
-#define USE_KEY GLFW_KEY_E
-
 InteractionSystem::InteractionSystem(GLFWwindow *window, UIManager *ui,
-                                     Controller *controller)
-    : window(window), ui(ui), controller(controller) {}
+                                     const Controls &controls)
+    : window(window), ui(ui), controls(controls) {}
 
 Interactable *InteractionSystem::closest(const glm::vec3 &player) const {
   Interactable *best = nullptr;
@@ -25,43 +23,28 @@ Interactable *InteractionSystem::closest(const glm::vec3 &player) const {
   return best;
 }
 
-void InteractionSystem::open(Interactable *target) {
-  inUse = target;
-  ui->open(*target);
-  controller->setEnabled(false);
-}
-
-void InteractionSystem::close() {
-  inUse = nullptr;
-  ui->closeAll();
-  controller->setEnabled(true);
-}
-
 void InteractionSystem::update(const glm::vec3 &playerPosition) {
-  bool use = glfwGetKey(window, USE_KEY) == GLFW_PRESS;
-  bool escape = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+  bool use = glfwGetKey(window, controls.key(Action::Use)) == GLFW_PRESS;
   bool usePressed = use && !useWasDown;
-  bool escapePressed = escape && !escapeWasDown;
   useWasDown = use;
-  escapeWasDown = escape;
 
-  // Closed with the panel's own button
-  if (inUse && !ui->hasPanels())
-    close();
+  // It may have been closed by Esc or by its close button
+  if (panel && !ui->isOpen(panel))
+    panel = nullptr;
 
-  if (inUse) {
-    if (usePressed || escapePressed)
-      close();
-  } else {
-    Interactable *target = closest(playerPosition);
-    if (target && usePressed)
-      open(target);
+  Interactable *target = closest(playerPosition);
+  if (usePressed) {
+    if (panel) {
+      ui->close(panel);
+      panel = nullptr;
+    } else if (target && !ui->hasPanels()) {
+      panel = ui->open(*target);
+    }
   }
 
-  if (inUse)
-    ui->setHint("");
-  else if (Interactable *target = closest(playerPosition))
-    ui->setHint("E: usar " + target->getInteractionName());
+  if (!panel && target && !ui->hasPanels())
+    ui->setHint(controls.keyName(Action::Use) + ": usar " +
+                target->getInteractionName());
   else
     ui->setHint("");
 }

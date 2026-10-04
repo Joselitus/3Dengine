@@ -18,6 +18,7 @@ private:
 public:
   Light(float r, float g, float b, Shader *shader);
   void moveTo(float x, float y, float z);
+  void setColor(float r, float g, float b);
   void update();
 };
 

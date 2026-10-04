@@ -4,7 +4,11 @@ Memoria de trabajo del proyecto. **Léela al empezar cada sesión y actualízala
 
 ## Qué es
 
-Juego 3D en C++ sobre un motor propio (OpenGL 3.3 core). El objetivo es construir el motor y su arquitectura a la vez que el juego. Nivel actual (`TestStage`, en `test.cpp`): un desierto de día con dunas, una carretera, cactus, rocas, una autocaravana aparcada y un satélite orientable. El jugador es un pingüino a pie, en primera persona a la altura de la cabeza. El desierto nocturno con la criatura es anterior y solo queda en `desert.scene` y en el visor.
+Juego 3D en C++ sobre un motor propio (OpenGL 3.3 core). El objetivo es construir el motor y su arquitectura a la vez que el juego. Dos mapas, que se cambian con el selector de depuración (tecla Z):
+- **"Desierto de dia"** (`TestStage`, en código en `test.cpp`): dunas, carretera, cactus, rocas, una autocaravana aparcada y un satélite orientable.
+- **"Desierto de noche"** (`SceneStage` + `assets/scenes/desert.scene`): cielo estrellado, luna y la criatura.
+
+En los dos, el jugador es un pingüino a pie, en primera persona a la altura de la cabeza.
 
 ## Compilar, ejecutar, visualizar
 
@@ -30,16 +34,23 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 **`main` manda** (es el código de la otra persona). Lo nuestro se construye heredando de sus clases, no al revés.
 
 - **Jerarquía de objetos:** `GameObject` (piezas `Part` compartidas o un `AnimatedModel`; posición, rotación, escala; `update(dt)` virtual; `setVisible`). De él deriva `DynamicGameObject` (velocidad, gravedad, `steerTowards`), y de este `PlayableCharacter` (abstracta: `control`, `attachCamera`, `followCamera`), que implementan `Walker` (el jugador) y `RV`.
-- **`Stage`** (abstracta) es dueño de los objetos (`add`, `addDynamic`) y del suelo (`setFloor`, `floorAt`, `collideWithFloor`). **`TestStage`**, en `test.cpp`, monta el nivel en código. Un objeto nuevo se añade allí.
+- **`Stage`** (abstracta, de `main`) es dueño de los objetos (`add`, `addDynamic`) y del suelo (`setFloor`, `floorAt`, `collideWithFloor`).
+- **`GameStage : Stage`** (abstracta, nuestra) es un mapa jugable: `Environment` (luz y horizonte), cielo opcional, jugador y cámara, interactuables y `render()`. De ella derivan `TestStage` (día, en código) y `SceneStage` (cualquier `.scene`).
+- **Mapas:** la lista `maps` de `main()` (nombre + fábrica). Cambiar de mapa siempre pasa por `switchMap`, **diferido** al principio del frame (`requestedMap`), nunca dentro de un callback de la UI. `switchMap` cierra los paneles, vacía el `InteractionSystem`, cambia el stage, conecta el `Controller` y aplica el entorno. Nada puede guardar punteros a objetos del mapa sin limpiarlos ahí. Guía "Añadir un mapa" en ARCHITECTURE.md.
 - **Cámara:** `Controller` → `PlayableCharacter::attachCamera(camera, distancia, altura)`. La distancia 0 es primera persona: `Walker` se oculta. Hoy es `attach(player, 0, 1.6)`, con la posición del jugador en sus pies.
-- `Scene`/`SceneFile`/`.scene` y el visor web **ya no reflejan el juego** (son del diseño anterior). Siguen compilando, pero están pendientes de decidir.
+- **`.scene`**: mapas en datos. Los leen `SceneFile` → `SceneStage` y el visor web, cuyos parsers deben estar sincronizados. `floor` define el suelo, y una `y` = `ground` apoya el objeto en él; úsalo siempre, porque las dunas se regeneran. La clase `Scene` antigua se eliminó.
 - Un solo shader para el mundo: `animatedshader.vert` + `shader.frag`. **Trampa:** en el shader, `model` es la *rotación de la cámara*, no la matriz del objeto. El objeto usa `objposition` + `objrotation` (que incluye la escala).
 - Uniforms de control: `skinned`, `unlit` (0 iluminado, 1 cielo, 2 emisivo; por pieza), `breathAmp`/`breathTime`, `fitCenter`/`fitScale`. Tabla completa en ARCHITECTURE.md.
 - **Interfaz 2D propia** (`UI*`):
   - `UIElement` es la base y de ella derivan `UILabel`, `UIButton`, `UISlider` y `UIContainer` (de la que salen `UIPanel` y `UIRow`).
   - `UIManager` gestiona los paneles y el ratón. `UIRenderer` usa su propio shader y deja activo de nuevo el del motor al terminar.
   - El texto usa `stb_easy_font`, que **solo admite ASCII**, así que los textos van sin tildes.
-- **Objetos usables:** heredan de `Interactable` y rellenan su panel en `buildInterface`. `TestStage::getInteractables()` los registra en el `InteractionSystem`, que muestra el aviso "E: usar …" y abre o cierra el panel (E/Esc), pausando el `Controller` (`setEnabled`, que además le da al personaje una entrada nula).
+- **Objetos usables:** heredan de `Interactable` y rellenan su panel en `buildInterface`. `TestStage::getInteractables()` los registra en el `InteractionSystem`, que muestra el aviso "E: usar …" y abre o cierra su panel con E.
+- **Teclado y Esc (importante):** `UIManager` es **el único dueño** del *key callback* de GLFW y del *user pointer* de la ventana; no instales otros. Las teclas van al `onKey` del panel de arriba; Esc cierra ese panel si no la gestiona, y sin paneles se ejecuta su atajo (`ui.bindKey`): Esc → `PauseMenu`, Z → `MapSelector`. `Controller` ya no lee Esc.
+- **Pausa de controles:** una sola regla en el bucle de `test.cpp`: `controller.setEnabled(!ui.hasPanels())`. No pauses el `Controller` desde paneles ni sistemas.
+- **Teclas:** `Controls` es la única fuente (`Action` → tecla). **No escribas `GLFW_KEY_...` para una función del juego:** añade una `Action` y léela con `controls.key(...)`, para que salga en la pantalla de controles y se pueda reasignar. Solo Esc (el "atrás" de la UI) es fijo. Los pasos para la futura reasignación están en ARCHITECTURE.md, sección "Controles y teclas"; ojo con los atajos de `bindKey`, que se registran por tecla.
+- **Menús:** `PauseMenu` (Reanudar / Opciones / Salir, la tecla X sale), `OptionsMenu` → `ControlsMenu` (lista informativa de teclas, generada desde `Controls`), `MapSelector` (Z, debug). Todos reciben un `MenuContext` (ui, camera, controls, quit). y `OptionsMenu` (sensibilidad y FOV de la `Camera`, aplicados al momento y no guardados en disco) son **subclases de `UIPanel`**. Para cualquier ventana nueva, sigue la guía "Crear una ventana nueva" de ARCHITECTURE.md: heredar de `UIPanel`, añadir hijos en el constructor, `onKey` para atajos, `closable = false` y `dimsBackground()` en menús, y `ui.open(...)` + `requestClose()` para pasar de una ventana a otra.
+- **Cámara:** `Camera::setAngles(yaw, pitch)` en radianes, más `setFov`/`setSensitivity`. `Controller` acumula el giro a partir del desplazamiento del ratón en cada frame (antes usaba la posición absoluta del cursor, y cambiar la sensibilidad hacía saltar la cámara).
 - `Satellite`: la cabeza es el objeto y el poste un `GameObject` aparte (`getMount()`), porque todas las piezas de un `GameObject` comparten la misma transformación. Azimut desde −z en sentido horario hacia +x; cénit 0 = vertical. Gira hacia el objetivo a `slewRate` °/s.
 
 ## Puntos que deben estar sincronizados
@@ -48,7 +59,7 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 - `animatedshader.vert`/`shader.frag` ↔ los shaders copiados en `viewer.js`.
 - `moon` del `.scene` ↔ `MOON_DIR` en `assets/sky/generate_sky.py`. `fog` ↔ `HORIZON`.
 - Altura `y` de los objetos del desierto = `-1 + dune_height(x, z) - 0.05` (`assets/desert/generate_assets.py`).
-- Constantes del visor (`FOV`, `SENSIVILITY`, `PLAYER_HEIGHT`, `BREATH_AMPLITUDE`) ↔ `Camera`, `Controller`, `AnimatedModel`, `Scene.cpp`.
+- Constantes del visor (`FOV`, `SENSIVILITY`, `PLAYER_HEIGHT`, `BREATH_AMPLITUDE`) ↔ `Camera`, `Controller`, `AnimatedModel`, `SceneStage`.
 
 ## Assets
 
@@ -85,10 +96,18 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 
 - 2026-10-04 (`main`): merge de `scayuelas` (`5033f39`) en `main`, priorizando `main`. Los compilados siguen fuera de git. `GameObject` y `Controller` parten de `main`: al primero se le añade `setVisible` y al segundo `setEnabled`, con Esc armado y entrada nula al pausar. `Satellite` se reescribe sobre el `GameObject` de `main` (`shared_ptr`, `update(double)`, poste aparte). La primera persona se rehace como `Walker : PlayableCharacter` (decisión del usuario: el jugador es el pingüino a pie y la autocaravana queda aparcada). `TestStage` añade el jugador, el satélite (sobre `floorAt`) y la lista de interactuables. Compila sin avisos desde cero. Verificado en Xephyr: primera persona, aviso, panel, giro a az 90 / cénit 45, Esc cierra solo el panel, W anda y el segundo Esc sale.
 
+- 2026-10-04 (`main`): **menú de pausa y de opciones.** Esc → `PauseMenu` (Opciones, Salir, tecla X). `OptionsMenu` ajusta la sensibilidad (0.2–3x) y el FOV (40–110°). Cambios en la UI genérica: `onKey`, *key callback* en `UIManager`, Esc genérico con *escape handler*, `open(UIPanel*)`/`close`/`isOpen`, y `UIPanel` con `closable` y `dimsBackground`. `Camera` gana FOV y sensibilidad ajustables y ángulos en radianes (`setAngles`; se quitan `rotate(int,int)`, `getPhi` y `getTheta`). `Controller` pasa a usar el desplazamiento del ratón y deja de leer Esc. `InteractionSystem` ya no conoce el `Controller`. Verificado en Xephyr: pausa, opciones, FOV 90, sensibilidad 2x (60 px → 0.6 rad), Esc entre menús, satélite, salir con X y con el botón.
+
+- 2026-10-04 (`main`): botón **Reanudar** en la pausa. **Selector de mapas de depuración** (Z) y mapa de noche recuperado. Se añaden `GameStage` (entre `Stage` y los mapas) y `SceneStage` (carga `.scene`); `TestStage` pasa a heredar de `GameStage` y se le mueve el entorno que estaba en `main()`. Formato `.scene`: `floor` y `y` = `ground`; `desert.scene` actualizado (cámara `0 1.6`, objetos `ground`); el visor entiende `floor`/`ground` (con un raycast hacia abajo). `UIManager::bindKey` sustituye a `setEscapeHandler`. `Light::setColor`, `InteractionSystem::clear` y `Controller::attach` reinician la vista. Se elimina la clase `Scene`. Verificado en Xephyr: Reanudar, Z, noche (cielo, criatura, andar), Z/Z, vuelta al día con el satélite, X; y el visor.
+
+- 2026-10-04 (`main`): **pantalla de Controles** (Opciones → Controles), solo informativa. Registro central `Controls` (`Action` → tecla, `describe`, `group`, `keyName`, `fixedControls`); `Controller`, `InteractionSystem`, `PauseMenu`, `MapSelector` y `test.cpp` leen de él y ya no queda ninguna tecla del juego escrita a mano (solo Esc, que es fijo). Se añaden `MenuContext` (los menús reciben ui/camera/controls/quit) y `UIInfoRow`. El texto del panel del satélite pasa a "Esc: cerrar". Verificado en Xephyr: Esc → Opciones → Controles → Esc×3, W, Z/Z, X. Confirmado además que todo lo nuestro hereda de las clases de `main` sin modificarlas (`Stage`, `DynamicGameObject`, `PlayableCharacter`, `RV`).
+
 ## Próximos pasos / ideas
 
 (Rellenar según lo que se decida con el usuario.)
-- Decidir el futuro de `.scene`/`Scene`/visor web: que `Stage` cargue `.scene`, o retirarlos.
+- Reasignar teclas (pasos en ARCHITECTURE.md, "Controles y teclas"); hace falta `UIManager::unbindKey`.
+- Guardar las opciones (sensibilidad, FOV) en un fichero; ¿pausar el mundo con el menú abierto?
+- ¿Pasar también el mapa de día a `.scene` (para verlo en el visor)? Habría que respetar que es código de `main`.
 - Entrar en la autocaravana (que sea `Interactable` y cambie el `PlayableCharacter` del `Controller`).
 - Modelo del pingüino apoyado por los pies (hoy `AnimatedModel` lo centra en su posición); solo afecta a la tercera persona.
 - Posibles: rueda del ratón o teclado en la UI, satélite en el `.scene` y en el visor, delta time, que el jugador siga la altura del terreno, varias animaciones (andar/parado) usando `Animation`, una clase Renderer.

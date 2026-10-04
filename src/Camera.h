@@ -12,10 +12,13 @@
 #include "GameObject.h"
 #include "Shader.h"
 
+// Default mouse sensitivity, radians per pixel (see Camera::setSensitivity)
 #define SENSIVILITY 0.005f
+#define DEFAULT_FOV 45.0f // vertical, degrees
 #define SPEED 0.07f
 
-// Perspective camera (45 degree fov, near 0.1, far 300) that writes its
+// Perspective camera (vertical fov 45 degrees by default, adjustable; near
+// 0.1, far 300) that writes its
 // matrices to the shader. Note the shader computes
 // projection * model * view * world: here `view` is the translation to the
 // camera position and `model` is the camera rotation (pitch * yaw), applied
@@ -31,7 +34,10 @@ private:
   int screenHeight;
 
   glm::vec3 position;
-  glm::vec2 rotation;
+  glm::vec2 rotation; // yaw, pitch in radians
+
+  float fov = DEFAULT_FOV;          // vertical field of view, degrees
+  float sensitivity = SENSIVILITY;  // radians per pixel of mouse movement
 
   glm::mat4 projection;
   glm::mat4 view;
@@ -46,7 +52,19 @@ public:
   Camera(GLFWwindow *window, Shader *shader);
   void resize();
   void move(float x, float y, float z);
-  void rotate(int phi, int theta);
+  // Orientation: yaw around +y (positive turns right) and pitch around +x
+  // (positive looks down), both in radians
+  void setAngles(float yaw, float pitch);
+  float getYaw() const { return rotation.x; }
+  float getPitch() const { return rotation.y; }
+
+  // Field of view (vertical, degrees); the projection is rebuilt at once
+  void setFov(float degrees);
+  float getFov() const { return fov; }
+  // How much the camera turns per pixel the mouse moves. Only stored here:
+  // the Controller reads it when it turns the camera.
+  void setSensitivity(float radiansPerPixel) { sensitivity = radiansPerPixel; }
+  float getSensitivity() const { return sensitivity; }
   void reposition(float x, float y, float z);
   void update();
   // Attach the camera to a game object; follow() then keeps it orbiting the
@@ -56,8 +74,6 @@ public:
   void attachTo(GameObject *target, float distance, float height);
   void follow();
   glm::vec3 getPosition() { return position; }
-  int getPhi();
-  int getTheta();
 };
 
 #endif

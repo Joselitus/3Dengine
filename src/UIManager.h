@@ -1,6 +1,8 @@
 #ifndef UI_MANAGER
 #define UI_MANAGER
 
+#include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,19 +12,34 @@
 #include "UIPanel.h"
 #include "UIRenderer.h"
 
-// Owns the open panels, feeds them the mouse and draws them over the scene.
-// Also shows a one-line hint at the bottom of the screen (e.g. "E: use").
-// Call update() once per frame (input) and draw() after the 3D scene.
+// Owns the open panels, feeds them the mouse and the keyboard and draws them
+// over the scene. Also shows a one-line hint at the bottom of the screen
+// (e.g. "E: use").
+//
+// Keys: it installs the window's GLFW key callback (and user pointer), so
+// nothing else may set them. Each key press goes to the top panel's onKey();
+// if it doesn't handle it, Esc closes that panel. With no panel open, a key
+// runs its binding (bindKey): the game opens the pause menu with Esc and the
+// map selector with Z there.
+//
+// Call update() once per frame (input) and draw() after the 3D scene. While
+// hasPanels(), the game should pause its own input (Controller::setEnabled).
 class UIManager {
 private:
   GLFWwindow *window;
   UIRenderer renderer;
   std::vector<std::unique_ptr<UIPanel>> panels; // last = on top
   std::string hint;
+  std::map<int, std::function<void()>> bindings; // keys with no panel open
+  std::vector<int> pressedKeys; // since the last update, from the callback
 
   UIState state;              // what elements see when drawn
   UIElement *active = nullptr; // receives drag/release until the button is up
   bool buttonWasDown = false;
+
+  static void keyCallback(GLFWwindow *window, int key, int scancode,
+                          int action, int mods);
+  void placeCentered(UIPanel *panel);
 
 public:
   explicit UIManager(GLFWwindow *window);
@@ -31,8 +48,21 @@ public:
   // vertically at the right of the screen, leaving the view in front of the
   // player (where the object usually is) clear
   UIPanel *open(Interactable &target);
+  // Opens any panel (takes ownership), centred on the screen
+  UIPanel *open(UIPanel *panel);
+  // Closes a panel at the end of this update (safe from its own callbacks)
+  void close(UIPanel *panel);
   void closeAll();
+  // Whether `panel` is still open (it may have been closed by Esc or its
+  // close button; the pointer is only compared, never used)
+  bool isOpen(const UIPanel *panel) const;
   bool hasPanels() const { return !panels.empty(); }
+
+  // Runs `action` when `key` (GLFW_KEY_*) is pressed and no panel is open,
+  // e.g. opening a menu. Replaces any previous binding of that key.
+  void bindKey(int key, std::function<void()> action) {
+    bindings[key] = action;
+  }
 
   void setHint(const std::string &text) { hint = text; }
 

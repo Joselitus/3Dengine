@@ -4,8 +4,8 @@ using namespace std;
 
 #define TITLE_HEIGHT 30.0f
 
-UIPanel::UIPanel(const string &title, float width)
-    : title(title), width(width) {}
+UIPanel::UIPanel(const string &title, float width, bool closable)
+    : title(title), width(width), closable(closable) {}
 
 void UIPanel::moveTo(float x, float y) { layout(x, y, width); }
 
@@ -48,19 +48,22 @@ void UIPanel::draw(UIRenderer &renderer, const UIState &state) const {
                 bar.y + (bar.h - UIRenderer::textHeight()) / 2 + 2.0f, title,
                 UITheme::TEXT);
 
-  UIRect close = closeButton();
-  bool overClose = state.hovered == this && close.contains(state.mouseX, state.mouseY);
-  renderer.rect(close.x, close.y, close.w, close.h,
-                overClose ? UITheme::ACCENT : UITheme::CONTROL);
-  renderer.text(close.x + (close.w - UIRenderer::textWidth("X")) / 2,
-                close.y + 3.0f, "X", UITheme::TEXT);
+  if (closable) {
+    UIRect close = closeButton();
+    bool overClose =
+        state.hovered == this && close.contains(state.mouseX, state.mouseY);
+    renderer.rect(close.x, close.y, close.w, close.h,
+                  overClose ? UITheme::ACCENT : UITheme::CONTROL);
+    renderer.text(close.x + (close.w - UIRenderer::textWidth("X")) / 2,
+                  close.y + 3.0f, "X", UITheme::TEXT);
+  }
 
   renderer.frame(rect.x, rect.y, rect.w, rect.h, 1.0f, UITheme::BORDER);
   UIContainer::draw(renderer, state);
 }
 
 void UIPanel::onPress(float x, float y) {
-  if (closeButton().contains(x, y))
+  if (closable && closeButton().contains(x, y))
     return; // closes on release, like a button
   if (titleBar().contains(x, y)) {
     dragging = true;
@@ -75,7 +78,7 @@ void UIPanel::onDrag(float x, float y) {
 }
 
 void UIPanel::onRelease(float x, float y, bool) {
-  if (!dragging && closeButton().contains(x, y))
+  if (!dragging && closable && closeButton().contains(x, y))
     closeRequested = true;
   dragging = false;
 }

@@ -4,7 +4,18 @@ using namespace std;
 
 #define SCREEN_MARGIN 24.0f
 
-UIManager::UIManager(GLFWwindow *window) : window(window) {}
+UIManager::UIManager(GLFWwindow *window) : window(window) {
+  glfwSetWindowUserPointer(window, this);
+  glfwSetKeyCallback(window, keyCallback);
+}
+
+void UIManager::keyCallback(GLFWwindow *window, int key, int, int action,
+                            int) {
+  if (action != GLFW_PRESS)
+    return;
+  UIManager *ui = static_cast<UIManager *>(glfwGetWindowUserPointer(window));
+  ui->pressedKeys.push_back(key);
+}
 
 UIPanel *UIManager::open(Interactable &target) {
   UIPanel *panel = new UIPanel(target.getInteractionName());
@@ -15,6 +26,31 @@ UIPanel *UIManager::open(Interactable &target) {
                 (height - panel->preferredHeight()) / 2);
   panels.push_back(unique_ptr<UIPanel>(panel));
   return panel;
+}
+
+void UIManager::placeCentered(UIPanel *panel) {
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
+  panel->moveTo((width - panel->getWidth()) / 2,
+                (height - panel->preferredHeight()) / 2);
+}
+
+UIPanel *UIManager::open(UIPanel *panel) {
+  placeCentered(panel);
+  panels.push_back(unique_ptr<UIPanel>(panel));
+  return panel;
+}
+
+void UIManager::close(UIPanel *panel) {
+  if (isOpen(panel))
+    panel->requestClose();
+}
+
+bool UIManager::isOpen(const UIPanel *panel) const {
+  for (const auto &p : panels)
+    if (p.get() == panel)
+      return true;
+  return false;
 }
 
 void UIManager::closeAll() {
@@ -63,12 +99,34 @@ void UIManager::update() {
   buttonWasDown = down;
   state.active = active;
 
-  // Remove closed panels after the input, when none of their elements is
-  // in use (a panel closes on the release of its close button)
+  // Keys pressed since the last frame. A handler may open or close panels,
+  // so the top panel is looked up again for every key.
+  vector<int> keys;
+  keys.swap(pressedKeys);
+  for (int key : keys) {
+    UIPanel *top = nullptr;
+    for (auto it = panels.rbegin(); it != panels.rend(); ++it)
+      if (!(*it)->wantsToClose()) {
+        top = it->get();
+        break;
+      }
+    if (top) {
+      if (!top->onKey(key) && key == GLFW_KEY_ESCAPE)
+        top->requestClose();
+    } else {
+      auto binding = bindings.find(key);
+      if (binding != bindings.end())
+        binding->second();
+    }
+  }
+
+  // Remove closed panels after the input. A key may close a panel while one
+  // of its elements is being dragged, so forget the mouse state as well.
   for (size_t i = 0; i < panels.size();)
     if (panels[i]->wantsToClose()) {
       panels.erase(panels.begin() + i);
-      state.hovered = nullptr;
+      active = nullptr;
+      state.hovered = state.active = nullptr;
     } else
       i++;
 }
@@ -77,6 +135,11 @@ void UIManager::draw() {
   int width, height;
   glfwGetWindowSize(window, &width, &height);
   renderer.begin(width, height);
+  for (const auto &panel : panels)
+    if (panel->dimsBackground()) {
+      renderer.rect(0, 0, width, height, glm::vec4(0.0f, 0.0f, 0.0f, 0.45f));
+      break;
+    }
   for (const auto &panel : panels)
     panel->draw(renderer, state);
   if (!hint.empty()) {

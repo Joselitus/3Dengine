@@ -2,34 +2,40 @@
 #define CONTROLLER
 
 #include "Camera.h"
+#include "Controls.h"
 #include "PlayableCharacter.h"
 
-// Player input. The cursor position (relative to where it was at start)
-// sets the camera yaw/pitch, which is handed to the attached character
-// together with the WASD / Space / Left Shift input: what they do is up to the
-// PlayableCharacter (see RV). Esc closes the window. Call update() once per
-// frame.
+// Player input. Mouse movement turns the camera (yaw/pitch, scaled by the
+// camera's sensitivity); the yaw is handed to the attached character together
+// with the movement keys (Controls: WASD, Space/Left Shift by default): what
+// they do is up to the
+// PlayableCharacter (see Walker, RV). Esc is not handled here: it opens the
+// pause menu (UIManager). Call update() once per frame.
 class Controller {
 private:
   GLFWwindow *window;
   Camera *camera;
+  const Controls &controls; // which key does what
   PlayableCharacter *character = nullptr;
 
-  double originX, originY; // cursor position on the first frame
-  float yaw = 0.0f;        // camera heading, radians
+  double lastX, lastY;  // cursor position on the previous frame
+  float yaw = 0.0f;     // camera heading, radians
+  float pitch = 0.0f;   // camera tilt, radians (positive looks down)
 
   bool enabled = true;
-  double savedX = 0.0, savedY = 0.0; // cursor when it was disabled
-  bool escapeArmed = true; // Esc only quits once seen released
+  bool resync = false;  // next update only reads the cursor (after a pause)
 
 public:
-  Controller(GLFWwindow *window, Camera *camera);
-  // Attach to a character: WASD moves it and the camera follows it
+  // `controls` must outlive the controller (it is read every frame, so
+  // rebinding a key takes effect at once)
+  Controller(GLFWwindow *window, Camera *camera, const Controls &controls);
+  // Attach to a character: WASD moves it and the camera follows it, looking
+  // straight ahead (yaw and pitch reset)
   void attach(PlayableCharacter *character, float cameraDistance, float cameraHeight);
   void update();
   // While disabled (e.g. an interface is open) it ignores the input, the
-  // character gets no input and the cursor is free; enabling it again puts
-  // the cursor back where it was, so the camera doesn't jump.
+  // character gets no input and the cursor is free; when enabled again the
+  // camera continues from where it was, ignoring where the cursor went.
   void setEnabled(bool enabled);
   bool isEnabled() const { return enabled; }
 };

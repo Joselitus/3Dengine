@@ -68,6 +68,10 @@ public:
   virtual void onDrag(float x, float y) {}
   // `inside`: the button was released over the element
   virtual void onRelease(float x, float y, bool inside) {}
+  // A key was pressed (GLFW_KEY_*) while this element's panel is on top.
+  // Return true if handled; otherwise the UIManager applies its default
+  // (Esc closes the panel).
+  virtual bool onKey(int key) { return false; }
 
   const UIRect &getRect() const { return rect; }
 };

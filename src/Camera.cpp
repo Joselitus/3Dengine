@@ -6,17 +6,18 @@ using namespace glm;
 Camera::Camera(GLFWwindow * window, Shader * shader) {
 	this->window = window;
 	this->shader = shader;
-	// Resize window
-	this->screenWidth = this->screenHeight = 0;
-	this->resize();
-	
+
 	// Set vectors
 	this->position = vec3(0.0f, 0.0f, 0.0f);
 	this->rotation = vec2(0.0f, 0.0f);
 
-	// Set matrices
+	// Set matrices (before resize(), which uploads them all)
 	this->view = mat4(1.0f);
 	this->model = mat4(1.0f);
+
+	// Resize window
+	this->screenWidth = this->screenHeight = 0;
+	this->resize();
 }
 
 void Camera::resize() {
@@ -24,17 +25,22 @@ void Camera::resize() {
 	glfwGetFramebufferSize(this->window, &width, &height);
 	if (this->screenHeight != height || this->screenWidth != width) {
 		std::cout << width << ", " << height << std::endl;
-		float fwidth = (float)width;
-		float fheight = (float)height;
 		glViewport(0, 0, width, height);
-		this->projection = perspective(radians(45.0f), fwidth/fheight, 0.1f, 300.0f);
 		this->screenHeight = height;
 		this->screenWidth = width;
+		this->setFov(this->fov);
 	}
 }
 
+void Camera::setFov(float degrees) {
+	this->fov = degrees;
+	float aspect = this->screenHeight > 0 ? (float)this->screenWidth / this->screenHeight : 1.0f;
+	this->projection = perspective(radians(degrees), aspect, 0.1f, 300.0f);
+	this->update();
+}
+
 void Camera::move(float x, float y, float z) {
-	vec2 dir = glm::rotate(vec2(x, z), SENSIVILITY*this->rotation.x);
+	vec2 dir = glm::rotate(vec2(x, z), this->rotation.x);
 	this->position += SPEED*vec3(dir.x, y, dir.y);
 	this->view = translate(mat4(1.0f), this->position*-1.0f);
 	this->update();
@@ -46,10 +52,10 @@ void Camera::reposition(float x, float y, float z) {
 	this->update();
 }
 
-void Camera::rotate(int phi, int theta) {
-	this->model = glm::rotate(mat4(1.0), (float)SENSIVILITY*theta, glm::vec3(1.0f, 0.0f, 0.0f));
-	this->model = glm::rotate(this->model, (float)SENSIVILITY*phi, glm::vec3(0.0f, 1.0f, 0.0f));
-	this->rotation = vec2(phi, theta);
+void Camera::setAngles(float yaw, float pitch) {
+	this->model = glm::rotate(mat4(1.0), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+	this->model = glm::rotate(this->model, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+	this->rotation = vec2(yaw, pitch);
 	this->update();
 }
 
@@ -76,12 +82,4 @@ void Camera::update() {
 	this->shader->setMatrix4("view", value_ptr(this->view));
 	this->shader->setMatrix4("model", value_ptr(this->model));
 	this->shader->setVector3("viewPosition", this->position.x, this->position.y, this->position.z);
-}
-
-int Camera::getPhi() {
-	return this->rotation.x;
-}
-
-int Camera::getTheta() {
-	return this->rotation.y;
 }

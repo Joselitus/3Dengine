@@ -3,31 +3,37 @@
 
 #include <vector>
 
-#include "Controller.h"
+#include "Controls.h"
 #include "Interactable.h"
 #include "UIManager.h"
 
 // Lets the player use Interactable objects. Each frame it looks for the
-// closest one in range of the player and shows a hint; E opens its interface
-// (the Controller is paused and the cursor freed) and E, Esc or the panel's
-// close button close it again.
+// closest one in range of the player and shows a hint; the Use key (E by
+// default, see Controls) opens its interface and closes it again (so do Esc and the close button, through the
+// UIManager). It only opens one when no other panel (e.g. a menu) is open.
+// Pausing the player's controls while a panel is open is up to the game loop.
 class InteractionSystem {
 private:
   GLFWwindow *window;
   UIManager *ui;
-  Controller *controller;
+  const Controls &controls;
   std::vector<Interactable *> targets; // not owned
-  Interactable *inUse = nullptr;       // whose panel is open
-  bool useWasDown = false, escapeWasDown = false;
+  UIPanel *panel = nullptr;            // the open one, if any (not owned)
+  bool useWasDown = false;
 
   Interactable *closest(const glm::vec3 &player) const;
-  void open(Interactable *target);
-  void close();
 
 public:
-  InteractionSystem(GLFWwindow *window, UIManager *ui, Controller *controller);
+  InteractionSystem(GLFWwindow *window, UIManager *ui,
+                    const Controls &controls);
 
   void add(Interactable *target) { targets.push_back(target); }
+  // Forget every target (e.g. their map is about to be destroyed); close
+  // their panel first (UIManager::closeAll)
+  void clear() {
+    targets.clear();
+    panel = nullptr;
+  }
   void update(const glm::vec3 &playerPosition);
 };
 

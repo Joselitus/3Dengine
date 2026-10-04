@@ -2,17 +2,22 @@
 
 #include <glm/glm.hpp>
 
-// Mouse pitch limit in pixels (SENSIVILITY radians each)
-#define MAX_PITCH_PIXELS 250.0
+// How far the camera can look up or down, radians (~72 degrees)
+#define MAX_PITCH 1.25f
 
-Controller::Controller(GLFWwindow *window, Camera *camera)
-    : window(window), camera(camera) {
-  glfwGetCursorPos(window, &originX, &originY);
+Controller::Controller(GLFWwindow *window, Camera *camera,
+                       const Controls &controls)
+    : window(window), camera(camera), controls(controls) {
+  glfwGetCursorPos(window, &lastX, &lastY);
 }
 
 void Controller::attach(PlayableCharacter *character, float cameraDistance,
                         float cameraHeight) {
   this->character = character;
+  // A new character (e.g. after a map change) starts looking straight ahead
+  yaw = pitch = 0.0f;
+  camera->setAngles(yaw, pitch);
+  resync = true;
   character->attachCamera(camera, cameraDistance, cameraHeight);
 }
 
@@ -22,11 +27,9 @@ void Controller::setEnabled(bool enable) {
   enabled = enable;
   if (enable) {
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    glfwSetCursorPos(window, savedX, savedY);
-    // The Esc that closed an interface must not also close the game
-    escapeArmed = false;
+    // The cursor moved freely meanwhile: don't turn the camera for that
+    resync = true;
   } else {
-    glfwGetCursorPos(window, &savedX, &savedY);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     // The character keeps the last input it got: let go of every key
     if (character)
@@ -37,38 +40,40 @@ void Controller::setEnabled(bool enable) {
 void Controller::update() {
   if (!enabled)
     return;
-  // The camera rotation is derived from the cursor position, relative to
-  // where the pointer was when the controller was created.
-  double xpos, ypos;
-  glfwGetCursorPos(window, &xpos, &ypos);
-  xpos -= originX;
-  ypos -= originY;
-  if (ypos > MAX_PITCH_PIXELS || ypos < -MAX_PITCH_PIXELS) {
-    ypos = ypos > 0 ? MAX_PITCH_PIXELS : -MAX_PITCH_PIXELS;
-    glfwSetCursorPos(window, originX + xpos, originY + ypos);
+  // The camera turns by how much the cursor moved since the last frame,
+  // times the camera's sensitivity (so it can change while playing)
+  double x, y;
+  glfwGetCursorPos(window, &x, &y);
+  if (resync) {
+    lastX = x;
+    lastY = y;
+    resync = false;
   }
-  if (xpos != camera->getPhi() || ypos != camera->getTheta())
-    camera->rotate(xpos, ypos);
-  yaw = SENSIVILITY * (float)xpos;
+  float sensitivity = camera->getSensitivity();
+  float newYaw = yaw + sensitivity * (float)(x - lastX);
+  float newPitch = glm::clamp(pitch + sensitivity * (float)(y - lastY),
+                              -MAX_PITCH, MAX_PITCH);
+  lastX = x;
+  lastY = y;
+  if (newYaw != yaw || newPitch != pitch) {
+    yaw = newYaw;
+    pitch = newPitch;
+    camera->setAngles(yaw, pitch);
+  }
 
   if (character) {
     glm::vec2 dir(0.0f);
     float up = 0.0f;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) dir.y += 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) dir.y -= 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) dir.x -= 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) dir.x += 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) up -= 1.0f;
-    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) up += 1.0f;
+    auto held = [this](Action action) {
+      return glfwGetKey(window, controls.key(action)) == GLFW_PRESS;
+    };
+    if (held(Action::MoveBack)) dir.y += 1.0f;
+    if (held(Action::MoveForward)) dir.y -= 1.0f;
+    if (held(Action::MoveLeft)) dir.x -= 1.0f;
+    if (held(Action::MoveRight)) dir.x += 1.0f;
+    if (held(Action::MoveDown)) up -= 1.0f;
+    if (held(Action::MoveUp)) up += 1.0f;
 
     character->control(dir, up, yaw);
-  }
-
-  bool escape = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
-  if (!escape)
-    escapeArmed = true;
-  if (escape && escapeArmed) {
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    glfwSetWindowShouldClose(window, true);
   }
 }

@@ -18,6 +18,20 @@ static bool parseEffect(const string &name, Effect &effect) {
   return true;
 }
 
+// A height: a number, or "ground" (stand on the floor, see SceneStage)
+static bool parseHeight(istringstream &fields, float &y, bool &onGround) {
+  string word;
+  if (!(fields >> word))
+    return false;
+  onGround = word == "ground";
+  if (onGround) {
+    y = 0.0f;
+    return true;
+  }
+  istringstream number(word);
+  return bool(number >> y) && number.eof();
+}
+
 bool SceneFile::load(const string &path) {
   ifstream in(path);
   if (!in) {
@@ -49,16 +63,21 @@ bool SceneFile::load(const string &path) {
       ok = bool(fields >> fogColor.r >> fogColor.g >> fogColor.b);
     else if (command == "sky")
       ok = bool(fields >> sky);
+    else if (command == "floor")
+      ok = bool(fields >> floor >> floorPosition.x >> floorPosition.y >>
+                floorPosition.z);
     else if (command == "player")
-      ok = bool(fields >> player >> playerPosition.x >> playerPosition.y >>
-                playerPosition.z);
+      ok = bool(fields >> player >> playerPosition.x) &&
+           parseHeight(fields, playerPosition.y, playerOnGround) &&
+           bool(fields >> playerPosition.z);
     else if (command == "camera")
       ok = bool(fields >> cameraDistance >> cameraHeight);
     else if (command == "object") {
       SceneObject o;
       o.effect = Effect::Lit;
-      ok = bool(fields >> o.model >> o.position.x >> o.position.y >>
-                o.position.z >> o.yaw >> o.scale);
+      ok = bool(fields >> o.model >> o.position.x) &&
+           parseHeight(fields, o.position.y, o.onGround) &&
+           bool(fields >> o.position.z >> o.yaw >> o.scale);
       string effect;
       if (ok && fields >> effect && !parseEffect(effect, o.effect)) {
         cerr << path << ":" << lineNumber << ": unknown effect '" << effect
