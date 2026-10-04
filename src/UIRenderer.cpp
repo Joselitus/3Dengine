@@ -14,6 +14,44 @@ using namespace std;
 #define TEXT_SCALE 2.0f
 #define FLOATS_PER_VERTEX 6
 
+// stb_easy_font only has ASCII: Spanish letters become their plain version
+// (á -> a, ñ -> n, ¿ and ¡ are dropped), anything else unknown becomes '?'
+string UIRenderer::toAscii(const string &utf8) {
+  static const struct {
+    const char *from, *to;
+  } table[] = {{"á", "a"}, {"é", "e"}, {"í", "i"}, {"ó", "o"}, {"ú", "u"},
+               {"ü", "u"}, {"ñ", "n"}, {"Á", "A"}, {"É", "E"}, {"Í", "I"},
+               {"Ó", "O"}, {"Ú", "U"}, {"Ü", "U"}, {"Ñ", "N"}, {"¿", ""},
+               {"¡", ""},  {"º", "o"}, {"ª", "a"}, {"°", " deg"}};
+  string out;
+  for (size_t i = 0; i < utf8.size();) {
+    unsigned char c = utf8[i];
+    if (c < 0x80) {
+      out += (char)c;
+      i++;
+      continue;
+    }
+    bool found = false;
+    for (const auto &entry : table) {
+      size_t n = string(entry.from).size();
+      if (utf8.compare(i, n, entry.from) == 0) {
+        out += entry.to;
+        i += n;
+        found = true;
+        break;
+      }
+    }
+    if (found)
+      continue;
+    // Skip the whole UTF-8 sequence of an unknown character
+    i++;
+    while (i < utf8.size() && ((unsigned char)utf8[i] & 0xC0) == 0x80)
+      i++;
+    out += '?';
+  }
+  return out;
+}
+
 // Layout of the vertices written by stb_easy_font_print
 struct EasyFontVertex {
   float x, y, z;
@@ -71,10 +109,11 @@ void UIRenderer::frame(float x, float y, float w, float h, float thickness,
 void UIRenderer::text(float x, float y, const string &text,
                       const glm::vec4 &color) {
   // stb_easy_font wants a mutable string and a buffer of ~270 bytes a char
-  vector<char> chars(text.begin(), text.end());
+  string ascii = toAscii(text);
+  vector<char> chars(ascii.begin(), ascii.end());
   chars.push_back('\0');
   static vector<EasyFontVertex> buffer;
-  buffer.resize(text.size() * 300 / sizeof(EasyFontVertex) + 4);
+  buffer.resize(chars.size() * 300 / sizeof(EasyFontVertex) + 4);
   unsigned char white[4] = {255, 255, 255, 255};
   int quads = stb_easy_font_print(0, 0, chars.data(), white, buffer.data(),
                                   buffer.size() * sizeof(EasyFontVertex));
@@ -117,7 +156,8 @@ void UIRenderer::end() {
 }
 
 float UIRenderer::textWidth(const string &text) {
-  vector<char> chars(text.begin(), text.end());
+  string ascii = toAscii(text);
+  vector<char> chars(ascii.begin(), ascii.end());
   chars.push_back('\0');
   return stb_easy_font_width(chars.data()) * TEXT_SCALE;
 }

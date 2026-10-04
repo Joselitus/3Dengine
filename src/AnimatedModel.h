@@ -28,8 +28,12 @@ public:
   // Uniform scale/offset that fits the bind pose in a ~2 unit tall box.
   glm::vec3 fitCenter;
   float fitScale;
+  bool feetAtOrigin;
 
-  AnimatedModel(const char *path);
+  // feetAtOrigin: computeFit puts the lowest point (the feet) at the
+  // object's position instead of the centre, for characters that stand on
+  // the floor (e.g. Npc)
+  AnimatedModel(const char *path, bool feetAtOrigin = false);
   AnimatedModel(const AnimatedModel &) = delete;
   AnimatedModel &operator=(const AnimatedModel &) = delete;
 

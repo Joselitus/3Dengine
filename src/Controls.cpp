@@ -25,7 +25,7 @@ const char *Controls::describe(Action action) {
   case Action::MoveRight: return "Derecha";
   case Action::MoveUp: return "Subir (sin gravedad)";
   case Action::MoveDown: return "Bajar (sin gravedad)";
-  case Action::Use: return "Usar objeto / cerrar su panel";
+  case Action::Use: return "Usar objeto / hablar / cerrar";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::Count: break;

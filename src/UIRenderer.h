@@ -10,7 +10,8 @@
 #include "Shader.h"
 
 // Draws the 2D interface on top of the 3D scene: flat rectangles and text
-// (stb_easy_font, ASCII only), in window pixels with (0, 0) at the top left.
+// (stb_easy_font), in window pixels with (0, 0) at the top left. The font is
+// ASCII only; text may be UTF-8 Spanish, its accents are dropped (toAscii).
 // Everything between begin() and end() is batched and drawn in one call.
 // It has its own shader (ui.vert/ui.frag) and restores the previously bound
 // program, so the engine's shader stays current for its setters.
@@ -39,6 +40,8 @@ public:
   void end();
 
   static float textWidth(const std::string &text);
+  // What text() actually draws: á -> a, ñ -> n, ¿/¡ removed...
+  static std::string toAscii(const std::string &utf8);
   static float textHeight();
 };
 

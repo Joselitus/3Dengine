@@ -14,6 +14,7 @@
 #include "Camera.h"
 #include "Controller.h"
 #include "Controls.h"
+#include "EspeakSynthesizer.h"
 #include "GameStage.h"
 #include "GameObject.h"
 #include "InteractionSystem.h"
@@ -23,11 +24,13 @@
 #include "RV.h"
 #include "Satellite.h"
 #include "Model.h"
+#include "Npc.h"
 #include "PauseMenu.h"
 #include "SceneStage.h"
 #include "Shader.h"
 #include "Stage.h"
 #include "Skeleton.h"
+#include "SoundEngine.h"
 #include "UIManager.h"
 #include "Walker.h"
 #include "myopengl.h"
@@ -126,7 +129,9 @@ protected:
   }
 
 public:
-  TestStage(FloorMode mode) : GameStage(mode) {
+  // The NPCs speak through `sound` with voices made by `speech`
+  TestStage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer &speech)
+      : GameStage(mode) {
     // Daylight: plain blue sky (the clear colour), distant geometry fades
     // into it; warm white sunlight
     environment.lightDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
@@ -215,6 +220,24 @@ public:
     add(satellite);
     add(satellite->getMount());
     interactables.push_back(satellite.get());
+
+    // An NPC a few steps ahead of the start, facing it: talk to it with the
+    // Use key. Same model as the player, standing on its feet.
+    VoiceSettings voice;
+    voice.pitch = 62; // a bit higher than the default
+    auto guide = make_shared<Npc>(
+        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx", true),
+        "Pingu", std::vector<std::string>{
+            "¡Hola, viajero! Soy Pingu y vigilo esta antena en mitad del desierto.",
+            "Acércate al satélite y úsalo: puedes girarlo en azimut y en cénit para apuntar a cualquier punto del cielo.",
+            "Dicen que de noche este desierto cambia por completo. Yo, por si acaso, me quedo aquí.",
+        },
+        sound, speech, voice);
+    guide->setPosition(3.0f, groundAt(3.0f, 0.5f), 0.5f);
+    guide->faceTowards(vec3(3.0f, 0.0f, 4.0f));
+    guide->setGravity(25.0f);
+    addDynamic(guide);
+    interactables.push_back(guide.get());
   }
 };
 
@@ -259,6 +282,10 @@ int main(int argc, char **argv) {
   Controls controls;
   Controller controller(window, &camera, controls);
 
+  // Audio: the output, and the text-to-speech the NPCs talk with
+  SoundEngine sound;
+  EspeakSynthesizer speech;
+
   // The single light (the sun or the moon, set by each map)
   Light light(1.0f, 1.0f, 1.0f, &shader);
   shader.setInt("unlit", 0);
@@ -275,8 +302,9 @@ int main(int argc, char **argv) {
   };
   const std::vector<Map> maps = {
       {"Desierto de dia",
-       [floorMode]() {
-         return std::unique_ptr<GameStage>(new TestStage(floorMode));
+       [floorMode, &sound, &speech]() {
+         return std::unique_ptr<GameStage>(
+             new TestStage(floorMode, sound, speech));
        }},
       {"Desierto de noche",
        [floorMode]() -> std::unique_ptr<GameStage> {
@@ -354,6 +382,8 @@ int main(int argc, char **argv) {
     controller.update();
     stage->update(dt);
     stage->getPlayer()->followCamera();
+    // The player hears from the camera
+    sound.setListener(camera.getPosition(), camera.getForward());
     const vec3 &horizon = stage->getEnvironment().horizon;
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

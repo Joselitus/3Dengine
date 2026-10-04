@@ -4,7 +4,7 @@ Basic 3D engine: a small C++/OpenGL 3.3 engine and the game being built on top o
 
 ## Build and run
 
-Needs GLFW3, GLEW, Assimp and GLM (Linux).
+Needs GLFW3, GLEW, Assimp and GLM (Linux). The NPCs' voices need `espeak-ng` installed (without it they show their text silently). Audio goes through miniaudio (included), using PulseAudio/PipeWire or ALSA.
 
 ```bash
 cd src
@@ -15,7 +15,7 @@ make
 
 It can be launched from any directory: at startup it moves to `src/` (found next to the binary), where the shader and asset paths are relative to.
 
-Controls: mouse looks around, WASD walks (the floor keeps you on the dunes), E uses the object in front (e.g. the satellite: its panel sets azimuth and zenith), Esc closes a panel, or opens the pause menu (Resume; Options: mouse sensitivity, field of view and the list of all controls; Exit, or the X key, quits). Z opens the debug map selector.
+Controls: mouse looks around, WASD walks (the floor keeps you on the dunes), E uses the object in front (the satellite: its panel sets azimuth and zenith; Pingu, an NPC who talks to you out loud with subtitles), Esc closes a panel, or opens the pause menu (Resume; Options: mouse sensitivity, field of view and the list of all controls; Exit, or the X key, quits). Z opens the debug map selector.
 
 ## View a scene without running the game
 

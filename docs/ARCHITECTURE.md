@@ -67,7 +67,10 @@ docs/                esta documentación
 | `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
 | `InteractionSystem` | Busca el `Interactable` más cercano al jugador, muestra el aviso y abre o cierra su panel con E. Solo abre si no hay otro panel abierto. Esc lo cierra `UIManager`. |
 | `UIManager`, `UIRenderer`, `UI*` | Sistema de interfaz 2D genérico. Ver [Interfaz de usuario](#interfaz-de-usuario-ui). |
-| `Light` | La única luz puntual del shader (el sol). |
+| `Light` | La única luz puntual del shader (el sol o la luna, según el mapa). |
+| `SoundEngine`, `Sound`, `AudioClip` | Motor de sonido (miniaudio): reproduce clips en memoria, en 3D o directos; el oyente sigue a la cámara. Ver [Audio y voz](#audio-y-voz-tts). |
+| `SpeechSynthesizer`, `EspeakSynthesizer`, `Voice` | Texto a voz: la interfaz abstracta, su implementación con espeak-ng, y una voz que dice textos en segundo plano e informa del progreso. |
+| `Npc` | `DynamicGameObject` + `Interactable`: personaje con nombre, frases y `Voice`. Al usarlo se gira hacia el jugador y habla, con subtítulos sincronizados. |
 | `SceneFile` | Parser de `.scene`, sin OpenGL. Lo usa `SceneStage`. (La antigua clase `Scene` se eliminó: la sustituye `SceneStage`.) |
 | `Animation` | Rango de frames con nombre. **Todavía no se usa.** |
 
@@ -133,6 +136,7 @@ UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
 ├── UIButton                     acción al pulsar y soltar encima
 ├── UISlider                     número en [min, max]; lee y escribe a través de funciones
 ├── UIInfoRow                    texto a la izquierda y valor a la derecha (p. ej. acción y tecla)
+├── UITextBlock                  párrafo con ajuste de línea; puede mostrar solo una fracción (subtítulos)
 └── UIContainer (abstracta)      posee a sus hijos
     ├── UIPanel                  ventana: título, botón de cerrar, arrastrable; hijos en vertical
     └── UIRow                    hijos en horizontal, repartiendo el ancho
@@ -148,14 +152,14 @@ Interactable contrato entre un objeto del juego y la interfaz
 - **Pausa de controles:** una sola regla en el bucle: `controller.setEnabled(!ui.hasPanels())`. Ningún panel ni sistema tiene que tocar el `Controller`.
 - **Valores en vivo:** `UILabel` y `UISlider` no guardan el valor, lo leen cada frame con una `std::function`. Así siempre muestran el estado real del objeto, aunque cambie por otra vía (por ejemplo, mientras el satélite gira).
 - **Dibujo:** `UIRenderer` usa su propio shader (`ui.vert`/`ui.frag`) y, al terminar, **vuelve a activar el programa anterior**, porque los setters de `Shader` suponen que el shader del motor está activo. Desactiva el depth test y activa el blending solo mientras dibuja.
-- **Texto:** se dibuja con `stb_easy_font.h` (de dominio público y en `src/`). **Solo admite ASCII**, así que los textos de la interfaz van sin tildes ni símbolos como °.
+- **Texto:** se dibuja con `stb_easy_font.h` (de dominio público y en `src/`), que solo tiene ASCII. `UIRenderer::text` acepta UTF-8 y lo pasa a ASCII con `toAscii`: á → a, ñ → n, ¿ y ¡ desaparecen, ° → " deg", y cualquier otro carácter → "?". Así se puede escribir español correcto (lo que necesita la voz) y en pantalla sale sin tildes.
 - **Estilo:** los colores y márgenes son comunes y están en `UITheme` (`UIElement.h`).
 - **Abrir paneles:** `ui.open(Interactable&)` coloca el panel a la derecha. `ui.open(new MiPanel(...))` abre cualquier panel (el `UIManager` pasa a ser su dueño) centrado. `ui.close(panel)` y `panel->requestClose()` lo cierran al final del `update`, así que se pueden llamar desde sus propios botones o teclas. `ui.isOpen(panel)` solo compara punteros y es seguro aunque el panel ya no exista.
 - **Opciones de `UIPanel`:** el constructor es `UIPanel(título, ancho = 360, closable = true)`. Con `closable = false` no hay botón de cerrar (útil en menús, donde la X confundiría). Si `dimsBackground()` devuelve `true`, el juego se oscurece detrás.
 
 **Hacer que un objeto se pueda usar:**
 1. Hereda de `Interactable` e implementa `getInteractionName()`, `getInteractionPoint()` y `buildInterface(UIPanel&)` (opcionalmente también `getInteractionRange()`, que por defecto es 3).
-2. En `buildInterface`, añade elementos con `panel.add(new UILabel(...))` y similares. Las lambdas pueden capturar `this`, siempre que el objeto viva más que el panel.
+2. En `buildInterface`, añade elementos con `panel.add(new UILabel(...))` y similares. Las lambdas pueden capturar `this`, siempre que el objeto viva más que el panel. Si tiene que reaccionar al abrirse o cerrarse el panel (por ejemplo, un NPC que empieza a hablar y se calla), sobrescribe `onInterfaceOpened(posiciónJugador)` y `onInterfaceClosed()`.
 3. Créalo en el mapa (`GameStage`), por ejemplo en `TestStage`: `add(objeto)` e `interactables.push_back(objeto.get())`. Al cargar el mapa, `switchMap` registra todos los de `getInteractables()` en el `InteractionSystem`.
 
 ### Crear una ventana nueva (guía)
@@ -182,7 +186,7 @@ public:
 ```
 
 Reglas para no romper nada:
-- **Solo texto ASCII** (`stb_easy_font`): nada de tildes, ñ ni °.
+- **El texto se muestra en ASCII:** se puede escribir con tildes y ñ, pero se verán sin ellas (`toAscii`). Otros símbolos salen como "?".
 - Las lambdas capturan referencias o `this`: lo capturado **tiene que vivir más que el panel**. Si un valor depende de un objeto que puede desaparecer, cierra el panel antes.
 - Para **cambiar de ventana** (ir de un menú a otro), abre la nueva con `ui.open(...)` y cierra la actual con `requestClose()`, como `PauseMenu` → `OptionsMenu` → `PauseMenu`.
 - Un elemento de un tipo nuevo hereda de `UIElement`: implementa `preferredHeight()` y `draw()`, y, si reacciona al ratón, `isInteractive()` → `true` y `onPress`/`onDrag`/`onRelease`. Para un contenedor nuevo, hereda de `UIContainer` y reimplementa `layout()`.
@@ -248,6 +252,56 @@ Reglas para no romper nada:
 - **En datos (lo más fácil):** crea `assets/scenes/mi_mapa.scene` (ver [Ficheros de escena](#ficheros-de-escena-assetsscenesscene)) y añade a `maps` la entrada `{"Mi mapa", [floorMode]() -> std::unique_ptr<GameStage> { return SceneStage::load("../assets/scenes/mi_mapa.scene", "../assets", floorMode); }}`. El visor web también lo mostrará con `--scene`.
 - **En código** (si necesita lógica propia, como `TestStage`): hereda de `GameStage` y, en el constructor, rellena `environment`, `cameraDistance`/`cameraHeight` y `player`, llama a `setFloor` y a `add`/`addDynamic` para el contenido, y opcionalmente `setSky` e `interactables`. Si hace falta, sobrescribe `apply()`. Después añádelo a `maps`.
 
+## Audio y voz (TTS)
+
+```
+EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espeak-ng, sin shell)
+          │ (en otro hilo, std::async)
+        Voice                              say(texto) → sintetiza → Sound espacial; progress() 0..1
+          │                                 (sin audio: "lee" en silencio a CHARS_PER_SECOND)
+     SoundEngine (miniaudio)               mezcla los Sound; oyente = cámara (setListener cada frame)
+          ▲
+         Npc : DynamicGameObject, Interactable
+           panel: UITextBlock(texto, visible = voice.progress()) + Repetir / Siguiente
+```
+
+- **`SoundEngine`:** hay uno por juego, creado en `main` después de la ventana. miniaudio elige el backend (PulseAudio/PipeWire, ALSA) al arrancar y no añade nada al enlazado salvo `-ldl -lpthread -lm`. Si no hay dispositivo de audio, el juego funciona en silencio: `isAvailable()` es `false` y `play()` devuelve `nullptr`.
+  - `play(clip, spatial, posición)` devuelve un `Sound`, que suena mientras exista: destruirlo lo para. Los sonidos espaciales se atenúan entre 1.5 y 40 unidades y se oyen a izquierda o derecha según dónde estén.
+  - **El motor tiene que vivir más que cualquier `Sound`:** en `main` se declara antes que el stage.
+- **`AudioClip`:** muestras `float` en memoria. `loadWav` lee WAV PCM de 8/16/32 bits o float, incluidos los que se generan en streaming sin tamaño, como el de espeak-ng.
+- **`SpeechSynthesizer`** es abstracta. `synthesize(texto, VoiceSettings)` es bloqueante y debe poder llamarse desde varios hilos. `VoiceSettings` incluye el idioma (`"es"`), las palabras por minuto y el tono.
+  - **`EspeakSynthesizer`** ejecuta `espeak-ng -v <idioma> -s <ppm> -p <tono> --stdin --stdout` con `fork`/`exec` y le pasa el texto por la entrada estándar: sin shell, así que cualquier texto es seguro. Tarda unos 15 ms por frase.
+  - **Es una dependencia en tiempo de ejecución:** si `espeak-ng` no está instalado, la síntesis falla y las voces "leen" en silencio. Además, ignora `SIGPIPE` en todo el proceso.
+  - La voz `es` de espeak-ng suena robótica. Las voces MBROLA (`mb-es1`…) necesitan el paquete `mbrola-es*`.
+- **`Voice`:** `say()` vuelve al momento, porque sintetiza con `std::async` y reproduce cuando el resultado está listo (en `update`). `progress()` es la posición de reproducción dividida por la duración, y sirve para revelar los subtítulos. `stop()` la calla. Al destruirse espera a la síntesis pendiente (no se puede cancelar).
+- **`Npc`:**
+  - Al abrirse su panel (`onInterfaceOpened`, con la posición del jugador) se gira hacia él y dice la frase actual.
+  - Al cerrarse (`onInterfaceClosed`) se calla.
+  - La voz sale de `MOUTH_HEIGHT` sobre su posición.
+  - Su `AnimatedModel` debe crearse con `feetAtOrigin = true`, para que esté de pie sobre su posición: es un `DynamicGameObject` con gravedad y el stage lo apoya en el suelo.
+  - Hoy hay uno, "Pingu", en `TestStage`, delante del inicio.
+- **Subtítulos:** `UITextBlock` ajusta primero el texto entero (así las palabras no saltan de línea mientras aparecen) y muestra solo la fracción `voice.progress()` de sus caracteres.
+
+**Añadir un NPC:** en el constructor del mapa (necesita el `SoundEngine` y el `SpeechSynthesizer`; mira cómo se los pasa `main` a `TestStage`):
+```cpp
+VoiceSettings voz; voz.pitch = 40;                       // cada NPC puede sonar distinto
+auto npc = make_shared<Npc>(make_shared<AnimatedModel>("../assets/...fbx", true),
+                            "Nombre", std::vector<std::string>{"Frase 1", "Frase 2"},
+                            sound, speech, voz);
+npc->setPosition(x, groundAt(x, z), z);  npc->setGravity(25.0f);
+addDynamic(npc);  interactables.push_back(npc.get());
+```
+
+**Cambiar de motor de voz:** crea otra subclase de `SpeechSynthesizer` (por ejemplo, una voz neuronal que devuelva un WAV) y usa esa en `main` en lugar de `EspeakSynthesizer`. No hay que tocar nada más.
+
+**Probar el audio sin molestar al usuario** (y sin que se mezcle con otras aplicaciones):
+1. Crea una salida virtual: `pactl load-module module-null-sink sink_name=engine_test`.
+2. Lanza el juego con `PULSE_SINK=engine_test`.
+3. Graba solo esa salida: `parec --device=engine_test.monitor --format=s16le --rate=8000 --channels=1 > x.raw`, y mide la energía (RMS) por tramos con numpy.
+4. Al terminar, `pactl unload-module <id>`.
+
+Grabar `@DEFAULT_MONITOR@` recoge también lo que el usuario esté escuchando.
+
 ## Satélite
 
 `Satellite` representa una montura altazimutal, como una antena o un telescopio: un cubo (la cabeza) sobre un poste. La cara +y del cubo es el *boresight*, la dirección a la que apunta, y está marcada con una diana naranja (`assets/cube/`, generado por `generate_cube.py`).
@@ -306,11 +360,13 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 
 ## Limitaciones conocidas
 
-- La interfaz solo muestra texto ASCII (stb_easy_font). Recibe teclas sueltas (`onKey`), pero no hay campos de texto ni rueda del ratón.
+- La interfaz muestra el texto en ASCII (`toAscii` quita tildes y eñes). Recibe teclas sueltas (`onKey`), pero no hay campos de texto ni rueda del ratón.
 - Las opciones (sensibilidad, FOV) no se guardan entre partidas.
 - Solo se reproduce la primera animación del FBX y no hay mezcla entre animaciones (`Animation` está sin usar).
 - No hay colisiones entre objetos: solo con el suelo. Con gravedad, Espacio/Shift no hacen nada (no se puede saltar).
 - El visor web solo muestra los mapas `.scene` (la noche), no `TestStage`.
 - Al cambiar de mapa se vuelven a cargar todos sus modelos (no hay caché entre mapas).
+- El volumen no se puede ajustar en Opciones (existe `SoundEngine::setMasterVolume`). La voz de espeak-ng es robótica.
+- Los subtítulos avanzan en proporción al tiempo de audio, no palabra a palabra.
 - Nunca se liberan los recursos GL (VAO/VBO/texturas). Las texturas no se comparten entre modelos distintos.
 - `Model` ignora las transformaciones de los nodos del fichero. Si un OBJ/FBX estático depende de ellas, aparecerá mal colocado.

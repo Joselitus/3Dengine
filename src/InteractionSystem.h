@@ -19,6 +19,7 @@ private:
   const Controls &controls;
   std::vector<Interactable *> targets; // not owned
   UIPanel *panel = nullptr;            // the open one, if any (not owned)
+  Interactable *inUse = nullptr;       // whose panel it is
   bool useWasDown = false;
 
   Interactable *closest(const glm::vec3 &player) const;
@@ -29,10 +30,12 @@ public:
 
   void add(Interactable *target) { targets.push_back(target); }
   // Forget every target (e.g. their map is about to be destroyed); close
-  // their panel first (UIManager::closeAll)
+  // their panel first (UIManager::closeAll). onInterfaceClosed is not called:
+  // the target may be gone already.
   void clear() {
     targets.clear();
     panel = nullptr;
+    inUse = nullptr;
   }
   void update(const glm::vec3 &playerPosition);
 };

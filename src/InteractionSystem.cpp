@@ -29,16 +29,23 @@ void InteractionSystem::update(const glm::vec3 &playerPosition) {
   useWasDown = use;
 
   // It may have been closed by Esc or by its close button
-  if (panel && !ui->isOpen(panel))
+  if (panel && !ui->isOpen(panel)) {
     panel = nullptr;
+    inUse->onInterfaceClosed();
+    inUse = nullptr;
+  }
 
   Interactable *target = closest(playerPosition);
   if (usePressed) {
     if (panel) {
       ui->close(panel);
       panel = nullptr;
+      inUse->onInterfaceClosed();
+      inUse = nullptr;
     } else if (target && !ui->hasPanels()) {
       panel = ui->open(*target);
+      inUse = target;
+      target->onInterfaceOpened(playerPosition);
     }
   }
 

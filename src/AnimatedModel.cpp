@@ -2,8 +2,9 @@
 using namespace std;
 using namespace glm;
 
-AnimatedModel::AnimatedModel(const char *path)
-    : scene(nullptr), fitCenter(0.0f), fitScale(1.0f) {
+AnimatedModel::AnimatedModel(const char *path, bool feetAtOrigin)
+    : scene(nullptr), fitCenter(0.0f), fitScale(1.0f),
+      feetAtOrigin(feetAtOrigin) {
   loadModel(path);
 }
 
@@ -213,6 +214,8 @@ void AnimatedModel::computeFit() {
   if (biggest > 0.0f) {
     fitScale = 1.8f / biggest;
     fitCenter = (lo + hi) * 0.5f;
+    if (feetAtOrigin)
+      fitCenter.y = lo.y;
   }
 }
 

@@ -24,6 +24,12 @@ public:
   // Adds the object's controls to an empty panel. The controls may keep
   // pointers to the object: it must outlive the panel.
   virtual void buildInterface(UIPanel &panel) = 0;
+
+  // Optional hooks, called by the InteractionSystem: right after the panel
+  // opens (with where the player is, e.g. to turn to face them), and once it
+  // has closed, however it was closed (Use key, Esc, close button).
+  virtual void onInterfaceOpened(const glm::vec3 &playerPosition) {}
+  virtual void onInterfaceClosed() {}
 };
 
 #endif

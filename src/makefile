@@ -1,6 +1,6 @@
 CC = g++
-CXXFLAGS = -std=c++11 -g -Wall
-LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp
+CXXFLAGS = -std=c++11 -g -Wall -pthread
+LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
 SRCS = $(wildcard *.cpp)
 
@@ -14,8 +14,10 @@ test: $(OBJS)
 %.o: %.cpp
 	$(CC) $(CXXFLAGS) $< -c -MMD -MP
 
-# stb_image is third-party code: no warnings for it
+# Third-party code (stb_image, miniaudio): no warnings for it
 stb_image.o: stb_image.cpp
+	$(CC) $(CXXFLAGS) -w $< -c -MMD -MP
+miniaudio.o: miniaudio.cpp
 	$(CC) $(CXXFLAGS) -w $< -c -MMD -MP
 
 -include $(SRCS:%.cpp=%.d)

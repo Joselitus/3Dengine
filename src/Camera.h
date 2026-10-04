@@ -74,6 +74,10 @@ public:
   void attachTo(GameObject *target, float distance, float height);
   void follow();
   glm::vec3 getPosition() { return position; }
+  // World-space direction the camera looks in (e.g. the listener's facing)
+  glm::vec3 getForward() const {
+    return glm::vec3(glm::inverse(model) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+  }
 };
 
 #endif
