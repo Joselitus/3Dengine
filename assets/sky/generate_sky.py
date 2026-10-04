@@ -4,7 +4,7 @@ moon) and skydome.obj (inside-out sphere that uses it).
 
 Usage: python3 generate_sky.py        (needs numpy and Pillow)
 
-MOON_DIR must match `moonDir` in src/test.cpp.
+MOON_DIR must match `moon` in assets/scenes/desert.scene.
 """
 import os
 import numpy as np
@@ -18,7 +18,7 @@ MOON_DIR /= np.linalg.norm(MOON_DIR)
 STAR_BRIGHTNESS = 0.55  # scales stars and the Milky Way
 MOON_RADIUS = 0.040     # radians (much bigger than the real moon, on purpose)
 
-HORIZON = np.array([0.035, 0.055, 0.110])   # also the fog colour in test.cpp
+HORIZON = np.array([0.035, 0.055, 0.110])   # also `fog` in assets/scenes/desert.scene
 ZENITH = np.array([0.003, 0.007, 0.028])
 GROUND = np.array([0.012, 0.018, 0.038])
 

@@ -132,7 +132,7 @@ AnimatedMesh AnimatedModel::processAnimatedMesh(aiMesh *mesh,
       indices.push_back(face.mIndices[j]);
   }
   // process material
-  if (mesh->mMaterialIndex >= 0) {
+  if (mesh->mMaterialIndex < scene->mNumMaterials) {
     aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
     vector<Texture> diffuseMaps = loadMaterialTextures(
         material, aiTextureType_DIFFUSE, "texture_diffuse");

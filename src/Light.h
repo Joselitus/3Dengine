@@ -8,6 +8,7 @@
 
 #include "Shader.h"
 
+// The single point light of the shader (lightPosition, lightColor).
 class Light {
 private:
   Shader *shader;

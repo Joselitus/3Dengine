@@ -1,12 +1,12 @@
 #include "Animation.h"
 
-static float TimeToFrame(float time) {
+float TimeToFrame(float time) {
      float frame = FRAME;
      return time / frame;
 }
 
 
-static glm::vec2 FramesToTime(glm::vec2 frames) {
+glm::vec2 FramesToTime(glm::vec2 frames) {
      float frame = FRAME;
      return frames * frame;
 }

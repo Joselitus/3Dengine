@@ -243,7 +243,7 @@ void Stage::collideWithFloor(DynamicGameObject &object) const {
   vec3 p = object.getPosition();
   vec3 v = object.getVelocity();
   // Stay inside the floor
-  float cx = std::clamp(p.x, minX, maxX), cz = std::clamp(p.z, minZ, maxZ);
+  float cx = glm::clamp(p.x, minX, maxX), cz = glm::clamp(p.z, minZ, maxZ);
   if (cx != p.x) v.x = 0.0f;
   if (cz != p.z) v.z = 0.0f;
   p.x = cx;

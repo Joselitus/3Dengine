@@ -9,8 +9,10 @@
 #include "AnimatedModel.h"
 #include "Model.h"
 
-// Anything that is placed in the world. It owns (shares) the meshes it is
-// made of and is in charge of rendering them.
+// Anything that is placed in the world. It shares the models (parts) it is
+// made of, or an AnimatedModel, plus a position, a rotation and a scale, and
+// is in charge of rendering them: Draw() sets objposition/objrotation (which
+// includes the scale) and the unlit/breathAmp uniforms, then draws the parts.
 class GameObject {
 public:
   // One model of the object and how the shader must draw it

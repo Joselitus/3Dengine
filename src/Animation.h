@@ -7,11 +7,13 @@
 #define FRAME 0.041666666667
 
 
-static float TimeToFrame(float time);
+float TimeToFrame(float time);
 
 
-static glm::vec2 FramesToTime(glm::vec2 frames);
+glm::vec2 FramesToTime(glm::vec2 frames);
 
+// Named range of frames of an animation, with a priority. Not used yet:
+// Skeleton always plays the first animation of the file.
 class Animation
 {
      public:

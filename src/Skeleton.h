@@ -26,6 +26,10 @@ struct BoneInfo {
   glm::mat4 offset;
 };
 
+// Evaluates one aiAnimation over the node tree. Update(seconds) interpolates
+// the keys (looping), computes every node's global transform and fills
+// boneMats[i] = global(bone i) * offset(bone i), ready for gBones. Nodes that
+// are not animated keep their bind transform.
 class Skeleton {
 public:
   std::vector<BoneInfo> bones;

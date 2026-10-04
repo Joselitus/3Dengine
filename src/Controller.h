@@ -4,8 +4,11 @@
 #include "Camera.h"
 #include "PlayableCharacter.h"
 
-// Reads the keyboard and mouse: it turns the camera and hands the movement
-// input to the attached character, which decides what to do with it.
+// Third-person input. The cursor position (relative to where it was at start)
+// sets the camera yaw/pitch, which is handed to the attached character
+// together with the WASD / Space / Left Shift input: what they do is up to the
+// PlayableCharacter (see RV). Esc closes the window. Call update() once per
+// frame.
 class Controller {
 private:
   GLFWwindow *window;

@@ -1,0 +1,49 @@
+# Desert at night.
+#
+# Read by the game (src/SceneFile.cpp) and by the web viewer
+# (tools/scene_viewer/). Format: one command per line, fields separated by
+# spaces, '#' starts a comment. Model paths are relative to assets/.
+# Full reference: docs/ARCHITECTURE.md, section "Ficheros de escena".
+
+# Direction towards the moon (normalised on load). Must match MOON_DIR in
+# assets/sky/generate_sky.py, the moon is painted into the sky texture.
+moon    -0.32 0.26 -0.91
+# Moonlight colour (r g b), cool and dim
+light   0.28 0.34 0.62
+# Horizon colour: clear colour and fog colour
+fog     0.035 0.055 0.110
+
+# Sky dome, always centred on the camera and drawn without depth
+sky     sky/skydome.obj
+
+# Animated character driven by the Controller: model x y z
+player  ping/PenguinoAnimado.fbx  0 0 0
+# Third-person camera: distance behind the player, height above it
+camera  4.0 0.8
+
+# object <model> <x> <y> <z> <yaw (rad)> <scale> [lit|emissive|breathe]
+#
+# y is the final world height. The ground sits at y = -1; for props,
+# y = -1 + dune_height(x, z) - 0.05 (see assets/desert/generate_assets.py),
+# sunk a little so nothing floats on the slopes.
+object  desert/dunes.obj          0     -1      0     0    1
+
+object  desert/cactus_a.obj    -4.5  -0.70     -8   0.5    1
+object  desert/cactus_a.obj       8   0.55    -16     2  1.3
+object  desert/cactus_a.obj     -16   3.56    -24     4  1.6
+object  desert/cactus_a.obj      18   0.12    -30     1  1.2
+object  desert/cactus_b.obj     5.5  -0.08    -10     3  1.1
+object  desert/cactus_b.obj      -9   0.56    -14   5.5  1.2
+object  desert/cactus_b.obj      14   0.57    -22   0.8  1.5
+object  desert/rock_a.obj        -4  -0.94     -6   0.3    1
+object  desert/rock_a.obj        11   1.18     -9   2.5  1.8
+object  desert/rock_a.obj       -20   0.85    -12   4.5  2.5
+object  desert/rock_b.obj       3.5  -1.03   -4.5   1.2    1
+object  desert/rock_b.obj        -8  -0.02    -11   3.3  1.4
+object  desert/rock_b.obj         7   0.47    -18     5  1.7
+object  desert/rock_b.obj        -3   0.18    -14   0.1  1.1
+
+# The creature, standing in the distance and facing the camera. It breathes
+# (vertex shader) and its eyes glow (emissive, no lighting or fog).
+object  creature/creature.obj       1.5  -0.09  -13  0.25  1  breathe
+object  creature/creature_eyes.obj  1.5  -0.09  -13  0.25  1  emissive

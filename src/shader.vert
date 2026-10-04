@@ -1,4 +1,6 @@
 #version 330 core
+// Old shader for static meshes only. Not used any more: the engine draws
+// everything with animatedshader.vert (skinned = 0 for static meshes).
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 Normal;
 layout (location = 2) in vec2 aTexCoord;

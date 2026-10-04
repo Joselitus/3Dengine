@@ -1,4 +1,7 @@
 #include <GL/glew.h>
+#include <climits>
+#include <cstdlib>
+#include <unistd.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
 
@@ -171,6 +174,19 @@ public:
   std::shared_ptr<PlayableCharacter> getPlayer() { return rv; }
 };
 
+// Shaders and assets are loaded with paths relative to src/. The binary is
+// built into test/, next to src/, so move there whatever the launch directory.
+bool enterSourceDir() {
+  char exe[PATH_MAX];
+  ssize_t length = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+  if (length <= 0)
+    return false;
+  exe[length] = '\0';
+  std::string dir(exe);
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../src";
+  return chdir(dir.c_str()) == 0;
+}
+
 int main(int argc, char **argv) {
   FloorMode floorMode = FloorMode::HeightField; // pass --ray for DownwardRay
   for (int i = 1; i < argc; i++)
@@ -178,7 +194,8 @@ int main(int argc, char **argv) {
       FULLSCREEN = false;
     else if (std::string(argv[i]) == "--ray")
       floorMode = FloorMode::DownwardRay;
-
+  if (!enterSourceDir())
+    fprintf(stderr, "Could not find src/, using the current directory\n");
 
   // Creation of window and it's context
   GLFWwindow *window;

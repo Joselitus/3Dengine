@@ -6,6 +6,12 @@
 
 // TODO Very carefully refactor this to extend Model
 
+// Skinned model (FBX) played with GPU skinning. Loading builds the meshes,
+// the global bone list and the Skeleton for the first animation in the file,
+// then computeFit() samples that animation to find a centre and a scale that
+// make the model ~1.8 units tall around the origin (whatever the units of the
+// file). Update(seconds) advances the animation; Draw() uploads gBones,
+// fitCenter/fitScale and sets skinned = 1.
 class AnimatedModel {
 public:
   Assimp::Importer importer; // owns the scene, must outlive every aiNode*

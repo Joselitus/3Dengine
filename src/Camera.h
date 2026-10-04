@@ -15,6 +15,12 @@
 #define SENSIVILITY 0.005f
 #define SPEED 0.07f
 
+// Perspective camera (45 degree fov, near 0.1, far 300) that writes its
+// matrices to the shader. Note the shader computes
+// projection * model * view * world: here `view` is the translation to the
+// camera position and `model` is the camera rotation (pitch * yaw), applied
+// after it. With attachTo() the camera follows a GameObject from behind at a
+// given distance and height (follow() must be called after it moves).
 class Camera {
 private:
   GLFWwindow *window;

@@ -1,0 +1,10 @@
+# Build output (src/makefile)
+*.o
+*.d
+/test/test
+# Stale binary from an old build that wrote it into src/
+/src/test
+
+# Python
+__pycache__/
+*.pyc
