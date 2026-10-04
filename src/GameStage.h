@@ -36,7 +36,7 @@ protected:
 
   // Dynamic objects stay on the floor (override for other rules)
   void apply(DynamicGameObject &object, double dt) override {
-    collideWithFloor(object);
+    collideWithFloor(object, dt);
   }
 
   // A sky dome model (drawn unlit, with twinkling stars; see shader.frag)

@@ -110,8 +110,8 @@ GLFWwindow *initializeGLFW(const char *windowname) {
 }
 
 // The desert: dunes with a road winding through them, cacti and rocks, a
-// parked RV, a satellite the player can orient, and the player: a penguin
-// on foot, seen in first person.
+// RV the player drives (third person camera), a satellite the player can
+// orient, a penguin on foot and an NPC.
 class TestStage : public GameStage {
 private:
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
@@ -123,9 +123,9 @@ private:
   }
 
 protected:
-  // The RV and the player stay on the dunes
+  // Everything dynamic stays on the dunes
   void apply(DynamicGameObject &object, double dt) override {
-    collideWithFloor(object);
+    collideWithFloor(object, dt);
   }
 
 public:
@@ -137,19 +137,20 @@ public:
     environment.lightDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
     environment.lightColor = vec3(0.85f, 0.83f, 0.78f);
     environment.horizon = vec3(0.45f, 0.68f, 0.92f);
-    // First person: the camera at the eyes, 1.6 above the feet (the
-    // penguin is 1.8 tall)
-    cameraDistance = 0.0f;
-    cameraHeight = 1.6f;
+    // Third person: the camera follows the RV from behind
+    cameraDistance = 12.0f;
+    cameraHeight = 3.5f;
 
     // Desert scenery
     auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes.obj"));
     ground->setPosition(0.0f, GROUND_Y, 0.0f);
+    ground->setCollidable(false); // it is the floor, not an obstacle
     add(ground);
     // The dunes are a regular grid of heights, so they are the height map
     setFloor(loadModel("../assets/desert/dunes.obj"), vec3(0.0f, GROUND_Y, 0.0f));
     auto road = make_shared<GameObject>(loadModel("../assets/desert/road.obj")); // winds through the dunes
     road->setPosition(0.0f, GROUND_Y, 0.0f);
+    road->setCollidable(false);
     add(road);
 
     // model, x, z, terrain height at (x, z) (see terrain_height in
@@ -200,19 +201,23 @@ public:
     // The RV (front toward +z, wheels on y = 0)
     rv = make_shared<RV>(loadModel("../assets/rv/rv.obj"));
     rv->setPosition(0.0f, GROUND_Y, 0.0f);
+    // The wheels are separate models so they follow the suspension
+    rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
+                       loadModel("../assets/rv/wheel_posx.obj"));
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
     addDynamic(rv);
+    player = rv; // the RV is what the player drives
 
-    // The player: the penguin on foot, its feet on the floor. It is drawn
+    // A penguin on foot (a Walker), its feet on the floor. It is drawn
     // centred on its position (AnimatedModel fits it to 1.8 units around the
-    // origin), which only shows if the camera is moved out of first person.
+    // origin). Nobody controls it now; to play as it, set it as the player
+    // and use cameraDistance = 0, cameraHeight = 1.6 for first person.
     auto walker = make_shared<Walker>(
         make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx"));
     walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
     walker->setGravity(25.0f);
     addDynamic(walker);
-    player = walker;
 
     // A satellite next to the start, within reach (see Interactable)
     auto satellite = make_shared<Satellite>(loadModel("../assets/cube/cube.obj"),

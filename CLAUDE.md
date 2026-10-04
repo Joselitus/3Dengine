@@ -29,6 +29,8 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 
 `test.cpp` ahora usa **`Stage`** (abstracta, con `FloorMode::HeightField|DownwardRay`, `--ray` para el segundo) en vez de `Scene`: `TestStage` carga el desierto en C++, el jugador es un `RV` (`PlayableCharacter` abstracta -> `DynamicGameObject` -> `GameObject`, que ahora comparte `shared_ptr<Model>` y dibuja sus partes). Es de día (cielo azul liso, sin skydome), hay una carretera (`road.obj`) y la criatura está comentada. `Scene`/`SceneFile`/`desert.scene` y el visor web **siguen compilando pero ya no los usa el juego**: están desfasados (noche, pingüino) hasta decidir si `Stage` lee `.scene` o se retiran. `GameObject` ya no tiene los constructores con `Model*`.
 
+**Física y colisiones.** `RV` es un `VehicleBody` (chasis rígido sobre 4 muelles, ruedas separadas en `wheel_negx/posx.obj`; ver `VehicleBody.h`), con el peso bajo (centro de masas bajo las ruedas) y un par de autoenderezado tipo tentetieso: tiende siempre a volver a apoyarse en las ruedas). Cada `GameObject` tiene una forma de colisión (`CollisionShape.h`): por defecto una cápsula ajustada al modelo, o la que se pase al construir (el RV usa una `Box`). `Stage` tiene una rejilla fija de celdas (8 m) y solo prueba pares que comparten celda; los objetos no se solapan y la forma de un dinámico no atraviesa el suelo. El suelo y la carretera deben ser `setCollidable(false)`. Los estáticos se registran en la rejilla al hacer `add()`: no moverlos después.
+
 ## Arquitectura (resumen)
 
 **`main` manda** (es el código de la otra persona). Lo nuestro se construye heredando de sus clases, no al revés.

@@ -20,12 +20,14 @@ shared_ptr<Model> Stage::loadModel(const string &path) {
 
 shared_ptr<GameObject> Stage::add(shared_ptr<GameObject> object) {
   objects.push_back(object);
+  registerBody(object.get(), nullptr);
   return object;
 }
 
 shared_ptr<DynamicGameObject>
 Stage::addDynamic(shared_ptr<DynamicGameObject> object) {
   dynamicObjects.push_back(object);
+  registerBody(object.get(), object.get());
   return object;
 }
 
@@ -35,7 +37,12 @@ void Stage::update(double dt) {
   for (auto &object : dynamicObjects) {
     object->update(dt);
     apply(*object, dt);
+    collideShapeWithFloor(*object);
   }
+  resolveCollisions();
+  // The collisions may have pushed them into the floor
+  for (auto &object : dynamicObjects)
+    collideShapeWithFloor(*object);
 }
 
 void Stage::Draw(Shader *shader, double time) {
@@ -175,8 +182,8 @@ void Stage::buildTriangleGrid() {
 // Same diagonal as the terrain generator: from (i+1, j) to (i, j+1)
 bool Stage::heightFieldAt(float x, float z, float &height, vec3 *normal) const {
   float gx = (x - x0) / dx, gz = (z - z0) / dz;
-  if (gx < 0 || gz < 0 || gx > nx - 1 || gz > nz - 1)
-    return false;
+  if (!(gx >= 0 && gz >= 0 && gx <= nx - 1 && gz <= nz - 1))
+    return false; // outside (or not a number)
   int ix = std::min((int)gx, nx - 2), iz = std::min((int)gz, nz - 2);
   float fx = gx - ix, fz = gz - iz;
   float ha = heights[(size_t)iz * nx + ix];
@@ -237,17 +244,25 @@ bool Stage::floorAt(float x, float z, float &height, vec3 *normal,
   return rayAt(x, z, maxY, height, normal);
 }
 
-void Stage::collideWithFloor(DynamicGameObject &object) const {
+void Stage::keepInsideFloor(vec3 &p, vec3 &v, float margin) const {
   if (!floor_mesh)
     return;
-  vec3 p = object.getPosition();
-  vec3 v = object.getVelocity();
-  // Stay inside the floor
-  float cx = glm::clamp(p.x, minX, maxX), cz = glm::clamp(p.z, minZ, maxZ);
+  float cx = glm::clamp(p.x, minX + margin, maxX - margin);
+  float cz = glm::clamp(p.z, minZ + margin, maxZ - margin);
   if (cx != p.x) v.x = 0.0f;
   if (cz != p.z) v.z = 0.0f;
   p.x = cx;
   p.z = cz;
+}
+
+void Stage::collideWithFloor(DynamicGameObject &object, double dt) const {
+  if (object.contactFloor(*this, dt))
+    return;
+  if (!floor_mesh)
+    return;
+  vec3 p = object.getPosition();
+  vec3 v = object.getVelocity();
+  keepInsideFloor(p, v); // stay inside the floor
 
   float h;
   bool onFloor = false;
@@ -263,4 +278,148 @@ void Stage::collideWithFloor(DynamicGameObject &object) const {
   object.setPosition(p.x, p.y, p.z);
   object.setVelocity(v);
   object.setGrounded(onFloor);
+}
+
+// -------------------------------------------------------------- collisions
+// An object can't cover more cells than this: it is surely a mistake (e.g. the
+// floor itself, which should not be collidable)
+#define MAX_CELLS_PER_OBJECT 1024
+
+static long long cellKey(int x, int z) {
+  return ((long long)(unsigned int)x << 32) | (unsigned int)z;
+}
+
+bool Stage::cellRange(const GameObject &object, int &x0, int &z0, int &x1,
+                      int &z1) const {
+  vec3 min, max;
+  object.getShape().bounds(object.getPose(), min, max);
+  x0 = (int)floor(min.x / gridCellSize);
+  z0 = (int)floor(min.z / gridCellSize);
+  x1 = (int)floor(max.x / gridCellSize);
+  z1 = (int)floor(max.z / gridCellSize);
+  return (long long)(x1 - x0 + 1) * (z1 - z0 + 1) <= MAX_CELLS_PER_OBJECT;
+}
+
+void Stage::registerBody(GameObject *object, DynamicGameObject *dynamic) {
+  int index = (int)bodies.size();
+  bodies.push_back({object, dynamic});
+  if (dynamic || !object->isCollidable())
+    return; // the dynamic ones are placed on the grid every update
+  int x0, z0, x1, z1;
+  if (!cellRange(*object, x0, z0, x1, z1)) {
+    cerr << "Stage: a static object covers too many collision cells, it is "
+            "ignored (setCollidable(false) if it is the floor)" << endl;
+    return;
+  }
+  for (int z = z0; z <= z1; z++)
+    for (int x = x0; x <= x1; x++)
+      gridCells[cellKey(x, z)].statics.push_back(index);
+}
+
+void Stage::resolveCollisions() {
+  // Where the dynamic objects are now
+  for (auto &cell : gridCells)
+    cell.second.dynamics.clear();
+  for (size_t i = 0; i < bodies.size(); i++) {
+    if (!bodies[i].dynamic || !bodies[i].object->isCollidable())
+      continue;
+    int x0, z0, x1, z1;
+    if (!cellRange(*bodies[i].object, x0, z0, x1, z1))
+      continue;
+    for (int z = z0; z <= z1; z++)
+      for (int x = x0; x <= x1; x++)
+        gridCells[cellKey(x, z)].dynamics.push_back((int)i);
+  }
+
+  // Only the objects in the same cell are tested. A couple of passes, because
+  // pushing one object out of another can push it into a third.
+  std::vector<long long> tested;
+  shapeTests = 0;
+  for (int pass = 0; pass < 2; pass++) {
+    tested.clear();
+    for (auto &entry : gridCells) {
+      const Cell &cell = entry.second;
+      for (size_t a = 0; a < cell.dynamics.size(); a++) {
+        for (size_t b = a + 1; b < cell.dynamics.size(); b++)
+          collideBodies(cell.dynamics[a], cell.dynamics[b], tested);
+        for (int s : cell.statics)
+          collideBodies(cell.dynamics[a], s, tested);
+      }
+    }
+  }
+}
+
+// An object in two cells at once would be tested twice: `tested` has the pairs
+// that already were
+void Stage::collideBodies(int a, int b, vector<long long> &tested) {
+  long long key = ((long long)std::min(a, b) << 32) | (unsigned int)std::max(a, b);
+  if (std::find(tested.begin(), tested.end(), key) != tested.end())
+    return;
+  tested.push_back(key);
+
+  Body &A = bodies[a], &B = bodies[b];
+  if (!A.object->isCollidable() || !B.object->isCollidable())
+    return;
+  Pose poseA = A.object->getPose(), poseB = B.object->getPose();
+  vec3 minA, maxA, minB, maxB;
+  A.object->getShape().bounds(poseA, minA, maxA);
+  B.object->getShape().bounds(poseB, minB, maxB);
+  if (maxA.x < minB.x || maxB.x < minA.x || maxA.y < minB.y ||
+      maxB.y < minA.y || maxA.z < minB.z || maxB.z < minA.z)
+    return; // not even their bounds touch
+
+  Contact contact;
+  shapeTests++;
+  if (!CollisionShape::collide(A.object->getShape(), poseA,
+                               B.object->getShape(), poseB, contact))
+    return;
+
+  // Who moves: all of it for a dynamic object against a static one, shared
+  // (more for the lighter one) between two dynamic objects
+  float invA = A.dynamic ? 1.0f / A.dynamic->getMass() : 0.0f;
+  float invB = B.dynamic ? 1.0f / B.dynamic->getMass() : 0.0f;
+  float sum = invA + invB;
+  if (sum <= 0.0f)
+    return;
+  const vec3 &n = contact.normal;
+  vec3 pushA = -n * (contact.depth * invA / sum);
+  vec3 pushB = n * (contact.depth * invB / sum);
+
+  // They stop approaching each other (no bounce)
+  vec3 velocityA = A.dynamic ? A.dynamic->getVelocity() : vec3(0.0f);
+  vec3 velocityB = B.dynamic ? B.dynamic->getVelocity() : vec3(0.0f);
+  float approach = dot(velocityB - velocityA, n);
+  vec3 changeA(0.0f), changeB(0.0f);
+  if (approach < 0.0f) {
+    float impulse = -approach / sum;
+    changeA = -n * (impulse * invA);
+    changeB = n * (impulse * invB);
+  }
+  if (A.dynamic)
+    A.dynamic->applyCollision(pushA, changeA);
+  if (B.dynamic)
+    B.dynamic->applyCollision(pushB, changeB);
+}
+
+// The lowest points of the shape can't be under the floor
+void Stage::collideShapeWithFloor(DynamicGameObject &object) const {
+  if (!floor_mesh || !object.isCollidable())
+    return;
+  std::vector<vec3> samples;
+  Pose pose = object.getPose();
+  object.getShape().floorSamples(pose, samples);
+  // Only a floor within the object's own height counts (not a ceiling above
+  // it), however deep a point has sunk
+  vec3 low, high;
+  object.getShape().bounds(pose, low, high);
+  float lift = 0.0f;
+  for (const vec3 &s : samples) {
+    float h;
+    if (floorAt(s.x, s.z, h, nullptr, high.y))
+      lift = std::max(lift, h - s.y);
+  }
+  if (lift <= 1e-4f)
+    return;
+  float falling = std::min(object.getVelocity().y, 0.0f);
+  object.applyCollision(vec3(0.0f, lift, 0.0f), vec3(0.0f, -falling, 0.0f));
 }

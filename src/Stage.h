@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -22,6 +23,16 @@ enum class FloorMode {
   DownwardRay,
 };
 
+// Collisions: every object has a collision shape (see GameObject). Space is
+// divided in a fixed grid of square cells (in x/z) and objects are only tested
+// against the objects that share a cell with them. Two objects never overlap:
+// a collision pushes them apart (the dynamic one only, against a static one;
+// the lighter one more, between two dynamic ones), and a dynamic object's
+// shape is also kept above the floor, so a long vehicle doesn't clip through
+// a slope. Static objects (`add`) are put on the grid when they are added and
+// are not expected to move afterwards; the dynamic ones are placed on it
+// every update.
+//
 // Everything that is loaded and placed in the world: the static scenery
 // (GameObject) and the things that move (DynamicGameObject).
 // Abstract: each concrete stage loads its own content and defines the rules
@@ -29,6 +40,26 @@ enum class FloorMode {
 class Stage {
 private:
   const FloorMode floorMode;
+
+  // The collision grid
+  float gridCellSize;
+  struct Body {
+    GameObject *object;
+    DynamicGameObject *dynamic; // null for a static object
+  };
+  struct Cell {
+    std::vector<int> statics, dynamics; // indexes in `bodies`
+  };
+  std::vector<Body> bodies;
+  int shapeTests = 0; // shape-against-shape tests of the last update
+  std::unordered_map<long long, Cell> gridCells;
+  void registerBody(GameObject *object, DynamicGameObject *dynamic);
+  bool cellRange(const GameObject &object, int &x0, int &z0, int &x1,
+                 int &z1) const;
+  void resolveCollisions();
+  void collideBodies(int a, int b, std::vector<long long> &tested);
+  void collideShapeWithFloor(DynamicGameObject &object) const;
+
   std::shared_ptr<Model> floor_mesh; // what the objects stand on
   // world-space bounds of the floor in x/z
   float minX = 0, maxX = 0, minZ = 0, maxZ = 0;
@@ -56,7 +87,10 @@ private:
   std::vector<std::shared_ptr<DynamicGameObject>> dynamicObjects;
 
 protected:
-  explicit Stage(FloorMode mode) : floorMode(mode) {}
+  // cellSize: side of the cells of the collision grid, in world units (a few
+  // times the size of the biggest object is a good value)
+  explicit Stage(FloorMode mode, float cellSize = 8.0f)
+      : floorMode(mode), gridCellSize(cellSize) {}
 
   // Applied to every dynamic object each update, right after the object has
   // moved dt seconds (collisions, bounds, AI, ...)
@@ -65,7 +99,9 @@ protected:
   // Keeps a dynamic object on the floor: it can't leave the floor's bounds or
   // sink into it, and it is `grounded` while it stands on it. Meant to be
   // called from apply().
-  void collideWithFloor(DynamicGameObject &object) const;
+  // Objects that handle the floor themselves (DynamicGameObject::contactFloor)
+  // are left to do so.
+  void collideWithFloor(DynamicGameObject &object, double dt) const;
 
 public:
   virtual ~Stage() {}
@@ -86,12 +122,19 @@ public:
   }
 
   FloorMode getFloorMode() const { return floorMode; }
+  // How many pairs of shapes were tested in the last update (the grid keeps
+  // it far below testing every pair)
+  int getShapeTests() const { return shapeTests; }
 
   // Sets the floor (once): the mesh placed at `position` in the world, with no
   // rotation or scale. The lookup structure for the stage's FloorMode is
   // built here. Returns false (and the stage has no floor) if it can't be:
   // with HeightField, when the mesh is not a regular grid.
   bool setFloor(std::shared_ptr<Model> mesh, const glm::vec3 &position);
+  // Moves a position (and stops a velocity) back inside the floor's bounds,
+  // keeping `margin` away from the edge (e.g. the radius of a big object)
+  void keepInsideFloor(glm::vec3 &position, glm::vec3 &velocity,
+                       float margin = 0.0f) const;
   bool hasFloor() const { return floor_mesh != nullptr; }
 
   // Height of the floor at (x, z) and, optionally, its (upward) normal.
@@ -101,8 +144,8 @@ public:
   bool floorAt(float x, float z, float &height, glm::vec3 *normal = nullptr,
                float maxY = 1e30f) const;
 
-  // Advances every object by dt seconds and applies the stage rules to the
-  // dynamic ones
+  // Advances every object by dt seconds, applies the stage rules to the
+  // dynamic ones and resolves the collisions
   void update(double dt);
   // time feeds the shader's procedural animations (breathing)
   void Draw(Shader *shader, double time);
