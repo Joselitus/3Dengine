@@ -16,6 +16,9 @@ struct AnimatedVertex {
   float Weights[NUM_BONES_PER_VEREX] = {};
 };
 
+// Like Mesh, plus up to NUM_BONES_PER_VEREX (bone id, weight) pairs per
+// vertex, uploaded as three ivec4/vec4 attribute pairs (locations 3 to 8).
+// Bone ids index the model-wide list kept by the Skeleton.
 class AnimatedMesh { // TODO Very carefully refactor this to extend Model
 private:
   std::vector<AnimatedVertex> anivertices;

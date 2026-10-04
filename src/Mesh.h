@@ -23,6 +23,9 @@ struct Texture {
   std::string path;
 };
 
+// Static geometry uploaded to the GPU (VAO + VBO + EBO). Attributes:
+// location 0 position, 1 normal, 2 uv. Draw() binds the textures as
+// texture_diffuseN / texture_specularN uniforms (N from 1).
 class Mesh {
 private:
   // mesh data
@@ -37,7 +40,6 @@ private:
 public:
   Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices,
        std::vector<Texture> textures);
-  Mesh(std::vector<unsigned int> indices, std::vector<Texture> textures);
   virtual ~Mesh() = default;
   void Draw(Shader *shader);
 };

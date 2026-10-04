@@ -4,6 +4,9 @@
 #include "myopengl.h"
   
 
+// A linked GLSL program (vertex + fragment shader loaded from files).
+// The constructor leaves it in use (glUseProgram) and the engine only has one,
+// so the setters assume it is the current program.
 class Shader
 {
 private:

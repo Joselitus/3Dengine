@@ -1,26 +1,25 @@
 #include "myopengl.h"
 
+#include <sstream>
+
 using namespace std;
 
 
-char * fileToString(const char * file) {
-	string line,text;
-    ifstream in(file);
-    while( getline(in, line) ) text += line + "\n";
-    char * data = (char*)malloc(sizeof(char)*(text.length()+1));
-    strncpy((char*)data, text.c_str(), text.length());
-    data[text.length()] = '\0';
-    return data;
+string fileToString(const char * file) {
+	ifstream in(file);
+	if (!in) {
+		// An empty source would still compile and only fail when linking,
+		// with a confusing "must write to gl_Position"
+		cerr << "ERROR::FILE::NOT_FOUND " << file << endl;
+		exit(EXIT_FAILURE);
+	}
+	stringstream text;
+	text << in.rdbuf();
+	return text.str();
 }
 
 unsigned int TextureFromFile(const char * name, string directory) {
-	char * path = (char*)malloc(120);
-	strcpy(path, directory.c_str());
-	strcat(path, "/");
-	strcat(path, name);
-	unsigned int textureid = loadTexture((const char *)path);
-	free(path);
-	return textureid;
+	return loadTexture((directory + "/" + name).c_str());
 }
 
 aiMatrix4x4 GLMMat4ToAi(glm::mat4 mat) {
@@ -41,12 +40,12 @@ glm::mat4 AiToGLMMat4(aiMatrix4x4& in_mat) {
 }
 
 unsigned int initializeShaders(const char * vertexShaderFile, const char * fragmentShaderFile) {
-	char * vertexShaderSource = fileToString(vertexShaderFile);
+	string vertexShaderText = fileToString(vertexShaderFile);
+	const char * vertexShaderSource = vertexShaderText.c_str();
 	unsigned int vertexShader;
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
 	glCompileShader(vertexShader);
-	free(vertexShaderSource);
 
 	//Check vertex errors
 	int  success;
@@ -54,22 +53,22 @@ unsigned int initializeShaders(const char * vertexShaderFile, const char * fragm
 	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
 	if ( !success ) {
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-    	cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << endl;
+    	cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED " << vertexShaderFile << "\n" << infoLog << endl;
     	exit( EXIT_FAILURE );
 	}
 
-	char * fragmentShaderSource = fileToString(fragmentShaderFile);
+	string fragmentShaderText = fileToString(fragmentShaderFile);
+	const char * fragmentShaderSource = fragmentShaderText.c_str();
 	unsigned int fragmentShader;
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
 	glCompileShader(fragmentShader);
-	free(fragmentShaderSource);
 
 	//Check fragment errors
 	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
 	if ( !success ) {
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-    	cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << endl;
+    	cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED " << fragmentShaderFile << "\n" << infoLog << endl;
     	exit( EXIT_FAILURE );
 	}
 
@@ -137,7 +136,7 @@ unsigned int newVAO(float * vertices, int lenght, int * atribute_sizes, int atri
 unsigned int newIndexVAO(float * vertices, int lenght, int * atribute_sizes, int atributes, unsigned int * indices, int lenght_indices) {
 	unsigned int VAO = bindNewVAO();
 	initializeVertexBuffers(vertices, lenght, atribute_sizes, atributes);
-	unsigned int EBO = initializeIndexBuffers(indices, lenght_indices);
+	initializeIndexBuffers(indices, lenght_indices);
 	return VAO;
 }
 
@@ -156,7 +155,7 @@ unsigned int loadTexture(const char * path) {
 	int width, height, nrChannels;
 	unsigned char * data; 
 	if (TEXTURES_INVERTED) stbi_set_flip_vertically_on_load(true);  
-	if ( data = stbi_load(path, &width, &height, &nrChannels, 0)) {
+	if ((data = stbi_load(path, &width, &height, &nrChannels, 0))) {
 		GLenum format = nrChannels == 4 ? GL_RGBA : nrChannels == 1 ? GL_RED : GL_RGB;
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 		glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
@@ -166,7 +165,7 @@ unsigned int loadTexture(const char * path) {
 	}
 
 	else {
-		cout << "Failed to load texture" << endl;
+		cout << "Failed to load texture " << path << ": " << stbi_failure_reason() << endl;
 		return 0;
 	}
 

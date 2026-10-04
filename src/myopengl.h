@@ -13,9 +13,14 @@
 #include <cstring>
 #include <string>
 
+// Low-level OpenGL helpers shared by the engine.
+// Paths are relative to the working directory, which main() sets to src/.
+
+// 1 flips images vertically on load (the models use aiProcess_FlipUVs instead)
 #define TEXTURES_INVERTED 0
 
-char * fileToString(const char * file);
+// Whole contents of a text file; exits with an error if it cannot be read.
+std::string fileToString(const char * file);
 
 unsigned int TextureFromFile(const char * name, std::string directory);
 
@@ -25,7 +30,7 @@ glm::mat4 AiToGLMMat4(aiMatrix4x4& in_mat);
 
 unsigned int initializeShaders(const char * vertexShaderSource, const char * fragmentShaderSource);
 
-void initializeVertexBuffers(float * vertices, int lenght, int atributes);
+void initializeVertexBuffers(float * vertices, int lenght, int * atribute_count, int atributes);
 
 unsigned int initializeIndexBuffers(unsigned int * index, int lenght);
 

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor de escena</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0b0f1c;
+    --panel: rgba(14, 19, 36, 0.86);
+    --border: #26304d;
+    --text: #d8def0;
+    --muted: #8a94b3;
+    --accent: #7fa2ff;
+    --error: #ff7a7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg);
+    color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
+  canvas { display: block; }
+  .panel { position: absolute; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; backdrop-filter: blur(4px); }
+  #controls { top: 12px; left: 12px; width: 250px; }
+  #objects { top: 12px; right: 12px; width: 300px; max-height: calc(100% - 24px); overflow: auto; }
+  #status { bottom: 12px; left: 12px; right: 324px; font-family: ui-monospace, monospace;
+    font-size: 12px; white-space: pre-wrap; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  h2 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .04em; }
+  .row { display: flex; gap: 4px; flex-wrap: wrap; }
+  button { background: #1b2340; color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 4px 8px; cursor: pointer; font: inherit; }
+  button:hover { border-color: var(--accent); }
+  button.active { background: var(--accent); color: #0b0f1c; border-color: var(--accent); }
+  label { display: block; margin: 2px 0; cursor: pointer; }
+  .help { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; font-family: ui-monospace, monospace; font-size: 11px; }
+  td { padding: 2px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tr { cursor: pointer; }
+  tr:hover td { background: #1b2340; }
+  tr.selected td { background: #2a3870; }
+  .error { color: var(--error); }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; font-size: 16px; pointer-events: none; }
+  @media (max-width: 800px) {
+    #objects { display: none; }
+    #status { right: 12px; }
+    #controls { width: auto; right: 12px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="loading">Cargando escena…</div>
+
+<div id="controls" class="panel">
+  <h1 id="title">Visor de escena</h1>
+  <h2>Cámara</h2>
+  <div class="row">
+    <button data-view="orbit">Órbita</button>
+    <button data-view="top">Planta</button>
+    <button data-view="player">Jugador</button>
+  </div>
+  <h2>Mostrar</h2>
+  <label><input type="checkbox" id="opt-fog" checked> Niebla</label>
+  <label><input type="checkbox" id="opt-sky" checked> Cielo</label>
+  <label><input type="checkbox" id="opt-grid"> Rejilla (1 m) y ejes</label>
+  <label><input type="checkbox" id="opt-lit"> Luz de día (ver mejor)</label>
+  <label><input type="checkbox" id="opt-anim" checked> Animar</label>
+  <label><input type="checkbox" id="opt-reload" checked> Recargar al cambiar el .scene</label>
+  <div class="row" style="margin-top:6px">
+    <button id="btn-reload">Recargar</button>
+    <button id="btn-shot">Captura PNG</button>
+  </div>
+  <div class="help">
+    Órbita/Planta: arrastrar = girar, rueda = zoom, botón derecho = desplazar.<br>
+    Jugador: arrastrar = mirar (como el ratón en el juego).<br>
+    Clic en un objeto = seleccionarlo.<br>
+    Ejes: <span style="color:#ff6b6b">x</span> <span style="color:#6bff8a">y</span> <span style="color:#6b9bff">z</span>
+  </div>
+</div>
+
+<div id="objects" class="panel">
+  <h2 style="margin-top:0">Objetos</h2>
+  <table id="object-table"></table>
+</div>
+
+<div id="status" class="panel"></div>
+
+<script type="module" src="viewer.js"></script>
+</body>
+</html>

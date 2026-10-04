@@ -1,4 +1,7 @@
 #include <GL/glew.h>
+#include <climits>
+#include <cstdlib>
+#include <unistd.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
 
@@ -9,6 +12,7 @@
 #include "GameObject.h"
 #include "Light.h"
 #include "Model.h"
+#include "Scene.h"
 #include "Shader.h"
 #include "Skeleton.h"
 #include "myopengl.h"
@@ -16,6 +20,7 @@
 using namespace std;
 using namespace glm;
 
+// Usage: test [--windowed] [scene file]   (from any directory)
 bool FULLSCREEN = true; // pass --windowed to disable
 #define HEIGHT 600
 #define WIDTH 700
@@ -87,11 +92,36 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   return window;
 }
 
+// Shaders and assets are loaded with paths relative to src/. The binary is
+// built into test/, next to src/, so move there whatever the launch directory.
+bool enterSourceDir() {
+  char exe[PATH_MAX];
+  ssize_t length = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+  if (length <= 0)
+    return false;
+  exe[length] = '\0';
+  std::string dir(exe);
+  dir = dir.substr(0, dir.find_last_of('/')) + "/../src";
+  return chdir(dir.c_str()) == 0;
+}
+
 int main(int argc, char **argv) {
-  for (int i = 1; i < argc; i++)
+  std::string scenePath = "../assets/scenes/desert.scene"; // from src/
+  for (int i = 1; i < argc; i++) {
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
-
+    else {
+      // Relative to the launch directory, so resolve it before moving
+      char resolved[PATH_MAX];
+      if (!realpath(argv[i], resolved)) {
+        fprintf(stderr, "%s: scene file not found\n", argv[i]);
+        return -1;
+      }
+      scenePath = resolved;
+    }
+  }
+  if (!enterSourceDir())
+    fprintf(stderr, "Could not find src/, using the current directory\n");
 
   // Creation of window and it's context
   GLFWwindow *window;
@@ -109,115 +139,37 @@ int main(int argc, char **argv) {
   camera.reposition(0.0, 0.0, 3.0);
   Controller controller(window, &camera);
 
-  // Night sky. moonDir must match MOON_DIR in assets/sky/generate_sky.py
-  const vec3 moonDir = normalize(vec3(-0.32f, 0.26f, -0.91f));
-  const vec3 horizon = vec3(0.035f, 0.055f, 0.110f);
-
-  // Creation of light
-  Light light(0.28f, 0.34f, 0.62f, &shader); // cool, dim moonlight
-  light.moveTo(moonDir.x * 100, moonDir.y * 100, moonDir.z * 100); // moon
-
-  Model skydome("../assets/sky/skydome.obj");
-  GameObject sky(&skydome);
-  shader.setVector3("moonDir", moonDir.x, moonDir.y, moonDir.z);
-  shader.setVector3("fogColor", horizon.x, horizon.y, horizon.z);
-  shader.setInt("unlit", 0);
-
-  // Desert scene
-  const float GROUND_Y = -1.0f; // the penguin's feet are at about -0.9
-  Model dunes("../assets/desert/dunes.obj");
-  Model cactusA("../assets/desert/cactus_a.obj");
-  Model cactusB("../assets/desert/cactus_b.obj");
-  Model rockA("../assets/desert/rock_a.obj");
-  Model rockB("../assets/desert/rock_b.obj");
-
-  // x, z, terrain height at (x, z) (see dune_height in generate_assets.py),
-  // rotation around y, uniform scale
-  struct Prop {
-    Model *model;
-    float x, z, height, yaw, scale;
-  };
-  const Prop propList[] = {
-      {&cactusA, -4.5f, -8, 0.35f, 0.5f, 1.0f},
-      {&cactusA, 8, -16, 1.60f, 2.0f, 1.3f},
-      {&cactusA, -16, -24, 4.61f, 4.0f, 1.6f},
-      {&cactusA, 18, -30, 1.17f, 1.0f, 1.2f},
-      {&cactusB, 5.5f, -10, 0.97f, 3.0f, 1.1f},
-      {&cactusB, -9, -14, 1.61f, 5.5f, 1.2f},
-      {&cactusB, 14, -22, 1.62f, 0.8f, 1.5f},
-      {&rockA, -4, -6, 0.11f, 0.3f, 1.0f},
-      {&rockA, 11, -9, 2.23f, 2.5f, 1.8f},
-      {&rockA, -20, -12, 1.90f, 4.5f, 2.5f},
-      {&rockB, 3.5f, -4.5f, 0.02f, 1.2f, 1.0f},
-      {&rockB, -8, -11, 1.03f, 3.3f, 1.4f},
-      {&rockB, 7, -18, 1.52f, 5.0f, 1.7f},
-      {&rockB, -3, -14, 1.23f, 0.1f, 1.1f},
-  };
-  // The creature, standing in the distance and facing the camera
-  Model creatureBody("../assets/creature/creature.obj");
-  Model creatureEyes("../assets/creature/creature_eyes.obj");
-  GameObject creature(&creatureBody);
-  GameObject creatureEyesObj(&creatureEyes);
-  {
-    const float x = 1.5f, z = -13.0f, height = 0.91f; // see dune_height()
-    mat4 turn = glm::rotate(mat4(1.0), 0.25f, vec3(0, 1, 0));
-    for (GameObject *o : {&creature, &creatureEyesObj}) {
-      o->setPosition(x, GROUND_Y + height, z);
-      o->setRotation(turn);
-    }
+  // The layout of the world lives in a data file, shared with the web viewer
+  // in tools/scene_viewer
+  Scene scene;
+  if (!scene.load(scenePath, "../assets")) {
+    glfwTerminate();
+    return -1;
   }
+  const SceneFile &info = scene.info();
 
-  GameObject ground(&dunes);
-  ground.setPosition(0.0f, GROUND_Y, 0.0f);
-  std::vector<GameObject> props;
-  for (const Prop &p : propList) {
-    GameObject o(p.model);
-    // sink the base a little so nothing floats on the slopes
-    o.setPosition(p.x, GROUND_Y + p.height - 0.05f, p.z);
-    o.setRotation(glm::scale(glm::rotate(mat4(1.0), p.yaw, vec3(0, 1, 0)),
-                             vec3(p.scale)));
-    props.push_back(o);
-  }
+  // The moon is the only light; far enough away to act as a directional one
+  Light light(info.lightColor.r, info.lightColor.g, info.lightColor.b,
+              &shader);
+  light.moveTo(info.moonDir.x * 100, info.moonDir.y * 100,
+               info.moonDir.z * 100);
 
-  AnimatedModel model("../assets/ping/PenguinoAnimado.fbx");
-  GameObject ping(&model);
-
-  // The controller drives the penguin; the camera follows behind it
-  controller.attach(&ping, 4.0f, 0.8f);
+  // The controller drives the player; the camera follows behind it
+  if (scene.getPlayer())
+    controller.attach(scene.getPlayer(), info.cameraDistance,
+                      info.cameraHeight);
 
   // Main loop
   while (!glfwWindowShouldClose(window)) {
-    // Clear the screen. It can cause flickering, so it's there nonetheless.
     camera.resize();
     controller.update();
-    glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
+    // Clear to the horizon colour, so any gap blends with the sky and fog
+    glClearColor(info.fogColor.r, info.fogColor.g, info.fogColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Update animation
-    model.Update(glfwGetTime());
-
-    // Draw
-    // The sky is centred on the camera and drawn first, without depth
-    glDisable(GL_DEPTH_TEST);
-    shader.setInt("unlit", 1);
-    shader.setFloat("time", (float)glfwGetTime());
-    vec3 cam = camera.getPosition();
-    sky.setPosition(cam.x, cam.y, cam.z);
-    sky.Draw(&shader);
-    shader.setInt("unlit", 0);
-    glEnable(GL_DEPTH_TEST);
-
-    ground.Draw(&shader);
-    for (GameObject &o : props)
-      o.Draw(&shader);
-    shader.setFloat("breathTime", (float)glfwGetTime());
-    shader.setFloat("breathAmp", 2.0f); // the creature breathes
-    creature.Draw(&shader);
-    shader.setInt("unlit", 2); // the eyes glow
-    creatureEyesObj.Draw(&shader);
-    shader.setInt("unlit", 0);
-    shader.setFloat("breathAmp", 0.0f);
-    ping.Draw(&shader);
+    double now = glfwGetTime();
+    scene.Update(now);
+    scene.Draw(&shader, camera.getPosition(), (float)now);
 
     // Swap buffers
     glfwSwapBuffers(window);

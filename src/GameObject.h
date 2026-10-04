@@ -10,6 +10,9 @@
 #include "AnimatedModel.h"
 #include "Model.h"
 
+// An instance of a model in the world: either a static Model or an
+// AnimatedModel (not owned) plus a position and a rotation matrix (which may
+// also carry a scale). Draw() sets objposition/objrotation and draws the model.
 class GameObject {
 private:
   bool anim;

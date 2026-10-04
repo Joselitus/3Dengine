@@ -13,11 +13,13 @@ void Model::loadModel(string path) {
 
 	if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
         cout << "ERROR::ASSIMP::" << import.GetErrorString() << endl;
+        scene = nullptr;
         return;
     }
     directory = path.substr(0, path.find_last_of('/'));
 
     this->processNode(scene->mRootNode, scene);
+    scene = nullptr; // owned by `import`, which is destroyed on return
 }
 
 void Model::processNode(aiNode * node, const aiScene * scene) {
@@ -92,7 +94,7 @@ Mesh Model::processMesh(aiMesh * mesh, const aiScene * scene) {
 	        indices.push_back(face.mIndices[j]);
 	}  
     // process material
-    if(mesh->mMaterialIndex >= 0) {
+    if(mesh->mMaterialIndex < scene->mNumMaterials) {
 	    aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
 	    vector<Texture> diffuseMaps = loadMaterialTextures(material, 
 	                                        aiTextureType_DIFFUSE, "texture_diffuse");
