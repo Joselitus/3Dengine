@@ -16,6 +16,8 @@ Controls::Controls() {
   bind(Action::LeaveVehicle, GLFW_KEY_LEFT_SHIFT);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
+  bind(Action::DebugSelect, GLFW_KEY_1);
+  bind(Action::DebugPlace, GLFW_KEY_2);
 }
 
 const char *Controls::describe(Action action) {
@@ -28,6 +30,8 @@ const char *Controls::describe(Action action) {
   case Action::LeaveVehicle: return "Bajar del vehiculo";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
+  case Action::DebugSelect: return "Modo seleccion de objetos (debug)";
+  case Action::DebugPlace: return "Modo colocacion de objetos (debug)";
   case Action::Count: break;
   }
   return "?";
@@ -43,6 +47,8 @@ const char *Controls::id(Action action) {
   case Action::LeaveVehicle: return "leave_vehicle";
   case Action::Quit: return "quit";
   case Action::Maps: return "maps";
+  case Action::DebugSelect: return "debug_select";
+  case Action::DebugPlace: return "debug_place";
   case Action::Count: break;
   }
   return "?";
@@ -105,7 +111,9 @@ const char *Controls::group(Action action) {
   case Action::Use:
   case Action::LeaveVehicle: return "Acciones";
   case Action::Quit:
-  case Action::Maps: return "Menus";
+  case Action::Maps:
+  case Action::DebugSelect:
+  case Action::DebugPlace: return "Menus";
   default: return "Movimiento";
   }
 }
@@ -141,6 +149,7 @@ const vector<Controls::Fixed> &Controls::fixedControls() {
       {"Camara", "Mirar alrededor", "Raton"},
       {"Menus", "Menu de pausa / atras / cerrar panel", "Esc"},
       {"Menus", "Botones y deslizadores", "Clic izquierdo"},
+      {"Menus", "Elegir (1) / colocar (2) objeto", "Clic izq."},
   };
   return fixed;
 }

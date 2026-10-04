@@ -16,6 +16,8 @@ enum class Action {
   LeaveVehicle, // get out of the vehicle being driven (Left Shift)
   Quit,     // in the pause menu
   Maps,     // debug map selector
+  DebugSelect, // debug: select objects and show their data (DebugSelector)
+  DebugPlace,  // debug: move the selected object where the camera points
   Count     // number of actions, not an action
 };
 
@@ -33,7 +35,7 @@ private:
   int keys[(int)Action::Count];
 
 public:
-  Controls(); // default keys (WASD, E, X, Z)
+  Controls(); // default keys (WASD, E, Left Shift, X, Z, 1, 2)
 
   int key(Action action) const { return keys[(int)action]; }
   void bind(Action action, int key) { keys[(int)action] = key; }

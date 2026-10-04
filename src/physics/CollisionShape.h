@@ -39,6 +39,10 @@ public:
   // its lowest face)
   virtual void floorSamples(const Pose &pose,
                             std::vector<glm::vec3> &out) const = 0;
+  // Whether the ray from `origin` along `direction` (unit length) hits the
+  // shape; then `distance` is how far along the ray (0 if it starts inside)
+  virtual bool raycast(const Pose &pose, const glm::vec3 &origin,
+                       const glm::vec3 &direction, float &distance) const = 0;
 
   // True if A (at poseA) and B (at poseB) overlap; then `contact` is filled
   static bool collide(const CollisionShape &a, const Pose &poseA,
@@ -67,6 +71,11 @@ public:
   void bounds(const Pose &pose, glm::vec3 &min, glm::vec3 &max) const override;
   void floorSamples(const Pose &pose,
                     std::vector<glm::vec3> &out) const override;
+  bool raycast(const Pose &pose, const glm::vec3 &origin,
+               const glm::vec3 &direction, float &distance) const override;
+  float getRadius() const { return radius; }
+  float getHeight() const { return height; }
+  const glm::vec3 &getBase() const { return base; }
 };
 
 // An oriented box: halfExtents around `center` (object frame)
@@ -85,6 +94,10 @@ public:
   void bounds(const Pose &pose, glm::vec3 &min, glm::vec3 &max) const override;
   void floorSamples(const Pose &pose,
                     std::vector<glm::vec3> &out) const override;
+  bool raycast(const Pose &pose, const glm::vec3 &origin,
+               const glm::vec3 &direction, float &distance) const override;
+  const glm::vec3 &getHalfExtents() const { return halfExtents; }
+  const glm::vec3 &getCenter() const { return center; }
 };
 
 #endif

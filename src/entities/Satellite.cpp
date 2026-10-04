@@ -136,3 +136,10 @@ void Satellite::buildInterface(UIPanel &panel) {
 
   panel.add(new UILabel("Norte = -z. Esc: cerrar", UITheme::MUTED));
 }
+
+void Satellite::teleport(const vec3 &position) {
+  vec3 delta = position - this->position;
+  GameObject::teleport(position);
+  base += delta;
+  mount->translate(delta);
+}

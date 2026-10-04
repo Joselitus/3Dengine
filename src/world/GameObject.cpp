@@ -1,4 +1,8 @@
 #include "GameObject.h"
+
+#include <cmath>
+
+#include "TextFormat.h"
 using namespace std;
 using namespace glm;
 
@@ -81,4 +85,40 @@ void GameObject::Draw(Shader *shader) {
   }
   shader->setInt("unlit", 0);
   shader->setFloat("breathAmp", 0.0f);
+}
+
+void GameObject::describe(vector<string> &lines) const {
+  lines.push_back("Posicion: " + textOf(position));
+  // Heading: where its +z points, around +y (as setYaw); tilt: how far its
+  // up axis leans from the vertical
+  vec3 forward = vec3(rotation[2]), up = vec3(rotation[1]);
+  float heading = degrees(std::atan2(forward.x, forward.z));
+  float tilt = degrees(std::acos(clamp(up.y / length(up), -1.0f, 1.0f)));
+  lines.push_back(textFormat("Rumbo: %.1f grados  Inclinacion: %.1f grados",
+                             tidy(heading), tilt));
+  lines.push_back(textFormat("Escala: %.2f  Visible: %s  Colisionable: %s",
+                             scale, visible ? "si" : "no",
+                             collidable ? "si" : "no"));
+  lines.push_back(aniModel ? "Modelo: animado (esqueleto)"
+                           : textFormat("Modelo: %d pieza(s)", (int)parts.size()));
+
+  Pose pose = getPose();
+  if (const Capsule *capsule = dynamic_cast<const Capsule *>(shape.get())) {
+    vec3 a, b;
+    float r;
+    capsule->segment(pose, a, b, r);
+    lines.push_back(textFormat("Forma: capsula, radio %.2f, alto %.2f", r,
+                               capsule->getHeight() * scale));
+  } else if (const Box *box = dynamic_cast<const Box *>(shape.get())) {
+    vec3 c, h;
+    box->world(pose, c, h);
+    lines.push_back(textFormat("Forma: caja %.2f x %.2f x %.2f", 2 * h.x,
+                               2 * h.y, 2 * h.z));
+    lines.push_back("  centro: " + textOf(c));
+  }
+  vec3 min, max;
+  shape->bounds(pose, min, max);
+  lines.push_back("AABB min: " + textOf(min));
+  lines.push_back("AABB max: " + textOf(max));
+  lines.push_back("AABB tamano: " + textOf(max - min));
 }

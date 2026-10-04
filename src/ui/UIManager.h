@@ -8,12 +8,13 @@
 
 #include "myopengl.h"
 #include "Interactable.h"
+#include "UIOverlay.h"
 #include "UIPanel.h"
 #include "UIRenderer.h"
 
 // Owns the open panels, feeds them the mouse and the keyboard and draws them
 // over the scene. Also shows a one-line hint at the bottom of the screen
-// (e.g. "E: use").
+// (e.g. "E: use") and the overlays (UIOverlay: e.g. the debug selector).
 //
 // Keys: it installs the window's GLFW key callback (and user pointer), so
 // nothing else may set them. Each key press goes to the top panel's onKey();
@@ -28,6 +29,7 @@ private:
   GLFWwindow *window;
   UIRenderer renderer;
   std::vector<std::unique_ptr<UIPanel>> panels; // last = on top
+  std::vector<const UIOverlay *> overlays;       // not owned
   std::string hint;
   // Keys with no panel open: which key (read when a key is pressed, so it
   // can be rebound) and what it does
@@ -75,6 +77,11 @@ public:
   }
 
   void setHint(const std::string &text) { hint = text; }
+
+  // Draws `overlay` (not owned) every frame, under the panels, until it is
+  // removed; it must stay alive meanwhile
+  void addOverlay(const UIOverlay *overlay) { overlays.push_back(overlay); }
+  void removeOverlay(const UIOverlay *overlay);
 
   void update();
   void draw();

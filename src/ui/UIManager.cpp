@@ -53,6 +53,14 @@ bool UIManager::isOpen(const UIPanel *panel) const {
   return false;
 }
 
+void UIManager::removeOverlay(const UIOverlay *overlay) {
+  for (size_t i = 0; i < overlays.size(); i++)
+    if (overlays[i] == overlay) {
+      overlays.erase(overlays.begin() + i);
+      return;
+    }
+}
+
 void UIManager::closeAll() {
   panels.clear();
   active = nullptr;
@@ -137,6 +145,8 @@ void UIManager::draw() {
   int width, height;
   glfwGetWindowSize(window, &width, &height);
   renderer.begin(width, height);
+  for (const UIOverlay *overlay : overlays)
+    overlay->draw(renderer, (float)width, (float)height);
   for (const auto &panel : panels)
     if (panel->dimsBackground()) {
       renderer.rect(0, 0, width, height, glm::vec4(0.0f, 0.0f, 0.0f, 0.45f));

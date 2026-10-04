@@ -93,12 +93,17 @@ flowchart TB
 
     Settings["core/Settings<br/>~/.config/3dengine/settings.cfg"]
 
+    subgraph depuracion ["debug/"]
+        DebugSelector["DebugSelector<br/>tecla 1: elegir un objeto y ver sus datos"]
+    end
+
     main -->|"update(), attach()"| Controller
     main -->|"update(), draw()"| UIManager
     main -->|"update(pos)"| InteractionSystem
     main -->|"update(dt), render()"| GameStage
     main -->|"resize(), follow()"| Camera
     main -->|"setListener()"| Sound
+    main -->|"update(), draw()"| DebugSelector
 
     Controller -->|"control(dir, yaw)"| Objetos
     Controller -->|"gira"| Camera
@@ -112,6 +117,9 @@ flowchart TB
     InteractionSystem -->|"el más cercano"| Objetos
     UIManager --> UIRenderer
     UIManager --> Menus
+    DebugSelector -->|"overlay: cruz + datos"| UIManager
+    DebugSelector -.->|"rayo, describe()"| Objetos
+    DebugSelector -->|"forma y AABB (LineRenderer)"| Camera
 
     GameStage --> Stage
     Stage -->|"es dueño de"| Objetos
@@ -159,6 +167,7 @@ classDiagram
         +loadMusic(path, loop, volume) bool
         +add(GameObject)
         +addDynamic(DynamicGameObject)
+        +relocate(object, position)
         +setFloor(mesh, position, materials) bool
         +floorAt(x, z, height, normal, maxY) bool
         +materialAt(x, z) FloorMaterial
@@ -238,6 +247,8 @@ classDiagram
         +setYaw(radians)
         +getPose() Pose
         +update(dt)
+        +describe(lines)
+        +teleport(position)
         +Draw(shader)
     }
     class Part {
@@ -259,6 +270,7 @@ classDiagram
         +contactFloor(stage, dt) bool
         +applyCollision(push, velocityChange)
         +getMass() float
+        +describe(lines)
     }
     class PlayableCharacter {
         <<abstract>>
@@ -279,6 +291,7 @@ classDiagram
         +contactFloor(stage, dt) bool
         +applyCollision(push, velocityChange)
         +onUse(playerPosition)
+        +describe(lines)
     }
     class Walker {
         Jugador a pie, 1ª persona si la distancia es 0
@@ -293,6 +306,7 @@ classDiagram
         Cabeza orientable en azimut y cénit
         +getMount() GameObject
         +pointAt(azimuth, zenith)
+        +teleport(position)
     }
     class Readable {
         Cartel que se lee
@@ -389,6 +403,7 @@ classDiagram
         +type() Type
         +bounds(pose, min, max)*
         +floorSamples(pose, points)*
+        +raycast(pose, origin, direction, distance)* bool
         +collide(a, poseA, b, poseB, contact)$ bool
     }
     class Capsule {
@@ -636,6 +651,13 @@ classDiagram
     class ParticleRenderer {
         +draw(emitters, camera)
     }
+    class LineRenderer {
+        líneas de depuración, sin prueba de profundidad
+        +line(a, b, color)
+        +box(min, max, color)
+        +circle(centre, normal, radius, color)
+        +draw(camera)
+    }
     class Camera {
         -mat4 projection
         -mat4 view
@@ -678,6 +700,8 @@ classDiagram
     ParticleRenderer ..> ParticleEmitter : dibuja sus partículas
     ParticleRenderer ..> Camera : getViewProjection, getRight, getUp
     ParticleRenderer --> Shader : particle.vert / particle.frag
+    LineRenderer ..> Camera : getViewProjection
+    LineRenderer --> Shader : lines.vert / lines.frag
     Light --> Shader : escribe lightPosition, lightColor
     Camera --> GameObject : target
     GameObject o-- Model : parts
@@ -721,6 +745,8 @@ classDiagram
         LeaveVehicle
         Quit
         Maps
+        DebugSelect
+        DebugPlace
     }
     class Settings {
         +load() bool
@@ -762,6 +788,35 @@ classDiagram
         +hasPanels() bool
     }
     class UIPanel
+    class DebugSelector {
+        -Mode mode
+        -weak_ptr~GameObject~ selected
+        -string[] info
+        -vec3 target
+        -LineRenderer lines
+        +toggleSelect()
+        +togglePlace()
+        +clear()
+        +update(stage, camera, canPick)
+        +draw(camera)
+        +draw(renderer, width, height)
+        +nameOf(object)$ string
+        +floorHit(stage, origin, direction, max, point)$ bool
+    }
+    class UIOverlay {
+        <<interface>>
+        +draw(renderer, width, height)*
+    }
+    class GameObject {
+        +describe(lines)
+    }
+    class CollisionShape {
+        +raycast(pose, origin, direction, distance)* bool
+    }
+    class LineRenderer
+    class Stage {
+        +relocate(object, position)
+    }
 
     Controller --> Camera : gira con el ratón
     Controller --> Controls : qué tecla es cada acción
@@ -773,9 +828,18 @@ classDiagram
     InteractionSystem --> UIManager : abre su panel (o llama a onUse)
     UIManager ..> Interactable : open
     Interactable ..> UIPanel : buildInterface
+    UIOverlay <|.. DebugSelector
+    DebugSelector --> UIManager : addOverlay / removeOverlay
+    DebugSelector --> Controls : nombre de su tecla
+    DebugSelector *-- LineRenderer
+    DebugSelector ..> CollisionShape : raycast desde la cámara
+    DebugSelector --> GameObject : el elegido (weak_ptr), describe
+    DebugSelector ..> Stage : relocate (modo colocación)
 ```
 
 El bucle del `main` hace `controller.setEnabled(!ui.hasPanels())`: con cualquier panel abierto los controles están en pausa y el cursor queda libre. `InteractionSystem` solo abre un panel cuando no hay otro, y con `enabled = false` (mientras se conduce) no ofrece ni usa nada. La tecla de bajar del vehículo (`Action::LeaveVehicle`, Mayús izquierda) es un atajo de `UIManager` (`bindKey`) que llama a `GameStage::leaveVehicle()`.
+
+**Modos selección y colocación (depuración).** `Action::DebugSelect` (tecla 1) y `Action::DebugPlace` (tecla 2) son otros atajos que encienden y apagan los modos del `DebugSelector`. En colocación, la cruz marca un punto del suelo (`floorHit`) y el clic lleva allí el objeto elegido con `Stage::relocate` (que llama al `teleport` virtual y, si es estático, lo recoloca en la rejilla). No es un panel sino un `UIOverlay`, así que no pausa los controles: con él encendido, el clic izquierdo lanza un rayo desde la cámara (`CollisionShape::raycast` de cada objeto visible y colisionable; si una duna se interpone, no elige nada) y el derecho elige al jugador. Muestra lo que da `GameObject::describe` (posición, rumbo, forma, AABB; velocidad, masa… en los dinámicos; suspensión en el RV) y dibuja la forma y la AABB con un `LineRenderer`. Solo guarda un `weak_ptr` y `switchMap` lo vacía con `clear()`.
 
 ## 6. Audio y diálogos
 
@@ -940,8 +1004,13 @@ classDiagram
     }
     class UIRow
 
+    class UIOverlay {
+        <<interface>>
+        +draw(renderer, width, height)*
+    }
     class UIManager {
         -UIPanel[] panels
+        -UIOverlay[] overlays
         -UIRenderer renderer
         -Binding[] bindings
         +open(panel) UIPanel
@@ -950,6 +1019,8 @@ classDiagram
         +closeAll()
         +bindKey(key, action)
         +setHint(text)
+        +addOverlay(overlay)
+        +removeOverlay(overlay)
         +update()
         +draw()
     }
@@ -1029,6 +1100,7 @@ classDiagram
     AudioMenu ..> SoundEngine : setMasterVolume
 
     UIManager "1" *-- "*" UIPanel : panels, el último arriba
+    UIManager "1" o-- "*" UIOverlay : overlays, debajo de los paneles
     UIManager *-- UIRenderer
     UIRenderer --> Shader : ui.vert, ui.frag
     UIManager ..> Interactable : open
@@ -1061,7 +1133,8 @@ sequenceDiagram
     participant P as PlayableCharacter
     participant S as GameStage
     participant K as Camera
-    participant P as ParticleRenderer
+    participant R as ParticleRenderer
+    participant D as DebugSelector
 
     M->>M: dt = tiempo desde el frame anterior
     opt hay un cambio de mapa pendiente
@@ -1085,9 +1158,13 @@ sequenceDiagram
     Note over S: ver 8.2: mover, suelo, colisiones
     M->>P: followCamera()
     P->>K: follow()
+    M->>D: update(stage, cámara, !hasPanels)
+    Note over D: clic, elige (1) o relocate (2)
     M->>S: render(shader, cámara, tiempo)
-    M->>P: draw(emisores del mapa, cámara)
+    M->>R: draw(emisores del mapa, cámara)
+    M->>D: draw(cámara): forma y AABB del elegido
     M->>U: draw()
+    U->>D: draw(renderer, ancho, alto): cruz y datos
 ```
 
 ### 8.2 La física de un frame
@@ -1257,6 +1334,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | `Vertex` | `src/render/Mesh.h` | — | 4 |
 | `Model` | `src/render/Model.h` | — | 4 |
 | `Shader` | `src/render/Shader.h` | — | 4 |
+| `LineRenderer` | `src/render/LineRenderer.h` | — | 4 |
 | `BoneInfo` | `src/render/Skeleton.h` | — | 4 |
 | `Skeleton` | `src/render/Skeleton.h` | — | 4 |
 | `Settings` | `src/core/Settings.h` | — | 5 |
@@ -1264,6 +1342,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | `Action` | `src/input/Controls.h` | — | 5 |
 | `Controls` | `src/input/Controls.h` | — | 5 |
 | `InteractionSystem` | `src/input/InteractionSystem.h` | — | 5 |
+| `DebugSelector` | `src/debug/DebugSelector.h` | `UIOverlay` | 5 |
 | `AudioClip` | `src/audio/AudioClip.h` | — | 6 |
 | `EspeakSynthesizer` | `src/audio/EspeakSynthesizer.h` | `SpeechSynthesizer` | 6 |
 | `Sound` | `src/audio/SoundEngine.h` | — | 6 |
@@ -1288,6 +1367,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | `UIInfoRow` | `src/ui/UIInfoRow.h` | `UIElement` | 7 |
 | `UILabel` | `src/ui/UILabel.h` | `UIElement` | 7 |
 | `UIManager` | `src/ui/UIManager.h` | — | 7 |
+| `UIOverlay` | `src/ui/UIOverlay.h` | — | 7 |
 | `UIPanel` | `src/ui/UIPanel.h` | `UIContainer` | 7 |
 | `UIRenderer` | `src/ui/UIRenderer.h` | — | 7 |
 | `UIRow` | `src/ui/UIRow.h` | `UIContainer` | 7 |

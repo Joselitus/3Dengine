@@ -101,6 +101,10 @@ public:
   void update(double dt) override;
   // The suspension and the floor: moves the RV
   bool contactFloor(const Stage &stage, double dt) override;
+  // Its body is placed there too, upright, keeping its heading and at rest
+  void teleport(const glm::vec3 &position) override;
+  // Adds the vehicle's own physics: speed, spin, wheels, occupied
+  void describe(std::vector<std::string> &lines) const override;
 };
 
 #endif

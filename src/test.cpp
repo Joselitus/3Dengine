@@ -15,6 +15,7 @@
 #include "Camera.h"
 #include "Controller.h"
 #include "Controls.h"
+#include "DebugSelector.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
 #include "GameObject.h"
@@ -436,6 +437,9 @@ int main(int argc, char **argv) {
   UIManager ui(window);
   // Objects the player can use (key E), each with its own panel
   InteractionSystem interaction(window, &ui, controls);
+  // Debug: select objects, see their data and move them (keys 1 and 2, see
+  // DebugSelector)
+  DebugSelector selector(window, ui, controls);
 
   // The maps, in the order the debug selector (key Z) lists them
   struct Map {
@@ -468,6 +472,7 @@ int main(int argc, char **argv) {
     }
     ui.closeAll();
     interaction.clear();
+    selector.clear();
     stage = std::move(next);
     currentMap = index;
     // Each map brings its own music (or none, which silences the previous)
@@ -498,6 +503,13 @@ int main(int argc, char **argv) {
     ui.open(new MapSelector(mapNames, currentMap, controls.key(Action::Maps),
                             [&](int index) { requestedMap = index; }));
   });
+
+  // Debug select key (1): turns the object selection mode on and off
+  ui.bindKey([&controls]() { return controls.key(Action::DebugSelect); },
+             [&]() { selector.toggleSelect(); });
+  // Debug place key (2): moves the selected object where the camera points
+  ui.bindKey([&controls]() { return controls.key(Action::DebugPlace); },
+             [&]() { selector.togglePlace(); });
 
   // Leave-vehicle key (with no panel open): the map puts the player back on
   // foot, if it was driving
@@ -537,6 +549,7 @@ int main(int argc, char **argv) {
     controller.update();
     stage->update(dt);
     stage->getPlayer()->followCamera();
+    selector.update(*stage, camera, !ui.hasPanels());
     // The player hears from the camera
     sound.setListener(camera.getPosition(), camera.getForward());
     const vec3 &horizon = stage->getEnvironment().horizon;
@@ -547,6 +560,7 @@ int main(int argc, char **argv) {
     shader.setFloat("time", (float)now);
     stage->render(&shader, camera.getPosition(), now);
     particles.draw(stage->getEmitters(), camera); // over the world
+    selector.draw(camera); // the selected object's outline, if any
     ui.draw(); // last, over everything
 
     // Swap buffers

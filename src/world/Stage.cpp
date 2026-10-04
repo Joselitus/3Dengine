@@ -356,8 +356,12 @@ void Stage::registerBody(GameObject *object, DynamicGameObject *dynamic) {
   bodies.push_back({object, dynamic});
   if (dynamic || !object->isCollidable())
     return; // the dynamic ones are placed on the grid every update
+  placeStatic(index);
+}
+
+void Stage::placeStatic(int index) {
   int x0, z0, x1, z1;
-  if (!cellRange(*object, x0, z0, x1, z1)) {
+  if (!cellRange(*bodies[index].object, x0, z0, x1, z1)) {
     cerr << "Stage: a static object covers too many collision cells, it is "
             "ignored (setCollidable(false) if it is the floor)" << endl;
     return;
@@ -365,6 +369,26 @@ void Stage::registerBody(GameObject *object, DynamicGameObject *dynamic) {
   for (int z = z0; z <= z1; z++)
     for (int x = x0; x <= x1; x++)
       gridCells[cellKey(x, z)].statics.push_back(index);
+}
+
+void Stage::rebuildStaticGrid() {
+  for (auto &cell : gridCells)
+    cell.second.statics.clear();
+  for (size_t i = 0; i < bodies.size(); i++)
+    if (!bodies[i].dynamic && bodies[i].object->isCollidable())
+      placeStatic((int)i);
+}
+
+void Stage::relocate(GameObject &object, const vec3 &position) {
+  object.teleport(position);
+  // A static one (or its parts that are objects of their own, like the post
+  // of a satellite) may now be in other cells: they are few, place them all
+  // again
+  for (const Body &body : bodies)
+    if (body.object == &object && !body.dynamic) {
+      rebuildStaticGrid();
+      return;
+    }
 }
 
 void Stage::resolveCollisions() {

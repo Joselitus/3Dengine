@@ -2,6 +2,7 @@
 #define GAME_OBJECT
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -16,6 +17,7 @@
 // includes the scale) and the unlit/breathAmp uniforms, then draws the parts.
 // It also has a collision shape (see CollisionShape): by default a pill
 // (Capsule) that fits its model; another shape can be given on construction.
+// describe() lists its state as text (see DebugSelector).
 class GameObject {
 public:
   // One model of the object and how the shader must draw it
@@ -78,9 +80,20 @@ public:
     return pose;
   }
   void translate(const glm::vec3 &delta) { position += delta; }
+  // Puts the object somewhere else at once, as if it had always been there
+  // (e.g. the debug placement mode). Objects with more state than their
+  // position (velocity, a physics body, other parts) override it. To move an
+  // object of a stage, use Stage::relocate, which also updates its grid.
+  virtual void teleport(const glm::vec3 &position) {
+    this->position = position;
+  }
 
   // Advances the object by dt seconds
   virtual void update(double dt);
+  // Appends what there is to know about the object's state, one line each
+  // (position, rotation, shape and bounds...), for the debug selector.
+  // Subclasses add their own lines after their parent's.
+  virtual void describe(std::vector<std::string> &lines) const;
   void Draw(Shader *shader);
 };
 

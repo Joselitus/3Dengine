@@ -1,6 +1,8 @@
 #include "DynamicGameObject.h"
 
 #include <cmath>
+
+#include "TextFormat.h"
 using namespace glm;
 
 void DynamicGameObject::steerTowards(const vec3 &wantedVelocity,
@@ -29,4 +31,16 @@ void DynamicGameObject::update(double dt) {
     velocity.z *= keep;
   }
   position += velocity * (float)dt;
+}
+
+void DynamicGameObject::describe(std::vector<std::string> &lines) const {
+  GameObject::describe(lines);
+  lines.push_back(textFormat("Velocidad: %s  %.2f m/s",
+                             textOf(velocity).c_str(), length(velocity)));
+  lines.push_back("Aceleracion: " + textOf(acceleration));
+  lines.push_back(textFormat("Masa: %.0f kg  Gravedad: %.1f m/s2", getMass(),
+                             gravity));
+  lines.push_back(textFormat("Vel. max: %.1f m/s  Rozamiento: %.1f /s", maxSpeed,
+                             drag));
+  lines.push_back(std::string("En el suelo: ") + (grounded ? "si" : "no"));
 }

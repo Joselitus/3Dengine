@@ -41,6 +41,8 @@ public:
   // head
   Satellite(std::shared_ptr<Model> cube, glm::vec3 ground, float size = 0.7f);
   std::shared_ptr<GameObject> getMount() const { return mount; }
+  // The post goes with it
+  void teleport(const glm::vec3 &position) override;
 
   // Target orientation; the azimuth is wrapped and the zenith clamped
   void pointAt(float azimuth, float zenith);

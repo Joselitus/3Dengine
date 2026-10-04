@@ -296,3 +296,92 @@ void Box::floorSamples(const Pose &pose, std::vector<vec3> &out) const {
                     pose.rotation[u] * (h[u] * (2.0f * i / (nu - 1) - 1.0f)) +
                     pose.rotation[v] * (h[v] * (2.0f * j / (nv - 1) - 1.0f)));
 }
+
+// --------------------------------------------------------------- raycasts
+namespace {
+
+// Ray (unit direction) against a sphere: distance to the first hit, 0 if the
+// ray starts inside
+bool raySphere(const vec3 &origin, const vec3 &direction, const vec3 &centre,
+               float radius, float &distance) {
+  vec3 m = origin - centre;
+  float b = dot(m, direction), c = dot(m, m) - radius * radius;
+  if (c > 0.0f && b > 0.0f)
+    return false; // outside and moving away
+  float discriminant = b * b - c;
+  if (discriminant < 0.0f)
+    return false;
+  distance = std::max(0.0f, -b - std::sqrt(discriminant));
+  return true;
+}
+
+} // namespace
+
+bool Capsule::raycast(const Pose &pose, const vec3 &origin,
+                      const vec3 &direction, float &distance) const {
+  vec3 a, b;
+  float r;
+  segment(pose, a, b, r);
+  bool hit = false;
+  float t;
+  // The two end spheres
+  if (raySphere(origin, direction, a, r, t)) {
+    distance = t;
+    hit = true;
+  }
+  if (raySphere(origin, direction, b, r, t) && (!hit || t < distance)) {
+    distance = t;
+    hit = true;
+  }
+  // The cylinder between them: the ray and the axis, without their parts
+  // along the axis, must be r apart
+  vec3 axis = b - a;
+  float length = glm::length(axis);
+  if (length < 1e-6f)
+    return hit;
+  axis /= length;
+  vec3 m = origin - a;
+  vec3 d = direction - axis * dot(direction, axis);
+  vec3 mp = m - axis * dot(m, axis);
+  float qa = dot(d, d), qb = dot(mp, d), qc = dot(mp, mp) - r * r;
+  if (qa < 1e-10f)
+    return hit; // parallel to the axis: only the spheres can be hit first
+  float discriminant = qb * qb - qa * qc;
+  if (discriminant < 0.0f)
+    return hit;
+  t = std::max(0.0f, (-qb - std::sqrt(discriminant)) / qa);
+  float along = dot(m + direction * t, axis);
+  if (along >= 0.0f && along <= length && (qc <= 0.0f || -qb >= 0.0f) &&
+      (!hit || t < distance)) {
+    distance = t;
+    hit = true;
+  }
+  return hit;
+}
+
+bool Box::raycast(const Pose &pose, const vec3 &origin, const vec3 &direction,
+                  float &distance) const {
+  // Slabs, in the box's own axes
+  vec3 c, h;
+  world(pose, c, h);
+  vec3 o = origin - c;
+  float near = 0.0f, far = 1e30f;
+  for (int k = 0; k < 3; k++) {
+    float start = dot(o, pose.rotation[k]);
+    float speed = dot(direction, pose.rotation[k]);
+    if (std::fabs(speed) < 1e-8f) {
+      if (start < -h[k] || start > h[k])
+        return false; // parallel to this slab and outside it
+      continue;
+    }
+    float t0 = (-h[k] - start) / speed, t1 = (h[k] - start) / speed;
+    if (t0 > t1)
+      std::swap(t0, t1);
+    near = std::max(near, t0);
+    far = std::min(far, t1);
+    if (near > far)
+      return false;
+  }
+  distance = near;
+  return true;
+}

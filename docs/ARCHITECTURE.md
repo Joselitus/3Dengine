@@ -7,17 +7,18 @@ Este documento explica cómo está montado el motor 3D y cómo se dibuja un fram
 ```
 src/                 motor + juego (C++11, OpenGL 3.3 core)
   test.cpp           main: lista de mapas, cambio de mapa, TestStage (el mapa de día) y bucle principal
-  render/            mallas, modelos, animación, Shader, Light, Camera, myopengl
+  render/            mallas, modelos, animación, Shader, Light, Camera, LineRenderer (líneas de depuración), myopengl
   effects/           ParticleEmitter (simulación) y ParticleRenderer (dibujo) de las partículas
   physics/           CollisionShape (cápsula, caja) y VehicleBody (chasis sobre muelles)
   world/             GameObject, DynamicGameObject, PlayableCharacter, Stage, GameStage, SceneStage, SceneFile, Interactable
   entities/          RV, Walker, Npc, Satellite, Readable
   input/             Controller, Controls, InteractionSystem
+  debug/             DebugSelector (modo selección de objetos, tecla 1)
   audio/             SoundEngine, AudioClip, Voice, SpeechSynthesizer, EspeakSynthesizer
   dialogue/          Dialogue, LineNarrator, Typewriter
-  ui/                UIManager, UIRenderer, los UI* y los menús (Pause, Options, Controls, Settings, Camera, ConfirmDialog, MapSelector)
-  core/              Settings (ajustes entre sesiones)
-  shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag, particle.vert/particle.frag; shader.vert está en desuso
+  ui/                UIManager, UIRenderer, UIOverlay, los UI* y los menús (Pause, Options, Controls, Settings, Camera, ConfirmDialog, MapSelector)
+  core/              Settings (ajustes entre sesiones), TextFormat.h (printf a std::string, vectores en texto)
+  shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag, particle.vert/particle.frag, lines.vert/lines.frag; shader.vert está en desuso
   third_party/       miniaudio, stb_image, stb_easy_font (se compilan con -w)
   makefile           compila todos los .cpp de src/ (en cualquier subdirectorio) y genera ../test/test.
                      Cada subdirectorio es un include path: los .h se incluyen por su nombre, sin ruta
@@ -109,10 +110,12 @@ controller.setEnabled(!ui.hasPanels())   con cualquier panel abierto, controles 
 controller.update()          ratón → rotación de la cámara; teclas → player->control(dir, up, yaw)
 stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las colisiones (ver "Suelo y colisiones")
 player->followCamera()       la cámara sigue al jugador ya movido
+selector.update(stage, cam, !ui.hasPanels())   modos selección (1: clic → rayo y elige) y colocación (2: clic → relocate); refresca los datos
 glClear(horizonte del mapa)
 stage->render(shader, camPos, t)   cielo del mapa (si tiene) y después cada GameObject
 particles.draw(emisores)     las partículas del mapa (polvo...), tras el mundo: discos que miran a la cámara
-ui.draw()                    interfaz 2D encima de todo
+selector.draw(camera)        la forma de colisión y la AABB del objeto elegido (si el modo está activo)
+ui.draw()                    interfaz 2D encima de todo: overlays (cruz y datos del selector), paneles y aviso
 glfwSwapBuffers / glfwPollEvents
 ```
 
@@ -163,6 +166,8 @@ UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
     └── UIRow                    hijos en horizontal, repartiendo el ancho
 
 UIManager    paneles abiertos, reparto del ratón y del teclado, Esc, atajos, aviso inferior, dibujo
+UIOverlay    (interfaz) algo que se dibuja a pantalla completa sin ser un panel: no recibe entrada ni pausa los
+             controles (UIManager::addOverlay/removeOverlay; se dibuja bajo los paneles). P. ej. DebugSelector
 ConfirmDialog (UIPanel) pregunta con varios botones ("¿Guardar y salir?"); se abre encima del panel que pregunta
 UIRenderer   rectángulos y texto en píxeles de ventana, en un solo draw call
 Interactable contrato entre un objeto del juego y la interfaz
@@ -270,6 +275,8 @@ Reglas para no romper nada:
 | `LeaveVehicle` | Mayús izquierda | atajo `ui.bindKey` en `test.cpp` (sin paneles abiertos): llama a `GameStage::leaveVehicle()` |
 | `Quit` | X | `PauseMenu::onKey` y el texto de su botón |
 | `Maps` | Z | atajo `ui.bindKey` en `test.cpp` (con la tecla leída en cada pulsación) y `MapSelector` (que se cierra con su misma tecla) |
+| `DebugSelect` | 1 | atajo `ui.bindKey` en `test.cpp`: enciende y apaga el modo selección del `DebugSelector` (y el texto de su recuadro) |
+| `DebugPlace` | 2 | atajo `ui.bindKey` en `test.cpp`: enciende y apaga el modo colocación del `DebugSelector` |
 
 Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gravedad. `PlayableCharacter::control` (de `main`) mantiene su parámetro `up`, y `Controller` le pasa 0.
 
@@ -294,7 +301,7 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 - **Cambiar de mapa es diferido:** el botón solo apunta el índice (`requestedMap`). El bucle principal llama a `switchMap` al principio del frame siguiente, nunca dentro de un callback de la UI, porque el botón que se pulsó todavía se está ejecutando.
 - **`switchMap(i)`** crea el mapa nuevo (si falla, avisa y se queda en el actual). Después:
   1. cierra todos los paneles (`ui.closeAll`), porque pueden apuntar a objetos del mapa viejo;
-  2. vacía el `InteractionSystem` y destruye el mapa viejo;
+  2. vacía el `InteractionSystem`, olvida el objeto elegido del `DebugSelector` (`clear`) y destruye el mapa viejo;
   3. registra los interactuables nuevos y **arranca la música del mapa** (`MusicPlayer::play`; sin música, silencia la anterior);
   4. conecta el `Controller` al nuevo jugador, con la cámara que pide el mapa y mirando al frente;
   5. aplica su entorno (luz, `moonDir`, `fogColor`).
@@ -303,6 +310,33 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 **Añadir un mapa:**
 - **En datos (lo más fácil):** crea `assets/scenes/mi_mapa.scene` (ver [Ficheros de escena](#ficheros-de-escena-assetsscenesscene)) y añade a `maps` la entrada `{"Mi mapa", [floorMode]() -> std::unique_ptr<GameStage> { return SceneStage::load("../assets/scenes/mi_mapa.scene", "../assets", floorMode); }}`. El visor web también lo mostrará con `--scene`.
 - **En código** (si necesita lógica propia, como `TestStage`): hereda de `GameStage` y, en el constructor, rellena `environment`, `cameraDistance`/`cameraHeight` y `player`, llama a `setFloor` y a `add`/`addDynamic` para el contenido, y opcionalmente `setSky` e `interactables`. Si hace falta, sobrescribe `apply()`. Después añádelo a `maps`.
+
+## Modos selección y colocación (depuración)
+
+`DebugSelector` (`src/debug/`) sirve para inspeccionar los objetos del mapa mientras se juega, y para moverlos. Tiene dos modos (`Mode::Select`, `Mode::Place`); cada tecla enciende el suyo, o lo apaga si ya estaba encendido. En los dos se ve una cruz en el centro y un recuadro arriba a la izquierda.
+
+### Selección (tecla 1)
+
+- **1** (`Action::DebugSelect`, reasignable; sin paneles abiertos).
+- **Clic izquierdo:** lanza un rayo desde la cámara hacia el centro de la vista y elige el objeto **visible y colisionable** más cercano que toca (`CollisionShape::raycast`: cápsula o caja orientada exactas). El suelo y la carretera no se pueden elegir (no son colisionables), ni el jugador en primera persona (está oculto). Si el rayo pasa bajo una duna antes de llegar al objeto (se comprueba con `floorAt` cada 0.25 m), no elige nada. Un clic en el vacío deja la selección vacía.
+- **Clic derecho:** elige al jugador (el `Walker`, o el RV si se conduce).
+- **Qué muestra** (se refresca cada frame): el nombre (clase, nombre de `Interactable` si lo tiene e índice en el stage: `#n` estáticos, `#dn` dinámicos) y lo que da **`GameObject::describe(lines)`**, un método virtual en el que cada clase añade sus líneas tras las de su padre:
+  - `GameObject`: posición, rumbo e inclinación, escala, visible, colisionable, modelo, forma (radio y alto de la cápsula, o medidas y centro de la caja) y la AABB (mínimo, máximo y tamaño);
+  - `DynamicGameObject`: velocidad, aceleración, masa, gravedad, velocidad máxima, rozamiento y si está en el suelo;
+  - `RV`: ocupado, acelerador y volante, velocidad hacia delante, velocidad angular, centro de masas y la longitud de la suspensión de cada rueda (`*` = toca el suelo).
+  - El selector añade la altura y el material del suelo bajo el objeto y su distancia a la cámara.
+- **En el mundo** dibuja con un `LineRenderer` la forma de colisión (naranja), la AABB (azul) y la velocidad (verde, lo que recorre en 0.5 s). Las líneas se ven a través de todo.
+- **No es un panel**, sino un `UIOverlay` (`UIManager::addOverlay`): no pausa el `Controller`, así que se puede andar o conducir con un objeto elegido y ver su física en directo. Los paneles se dibujan encima.
+- Solo guarda un `weak_ptr` del objeto, y `switchMap` lo vacía (`clear`).
+- **Para que una clase nueva muestre sus datos,** sobrescribe `describe` llamando primero a la de su padre. Usa `textFormat`/`textOf` (`core/TextFormat.h`).
+
+### Colocación (tecla 2)
+
+- **2** (`Action::DebugPlace`) pasa a colocar **el objeto elegido** con la 1 (si no hay ninguno, el recuadro lo dice).
+- El destino es el **punto del suelo bajo la cruz**: `floorHit` avanza por el rayo de la cámara en pasos de 0.25 m hasta pasar bajo el suelo y afina por bisección. El objeto conserva **su altura sobre el suelo** (los adornos hundidos 5 cm siguen hundidos; la cabeza del satélite sigue sobre su poste).
+- Se dibuja la silueta del objeto en el destino (blanco) y una línea desde donde está. El recuadro muestra el destino y la posición actual.
+- **Clic izquierdo:** `Stage::relocate(objeto, destino)` (ver "La rejilla"). Se puede seguir haciendo clic para moverlo otra vez. **Clic derecho:** vuelve al modo selección para elegir otro.
+- No se comprueba si el destino está libre: si cae encima de otro objeto, las colisiones lo apartan en el frame siguiente como siempre (un dinámico se mueve; entre dos estáticos no se hace nada). El poste del satélite, que es un objeto aparte, se puede elegir y mover solo.
 
 ## Audio y voz (TTS)
 
@@ -440,7 +474,8 @@ Cada `GameObject` tiene una `CollisionShape`:
 
 El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto, segundo argumento del constructor). Cada objeto se registra en las celdas que cubre su caja envolvente. **Solo se comparan los objetos que comparten celda**, y nunca dos estáticos entre sí.
 
-- Los estáticos (`add`) se colocan en la rejilla **al añadirlos**; no hay que moverlos después. Un estático que cubre más de 1024 celdas se ignora con un aviso (casi seguro es el suelo, que debería ser no colisionable).
+- Los estáticos (`add`) se colocan en la rejilla **al añadirlos**. Para moverlos después, usa **`Stage::relocate(objeto, posición)`**, nunca `setPosition`: llama a `GameObject::teleport` y vuelve a colocar los estáticos en la rejilla (son pocos: se rehace entera).
+- `teleport` es virtual: `DynamicGameObject` además se para; el `RV` coloca su `VehicleBody` allí (derecho, con su rumbo y en reposo); `Satellite` se lleva el poste. Un estático que cubre más de 1024 celdas se ignora con un aviso (casi seguro es el suelo, que debería ser no colisionable).
 - Los dinámicos (`addDynamic`) se recolocan en la rejilla cada frame.
 - `getShapeTests()` dice cuántos pares se probaron en el último frame, para ver cuánto ahorra.
 

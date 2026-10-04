@@ -43,6 +43,13 @@ public:
   void steerTowards(const glm::vec3 &wantedVelocity, float responsiveness);
 
   void update(double dt) override;
+  // It also stops: no velocity or acceleration
+  void teleport(const glm::vec3 &position) override {
+    GameObject::teleport(position);
+    velocity = acceleration = glm::vec3(0.0f);
+  }
+  // Adds the motion: velocity, acceleration, mass, gravity...
+  void describe(std::vector<std::string> &lines) const override;
 
   // Called by the stage instead of its default floor handling (snapping the
   // object on the floor). Return true if the object deals with the floor

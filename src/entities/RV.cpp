@@ -5,6 +5,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "Stage.h"
+#include "TextFormat.h"
 using namespace glm;
 
 // Strongest acceleration of the RV, units / second^2
@@ -268,4 +269,37 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   placeWheels();
   updateDust(stage);
   return true;
+}
+
+void RV::describe(std::vector<std::string> &lines) const {
+  PlayableCharacter::describe(lines);
+  lines.push_back(std::string("Ocupado: ") + (occupied ? "si" : "no") +
+                  textFormat("  Acelerador: %.1f  Volante: %.1f", throttle,
+                             steering));
+  if (!body)
+    return; // no physics until the first update
+  lines.push_back(textFormat("Vehiculo: %.2f m/s hacia delante",
+                             tidy(body->getForwardSpeed())));
+  lines.push_back("Vel. angular: " + textOf(body->getAngularVelocity()));
+  lines.push_back("Centro de masas: " + textOf(body->getCentreOfMass()));
+  // Suspension length of each wheel (* = touching the ground). Same order as
+  // wheelParts; facing +z, -x is the right-hand side: DD = front right...
+  std::string wheels = "Suspension (m):";
+  const char *names[] = {"DD", "DI", "TD", "TI"};
+  const std::vector<VehicleBody::WheelState> &states = body->getWheels();
+  for (size_t i = 0; i < states.size(); i++)
+    wheels += textFormat(" %s %.2f%s", i < 4 ? names[i] : "?", states[i].length,
+                         states[i].onGround ? "*" : "");
+  lines.push_back(wheels);
+}
+
+void RV::teleport(const vec3 &position) {
+  PlayableCharacter::teleport(position);
+  vec3 forward = vec3(rotation[2]);
+  if (length(vec2(forward.x, forward.z)) > 1e-4f)
+    facing = std::atan2(forward.x, forward.z); // its heading now
+  setYaw(facing); // upright
+  if (body)
+    body->place(position, facing);
+  placeWheels();
 }

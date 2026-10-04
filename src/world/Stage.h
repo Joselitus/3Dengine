@@ -64,6 +64,8 @@ private:
   int shapeTests = 0; // shape-against-shape tests of the last update
   std::unordered_map<long long, Cell> gridCells;
   void registerBody(GameObject *object, DynamicGameObject *dynamic);
+  void placeStatic(int index); // puts a static body on the grid
+  void rebuildStaticGrid();
   bool cellRange(const GameObject &object, int &x0, int &z0, int &x1,
                  int &z1) const;
   void resolveCollisions();
@@ -128,6 +130,11 @@ public:
   std::shared_ptr<GameObject> add(std::shared_ptr<GameObject> object);
   std::shared_ptr<DynamicGameObject>
   addDynamic(std::shared_ptr<DynamicGameObject> object);
+
+  // Moves an object of the stage to `position` (GameObject::teleport). A
+  // static object is put on the collision grid again where it now is (they
+  // are only placed on it when added): use this, not setPosition, to move one.
+  void relocate(GameObject &object, const glm::vec3 &position);
 
   const std::vector<std::shared_ptr<GameObject>> &getObjects() const {
     return objects;
