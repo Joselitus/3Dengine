@@ -43,6 +43,10 @@ public:
   std::shared_ptr<GameObject> getMount() const { return mount; }
   // The post goes with it
   void teleport(const glm::vec3 &position) override;
+  // Turns its azimuth (and the target's) at once; the post stays
+  void turn(float radians) override;
+  // From its azimuth (its rotation also has the tilt of the zenith)
+  float getHeading() const override;
 
   // Target orientation; the azimuth is wrapped and the zenith clamped
   void pointAt(float azimuth, float zenith);

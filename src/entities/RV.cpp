@@ -303,3 +303,8 @@ void RV::teleport(const vec3 &position) {
     body->place(position, facing);
   placeWheels();
 }
+
+void RV::turn(float radians) {
+  PlayableCharacter::turn(radians);
+  teleport(position); // upright at the new heading, body included
+}

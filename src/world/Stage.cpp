@@ -381,6 +381,15 @@ void Stage::rebuildStaticGrid() {
 
 void Stage::relocate(GameObject &object, const vec3 &position) {
   object.teleport(position);
+  staticMoved(object);
+}
+
+void Stage::turn(GameObject &object, float radians) {
+  object.turn(radians);
+  staticMoved(object);
+}
+
+void Stage::staticMoved(const GameObject &object) {
   // A static one (or its parts that are objects of their own, like the post
   // of a satellite) may now be in other cells: they are few, place them all
   // again

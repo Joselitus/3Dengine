@@ -87,6 +87,14 @@ public:
   virtual void teleport(const glm::vec3 &position) {
     this->position = position;
   }
+  // Turns the object `radians` around the world's vertical axis, through its
+  // position (positive: anticlockwise seen from above, like setYaw). Its tilt
+  // and any scale in the rotation are kept. As with teleport, objects of a
+  // stage are turned through it (Stage::turn).
+  virtual void turn(float radians);
+  // Which way it faces around the vertical, radians (as setYaw: 0 = its +z
+  // towards the world's +z); turn(r) adds r to it
+  virtual float getHeading() const;
 
   // Advances the object by dt seconds
   virtual void update(double dt);

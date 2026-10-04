@@ -51,7 +51,7 @@ void Controller::update() {
     lastY = y;
     resync = false;
   }
-  float sensitivity = camera->getSensitivity();
+  float sensitivity = lookEnabled ? camera->getSensitivity() : 0.0f;
   float newYaw = yaw + sensitivity * (float)(x - lastX);
   float newPitch = glm::clamp(pitch + sensitivity * (float)(y - lastY),
                               -MAX_PITCH, MAX_PITCH);

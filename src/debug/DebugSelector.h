@@ -31,8 +31,10 @@ class GameStage;
 // - Placement (Action::DebugPlace, 2 by default): the point of the floor the
 //   crosshair points at is the destination, where a white outline of the
 //   selected object is drawn; a left click moves the object there
-//   (Stage::relocate), keeping its height above the floor. A right click goes
-//   back to selecting.
+//   (Stage::relocate), keeping its height above the floor. Holding the right
+//   button and moving the mouse sideways turns it around the vertical
+//   (Stage::turn) instead of the camera (see capturesMouse); with Shift held
+//   as well, its heading snaps to multiples of 15 degrees.
 // Each key turns its mode on (or off, if it is the current one).
 //
 // It is not a panel, just an overlay (UIOverlay): the player keeps moving and
@@ -53,6 +55,11 @@ private:
   std::weak_ptr<GameObject> selected;
   std::string selectedName;
   std::vector<std::string> info; // what the box shows, refreshed each update
+  bool turning = false;          // Place: the right button turns the object
+  double lastCursorX = 0.0;      // while turning, on the previous update
+  float turnHeading = 0.0f;      // while turning, where the mouse has taken
+                                 // it (radians, before snapping)
+  bool snapping = false;         // while turning, Shift is held
   bool hasTarget = false;        // Place: the crosshair points at the floor
   glm::vec3 target;              // Place: where the object would go
 
@@ -78,6 +85,10 @@ public:
   void toggleSelect() { setMode(mode == Mode::Select ? Mode::Off : Mode::Select); }
   void togglePlace() { setMode(mode == Mode::Place ? Mode::Off : Mode::Place); }
   Mode getMode() const { return mode; }
+  // Whether the mouse turns the selected object now (placement mode, right
+  // button held): then the camera must not turn with it
+  // (Controller::setLookEnabled)
+  bool capturesMouse() const;
   // Forgets the selected object (e.g. its map is about to be replaced)
   void clear();
 

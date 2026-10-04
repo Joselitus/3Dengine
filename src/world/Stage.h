@@ -66,6 +66,7 @@ private:
   void registerBody(GameObject *object, DynamicGameObject *dynamic);
   void placeStatic(int index); // puts a static body on the grid
   void rebuildStaticGrid();
+  void staticMoved(const GameObject &object); // rebuilds the grid if static
   bool cellRange(const GameObject &object, int &x0, int &z0, int &x1,
                  int &z1) const;
   void resolveCollisions();
@@ -135,6 +136,9 @@ public:
   // static object is put on the collision grid again where it now is (they
   // are only placed on it when added): use this, not setPosition, to move one.
   void relocate(GameObject &object, const glm::vec3 &position);
+  // Turns an object of the stage `radians` around the vertical
+  // (GameObject::turn); like relocate, a static one is put on the grid again
+  void turn(GameObject &object, float radians);
 
   const std::vector<std::shared_ptr<GameObject>> &getObjects() const {
     return objects;

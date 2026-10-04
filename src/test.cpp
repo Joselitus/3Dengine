@@ -513,8 +513,13 @@ int main(int argc, char **argv) {
 
   // Leave-vehicle key (with no panel open): the map puts the player back on
   // foot, if it was driving
+  // (not while the debug placement mode turns an object: Shift snaps it
+  // then)
   ui.bindKey([&controls]() { return controls.key(Action::LeaveVehicle); },
-             [&]() { stage->leaveVehicle(); });
+             [&]() {
+               if (!selector.capturesMouse())
+                 stage->leaveVehicle();
+             });
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -546,6 +551,9 @@ int main(int argc, char **argv) {
       controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                         stage->getCameraHeight(), stage->getCameraYaw());
     controller.setEnabled(!ui.hasPanels());
+    // In the debug placement mode, the right button turns the selected object
+    // with the mouse instead of the camera
+    controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
     stage->update(dt);
     stage->getPlayer()->followCamera();

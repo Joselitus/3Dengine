@@ -23,6 +23,7 @@ private:
   float pitch = 0.0f;   // camera tilt, radians (positive looks down)
 
   bool enabled = true;
+  bool lookEnabled = true; // false: the mouse doesn't turn the camera
   bool resync = false;  // next update only reads the cursor (after a pause)
 
 public:
@@ -40,6 +41,10 @@ public:
   // camera continues from where it was, ignoring where the cursor went.
   void setEnabled(bool enabled);
   bool isEnabled() const { return enabled; }
+  // While false the mouse doesn't turn the camera (its movement is used for
+  // something else, e.g. turning an object in the debug placement mode); the
+  // keys still move the character
+  void setLookEnabled(bool enable) { lookEnabled = enable; }
 };
 
 #endif

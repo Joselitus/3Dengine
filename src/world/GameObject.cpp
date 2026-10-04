@@ -53,6 +53,15 @@ void GameObject::setYaw(float radians) {
   rotation = glm::rotate(mat4(1.0f), radians, vec3(0.0f, 1.0f, 0.0f));
 }
 
+void GameObject::turn(float radians) {
+  rotation = glm::rotate(mat4(1.0f), radians, vec3(0.0f, 1.0f, 0.0f)) * rotation;
+}
+
+float GameObject::getHeading() const {
+  vec3 forward = vec3(rotation[2]);
+  return std::atan2(forward.x, forward.z);
+}
+
 void GameObject::update(double dt) {
   time += dt;
   if (aniModel)
@@ -91,8 +100,8 @@ void GameObject::describe(vector<string> &lines) const {
   lines.push_back("Posicion: " + textOf(position));
   // Heading: where its +z points, around +y (as setYaw); tilt: how far its
   // up axis leans from the vertical
-  vec3 forward = vec3(rotation[2]), up = vec3(rotation[1]);
-  float heading = degrees(std::atan2(forward.x, forward.z));
+  vec3 up = vec3(rotation[1]);
+  float heading = degrees(getHeading());
   float tilt = degrees(std::acos(clamp(up.y / length(up), -1.0f, 1.0f)));
   lines.push_back(textFormat("Rumbo: %.1f grados  Inclinacion: %.1f grados",
                              tidy(heading), tilt));

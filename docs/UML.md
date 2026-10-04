@@ -168,6 +168,7 @@ classDiagram
         +add(GameObject)
         +addDynamic(DynamicGameObject)
         +relocate(object, position)
+        +turn(object, radians)
         +setFloor(mesh, position, materials) bool
         +floorAt(x, z, height, normal, maxY) bool
         +materialAt(x, z) FloorMaterial
@@ -249,6 +250,8 @@ classDiagram
         +update(dt)
         +describe(lines)
         +teleport(position)
+        +turn(radians)
+        +getHeading() float
         +Draw(shader)
     }
     class Part {
@@ -307,6 +310,8 @@ classDiagram
         +getMount() GameObject
         +pointAt(azimuth, zenith)
         +teleport(position)
+        +turn(radians)
+        +getHeading() float
     }
     class Readable {
         Cartel que se lee
@@ -723,8 +728,10 @@ classDiagram
         -float yaw
         -float pitch
         -bool enabled
+        -bool lookEnabled
         +attach(character, distance, height)
         +setEnabled(enabled)
+        +setLookEnabled(enabled)
         +update()
     }
     class Controls {
@@ -796,6 +803,7 @@ classDiagram
         -LineRenderer lines
         +toggleSelect()
         +togglePlace()
+        +capturesMouse() bool
         +clear()
         +update(stage, camera, canPick)
         +draw(camera)
@@ -816,6 +824,7 @@ classDiagram
     class LineRenderer
     class Stage {
         +relocate(object, position)
+        +turn(object, radians)
     }
 
     Controller --> Camera : gira con el ratón
@@ -834,12 +843,13 @@ classDiagram
     DebugSelector *-- LineRenderer
     DebugSelector ..> CollisionShape : raycast desde la cámara
     DebugSelector --> GameObject : el elegido (weak_ptr), describe
-    DebugSelector ..> Stage : relocate (modo colocación)
+    DebugSelector ..> Stage : relocate y turn (modo colocación)
+    Controller ..> DebugSelector : el main desactiva la vista si capturesMouse
 ```
 
 El bucle del `main` hace `controller.setEnabled(!ui.hasPanels())`: con cualquier panel abierto los controles están en pausa y el cursor queda libre. `InteractionSystem` solo abre un panel cuando no hay otro, y con `enabled = false` (mientras se conduce) no ofrece ni usa nada. La tecla de bajar del vehículo (`Action::LeaveVehicle`, Mayús izquierda) es un atajo de `UIManager` (`bindKey`) que llama a `GameStage::leaveVehicle()`.
 
-**Modos selección y colocación (depuración).** `Action::DebugSelect` (tecla 1) y `Action::DebugPlace` (tecla 2) son otros atajos que encienden y apagan los modos del `DebugSelector`. En colocación, la cruz marca un punto del suelo (`floorHit`) y el clic lleva allí el objeto elegido con `Stage::relocate` (que llama al `teleport` virtual y, si es estático, lo recoloca en la rejilla). No es un panel sino un `UIOverlay`, así que no pausa los controles: con él encendido, el clic izquierdo lanza un rayo desde la cámara (`CollisionShape::raycast` de cada objeto visible y colisionable; si una duna se interpone, no elige nada) y el derecho elige al jugador. Muestra lo que da `GameObject::describe` (posición, rumbo, forma, AABB; velocidad, masa… en los dinámicos; suspensión en el RV) y dibuja la forma y la AABB con un `LineRenderer`. Solo guarda un `weak_ptr` y `switchMap` lo vacía con `clear()`.
+**Modos selección y colocación (depuración).** `Action::DebugSelect` (tecla 1) y `Action::DebugPlace` (tecla 2) son otros atajos que encienden y apagan los modos del `DebugSelector`. En colocación, la cruz marca un punto del suelo (`floorHit`) y el clic lleva allí el objeto elegido con `Stage::relocate` (que llama al `teleport` virtual y, si es estático, lo recoloca en la rejilla). Con el botón derecho pulsado, el ratón gira el objeto (`Stage::turn`, `GameObject::turn` virtual; con Mayús, de 15 en 15° según `GameObject::getHeading`) y el `main` hace `controller.setLookEnabled(!selector.capturesMouse())` para que la cámara no gire a la vez. No es un panel sino un `UIOverlay`, así que no pausa los controles: con él encendido, el clic izquierdo lanza un rayo desde la cámara (`CollisionShape::raycast` de cada objeto visible y colisionable; si una duna se interpone, no elige nada) y el derecho elige al jugador. Muestra lo que da `GameObject::describe` (posición, rumbo, forma, AABB; velocidad, masa… en los dinámicos; suspensión en el RV) y dibuja la forma y la AABB con un `LineRenderer`. Solo guarda un `weak_ptr` y `switchMap` lo vacía con `clear()`.
 
 ## 6. Audio y diálogos
 
@@ -1151,6 +1161,7 @@ sequenceDiagram
         M->>C: attach(nuevo jugador, distancia, altura, yaw)
     end
     M->>C: setEnabled(!hasPanels)
+    M->>C: setLookEnabled(!selector.capturesMouse())
     M->>C: update()
     C->>K: setAngles(yaw, pitch)
     C->>P: control(dir, up, yaw)
@@ -1159,7 +1170,7 @@ sequenceDiagram
     M->>P: followCamera()
     P->>K: follow()
     M->>D: update(stage, cámara, !hasPanels)
-    Note over D: clic, elige (1) o relocate (2)
+    Note over D: clic, elige (1) o relocate (2). Botón der., turn (2)
     M->>S: render(shader, cámara, tiempo)
     M->>R: draw(emisores del mapa, cámara)
     M->>D: draw(cámara): forma y AABB del elegido

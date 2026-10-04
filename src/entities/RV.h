@@ -103,6 +103,8 @@ public:
   bool contactFloor(const Stage &stage, double dt) override;
   // Its body is placed there too, upright, keeping its heading and at rest
   void teleport(const glm::vec3 &position) override;
+  // Same: its body is placed upright, at rest, with the new heading
+  void turn(float radians) override;
   // Adds the vehicle's own physics: speed, spin, wheels, occupied
   void describe(std::vector<std::string> &lines) const override;
 };

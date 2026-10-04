@@ -107,6 +107,7 @@ interaction.update(pos, enabled)   aviso "E: usar ..."; E abre o cierra el panel
 ui.update()                  ratón y teclas → paneles; Esc cierra el de arriba; sin paneles, Esc → pausa y Z → mapas
 [cambio de jugador]          si stage->takePlayerChange(): controller.attach(nuevo jugador, distancia, altura, yaw)
 controller.setEnabled(!ui.hasPanels())   con cualquier panel abierto, controles en pausa y cursor libre
+controller.setLookEnabled(!selector.capturesMouse())   en el modo colocación, con el botón derecho el ratón gira el objeto y no la cámara
 controller.update()          ratón → rotación de la cámara; teclas → player->control(dir, up, yaw)
 stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las colisiones (ver "Suelo y colisiones")
 player->followCamera()       la cámara sigue al jugador ya movido
@@ -335,7 +336,10 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 - **2** (`Action::DebugPlace`) pasa a colocar **el objeto elegido** con la 1 (si no hay ninguno, el recuadro lo dice).
 - El destino es el **punto del suelo bajo la cruz**: `floorHit` avanza por el rayo de la cámara en pasos de 0.25 m hasta pasar bajo el suelo y afina por bisección. El objeto conserva **su altura sobre el suelo** (los adornos hundidos 5 cm siguen hundidos; la cabeza del satélite sigue sobre su poste).
 - Se dibuja la silueta del objeto en el destino (blanco) y una línea desde donde está. El recuadro muestra el destino y la posición actual.
-- **Clic izquierdo:** `Stage::relocate(objeto, destino)` (ver "La rejilla"). Se puede seguir haciendo clic para moverlo otra vez. **Clic derecho:** vuelve al modo selección para elegir otro.
+- **Clic izquierdo:** `Stage::relocate(objeto, destino)` (ver "La rejilla"). Se puede seguir haciendo clic para moverlo otra vez. Para elegir otro, **1** vuelve al modo selección.
+- **Botón derecho pulsado + mover el ratón a los lados:** gira el objeto alrededor de la vertical (`Stage::turn`), con la sensibilidad de la cámara (a la derecha = sentido horario visto desde arriba, como gira la vista). Mientras está pulsado, la cámara no gira: `capturesMouse()` lo dice y el bucle de `main` llama a `controller.setLookEnabled(...)` (el `Controller` sigue leyendo el ratón, así que al soltar no salta; las teclas siguen moviendo al personaje). El recuadro muestra el rumbo ("girando" mientras tanto).
+- **Con Mayús (cualquiera de las dos) además:** el rumbo se ajusta a múltiplos de 15° (`SNAP_STEP`): 0°, 15°, 30°… absolutos, no pasos desde donde estaba. El selector acumula el giro del ratón sin ajustar (`turnHeading`) y gira el objeto hasta el múltiplo más cercano por el camino más corto; al soltar Mayús, vuelve al ángulo libre. Mayús es un modificador fijo (como los botones del ratón, en `fixedControls`), no una `Action`. Como Mayús izquierda es también `LeaveVehicle`, ese atajo no hace nada mientras `capturesMouse()` (pulsa el botón derecho antes que Mayús si estás conduciendo).
+- El rumbo sale de **`GameObject::getHeading()`** (virtual: por defecto, hacia dónde apunta su +z; `Satellite` lo calcula de su azimut, porque su rotación incluye la inclinación del cénit). `turn(r)` le suma `r`.
 - No se comprueba si el destino está libre: si cae encima de otro objeto, las colisiones lo apartan en el frame siguiente como siempre (un dinámico se mueve; entre dos estáticos no se hace nada). El poste del satélite, que es un objeto aparte, se puede elegir y mover solo.
 
 ## Audio y voz (TTS)
@@ -475,7 +479,8 @@ Cada `GameObject` tiene una `CollisionShape`:
 El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto, segundo argumento del constructor). Cada objeto se registra en las celdas que cubre su caja envolvente. **Solo se comparan los objetos que comparten celda**, y nunca dos estáticos entre sí.
 
 - Los estáticos (`add`) se colocan en la rejilla **al añadirlos**. Para moverlos después, usa **`Stage::relocate(objeto, posición)`**, nunca `setPosition`: llama a `GameObject::teleport` y vuelve a colocar los estáticos en la rejilla (son pocos: se rehace entera).
-- `teleport` es virtual: `DynamicGameObject` además se para; el `RV` coloca su `VehicleBody` allí (derecho, con su rumbo y en reposo); `Satellite` se lleva el poste. Un estático que cubre más de 1024 celdas se ignora con un aviso (casi seguro es el suelo, que debería ser no colisionable).
+- `teleport` es virtual: `DynamicGameObject` además se para; el `RV` coloca su `VehicleBody` allí (derecho, con su rumbo y en reposo); `Satellite` se lleva el poste.
+- Igual para girar: **`Stage::turn(objeto, radianes)`** llama a `GameObject::turn` (virtual: gira la rotación alrededor de la vertical del mundo, conservando inclinación y escala; el `RV` recoloca su cuerpo derecho con el rumbo nuevo; `Satellite` cambia su azimut, y el del objetivo, y el poste no gira) y rehace la rejilla si es estático. Un estático que cubre más de 1024 celdas se ignora con un aviso (casi seguro es el suelo, que debería ser no colisionable).
 - Los dinámicos (`addDynamic`) se recolocan en la rejilla cada frame.
 - `getShapeTests()` dice cuántos pares se probaron en el último frame, para ver cuánto ahorra.
 

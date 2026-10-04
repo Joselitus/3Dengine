@@ -143,3 +143,13 @@ void Satellite::teleport(const vec3 &position) {
   base += delta;
   mount->translate(delta);
 }
+
+void Satellite::turn(float radians) {
+  // The azimuth goes clockwise seen from above
+  float degrees = glm::degrees(radians);
+  azimuth = wrap360(azimuth - degrees);
+  targetAzimuth = wrap360(targetAzimuth - degrees);
+  applyOrientation();
+}
+
+float Satellite::getHeading() const { return -glm::radians(azimuth); }

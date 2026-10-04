@@ -17,6 +17,7 @@ using namespace glm;
 #define VELOCITY_TIME 0.5f  // the velocity is drawn as 0.5 s of travel
 #define BOX_MARGIN 16.0f    // from the corner of the screen
 #define CROSSHAIR 8.0f      // half the size of the crosshair, pixels
+#define SNAP_STEP 15.0f     // degrees between the headings Shift snaps to
 
 namespace {
 const vec4 SHAPE_COLOR(1.0f, 0.55f, 0.15f, 1.0f);
@@ -51,6 +52,12 @@ void DebugSelector::setMode(Mode next) {
     ui.removeOverlay(this);
   mode = next;
   hasTarget = false;
+  turning = false;
+}
+
+bool DebugSelector::capturesMouse() const {
+  return mode == Mode::Place && !selected.expired() &&
+         glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 }
 
 void DebugSelector::clear() {
@@ -181,6 +188,11 @@ void DebugSelector::refresh(const GameStage &stage, Camera &camera) {
     info.push_back(hasTarget ? "Destino: " + textOf(target)
                              : "Destino: apunta al suelo");
     info.push_back("Ahora: " + textOf(object->getPosition()));
+    info.push_back(textFormat("Rumbo: %.1f grados%s",
+                              tidy(degrees(object->getHeading())),
+                              !turning   ? ""
+                              : snapping ? "  (girando de 15 en 15)"
+                                         : "  (girando)"));
     return;
   }
   object->describe(info);
@@ -221,8 +233,34 @@ void DebugSelector::update(GameStage &stage, Camera &camera, bool canPick) {
     if (canPick && leftPressed && hasTarget) {
       stage.relocate(*object, target);
       hasTarget = false; // it is there now: no outline until the next frame
-    } else if (canPick && rightPressed) {
-      setMode(Mode::Select);
+    }
+    // Right button held: the mouse turns the object (the camera doesn't, see
+    // capturesMouse). Moving right turns it clockwise seen from above, as the
+    // camera would turn. With Shift, the heading snaps to SNAP_STEP degrees
+    // (to the multiples of it, not steps from where it was).
+    double x, y;
+    glfwGetCursorPos(window, &x, &y);
+    snapping = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+               glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+    if (object && canPick && right) {
+      if (!turning)
+        turnHeading = object->getHeading();
+      turnHeading -= camera.getSensitivity() * (float)(x - lastCursorX) *
+                     (turning ? 1.0f : 0.0f);
+      float wanted = turnHeading;
+      if (snapping) {
+        float step = radians(SNAP_STEP);
+        wanted = std::round(turnHeading / step) * step;
+      }
+      // The shortest way there
+      float change = std::remainder(wanted - object->getHeading(),
+                                    2.0f * pi<float>());
+      if (std::fabs(change) > 1e-5f)
+        stage.turn(*object, change);
+      turning = true;
+      lastCursorX = x;
+    } else {
+      turning = false;
     }
   }
   refresh(stage, camera);
@@ -295,7 +333,8 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
   if (mode == Mode::Place) {
     text.push_back("MODO COLOCACION (" + controls.keyName(Action::DebugPlace) +
                    ": salir)");
-    text.push_back("Clic izq.: llevarlo a la cruz   Clic der.: elegir otro");
+    text.push_back("Clic izq.: llevarlo a la cruz   Clic der. + raton: girar");
+    text.push_back("(+ Mayus: de 15 en 15 grados)");
   } else {
     text.push_back("MODO SELECCION (" + controls.keyName(Action::DebugSelect) +
                    ": salir, " + controls.keyName(Action::DebugPlace) +
@@ -319,8 +358,10 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
   renderer.frame(x, y, boxWidth, boxHeight, 1.0f, UITheme::BORDER);
   float ty = y + UITheme::PADDING;
   for (size_t i = 0; i < text.size(); i++) {
+    // The title, the help lines and, last, the selected object's name
+    bool name = !selectedName.empty() && i + 1 == text.size();
     renderer.text(x + UITheme::PADDING, ty, text[i],
-                  i == 2 ? TITLE_COLOR : (i == 0 ? UITheme::TEXT : UITheme::MUTED));
+                  name ? TITLE_COLOR : (i == 0 ? UITheme::TEXT : UITheme::MUTED));
     ty += lineHeight;
   }
   ty += UITheme::SPACING;

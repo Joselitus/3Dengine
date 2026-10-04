@@ -149,7 +149,7 @@ const vector<Controls::Fixed> &Controls::fixedControls() {
       {"Camara", "Mirar alrededor", "Raton"},
       {"Menus", "Menu de pausa / atras / cerrar panel", "Esc"},
       {"Menus", "Botones y deslizadores", "Clic izquierdo"},
-      {"Menus", "Elegir (1) / colocar (2) objeto", "Clic izq."},
+      {"Menus", "Objeto: elegir, mover, girar", "Clic izq./der."},
   };
   return fixed;
 }
