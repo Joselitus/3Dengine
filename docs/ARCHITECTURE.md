@@ -48,7 +48,7 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
                           ├── Npc (+ Interactable)
                           └── PlayableCharacter (abstracta)
                                 ├── Walker  (a pie, 1ª persona: el jugador de la noche)
-                                └── RV      (autocaravana con VehicleBody: el jugador del día)
+                                └── RV      (autocaravana con VehicleBody; se sube por su puerta, + Interactable)
            (todo usa myopengl: utilidades GL, texturas, conversión de matrices)
 ```
 
@@ -61,29 +61,30 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 | `AnimatedModel` | Carga un FBX con esqueleto: mallas, lista global de huesos, `Skeleton` y ajuste de escala (`computeFit`). Posee el `Assimp::Importer`. |
 | `Skeleton` | Evalúa la primera animación del fichero y calcula las matrices de hueso (`boneMats`, como máximo 100). |
 | `GameObject` | Todo lo que está en el mundo. Hecho de piezas (`Part`: un `shared_ptr<Model>`, su modo `unlit` y una transformación local opcional, que usan las ruedas del RV) o de un `AnimatedModel`, con posición, rotación y escala. Tiene una **forma de colisión** (`CollisionShape`; por defecto una cápsula ajustada al modelo, o la que se pase al construir) y un flag `collidable`. `update(dt)` es virtual. `Draw()` fija los uniforms y no dibuja nada si `setVisible(false)`. |
-| `DynamicGameObject` | `GameObject` que se mueve: velocidad, aceleración, velocidad máxima, masa y gravedad. Quien lo controla lo guía con `steerTowards` (aceleración); el `Stage` lo mueve. Ganchos virtuales para el stage: `contactFloor` (el objeto lleva su propio suelo, como el RV) y `applyCollision` (cómo recibe un empujón). |
+| `DynamicGameObject` | `GameObject` que se mueve: velocidad, aceleración, velocidad máxima, masa, gravedad y **rozamiento** (`setDrag`, en 1/s: cómo muere la velocidad horizontal; 0 por defecto, o sea, nunca). Quien lo controla lo guía con `steerTowards` (aceleración); el `Stage` lo mueve. Ganchos virtuales para el stage: `contactFloor` (el objeto lleva su propio suelo, como el RV) y `applyCollision` (cómo recibe un empujón). |
 | `PlayableCharacter` | Personaje que maneja el `Controller` (abstracta). Cada uno decide cómo responde a la entrada (`control`) y cómo lo sigue la cámara (`attachCamera`, `followCamera`). |
-| `Walker` | Personaje a pie: anda en la dirección de la cámara y se orienta hacia donde camina. Con distancia de cámara 0 es primera persona y se oculta a sí mismo. Es el jugador del mapa de noche. |
-| `RV` | Autocaravana, el jugador del mapa de día: W/S aceleran y A/D giran las ruedas delanteras, y la cámara orbita libremente sin girar la malla. Es un `VehicleBody` (chasis sobre 4 muelles) con las ruedas como piezas aparte. Ver [El RV](#el-rv-vehículo-con-suspensión). Su forma de colisión es una caja larga. |
+| `Walker` | Personaje a pie: anda en la dirección de la cámara y se orienta hacia donde camina. Con distancia de cámara 0 es primera persona y se oculta a sí mismo. Es el jugador de los dos mapas (en el de día puede subir al RV). |
+| `RV` | Autocaravana del mapa de día (también `Interactable`: se sube por su puerta): W/S aceleran y A/D giran las ruedas delanteras, y la cámara orbita libremente sin girar la malla. Es un `VehicleBody` (chasis sobre 4 muelles) con las ruedas como piezas aparte. Ver [El RV](#el-rv-vehículo-con-suspensión). Su forma de colisión es una caja larga. |
 | `Satellite` | `GameObject` + `Interactable`: cubo orientable en azimut y cénit. Ver [Satélite](#satélite). |
-| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez, tiene el suelo (height field o rayo hacia abajo, `floorAt`) y la **rejilla de colisiones**. Cada frame actualiza los objetos, aplica `apply()` a los dinámicos y resuelve las colisiones. Ver [Suelo y colisiones](#suelo-y-colisiones). |
+| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez, tiene el suelo (height field o rayo hacia abajo, `floorAt`) y la **rejilla de colisiones**. Cada frame actualiza los objetos, aplica `apply()` a los dinámicos y resuelve las colisiones. Ver [Suelo y colisiones](#suelo-y-colisiones). Tiene la **música de fondo** del nivel (`setMusic`/`loadMusic`, null = sin música; en bucle por defecto). Ver [Música de fondo](#música-de-fondo). |
 | `CollisionShape`, `Capsule`, `Box` | Volumen de colisión de un objeto (abstracta + pastilla vertical + caja orientada), con la prueba de choque entre cualquier par (`collide`) y los puntos bajos que no pueden quedar bajo el suelo (`floorSamples`). Ver [Suelo y colisiones](#suelo-y-colisiones). |
 | `VehicleBody` | Física de un vehículo con ruedas, sin OpenGL: cuerpo rígido con masa e inercia sobre muelles amortiguados (un "vehículo de rayos"), neumáticos y autoenderezado. Lo usa `RV`. Ver [El RV](#el-rv-vehículo-con-suspensión). |
-| `GameStage` | Mapa jugable (abstracta, hereda de `Stage`): añade todo lo que el juego necesita para ejecutarlo y cambiarlo en marcha. Incluye el `Environment` (dirección y color de la luz, color del horizonte), el cielo opcional (`setSky`) y el jugador con la cámara que quiere (distancia, altura). También tiene los interactuables, una regla `apply()` por defecto (suelo) y `render()` (cielo alrededor de la cámara + stage). |
-| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo), carretera, cactus, rocas, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador es el `RV`**, en tercera persona (cámara a 12 de distancia y 3.5 de altura). El suelo y la carretera no son colisionables. |
+| `GameStage` | Mapa jugable (abstracta, hereda de `Stage`): añade todo lo que el juego necesita para ejecutarlo y cambiarlo en marcha. Incluye el `Environment` (dirección y color de la luz, color del horizonte), el cielo opcional (`setSky`) y el jugador con la cámara que quiere (distancia, altura). También tiene los interactuables, una regla `apply()` por defecto (suelo) y `render()` (cielo alrededor de la cámara + stage). Puede **cambiar de jugador** en marcha: `setPlayer(personaje, distancia, altura, yaw)` marca el cambio y el bucle principal lo recoge con `takePlayerChange()` y vuelve a conectar el `Controller`. `leaveVehicle()` (tecla de bajar) y `interactionsEnabled()` son ganchos virtuales para los mapas con vehículos. |
+| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo), carretera, cactus, rocas, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador empieza siendo el pingüino a pie, en primera persona**; al usar la puerta del `RV` pasa a conducirlo, en tercera persona (cámara a 12 de distancia y 3.5 de altura), y con Mayús vuelve a pie. Ver [Subir y bajar del RV](#subir-y-bajar-del-rv). El suelo y la carretera no son colisionables. |
 | `SceneStage` | Mapa a partir de un `.scene` ("Desierto de noche" = `desert.scene`): suelo, objetos (apoyados con `ground`), efectos, cielo, luz y un `Walker` como jugador. |
 | `MapSelector` | Menú de depuración (tecla Z) para cambiar de mapa (subclase de `UIPanel`). Ver [Mapas](#mapas-y-selector-de-depuración). |
 | `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject`: en primera persona (distancia 0, a la altura de los ojos) o en tercera, desde detrás. El FOV (`setFov`) y la sensibilidad (`setSensitivity`) se pueden cambiar en marcha. |
 | `Controller` | Gestiona la entrada: el desplazamiento del ratón en cada frame × la sensibilidad gira la cámara, y las teclas de movimiento (WASD, ver `Controls`) llegan al `PlayableCharacter`. Se puede pausar (`setEnabled(false)`), y entonces el personaje recibe una entrada nula. **No lee Esc.** |
-| `PauseMenu`, `OptionsMenu`, `SettingsMenu`, `CameraMenu`, `ControlsMenu` | Menús del juego (subclases de `UIPanel`) que reciben un `MenuContext`. `SettingsMenu` es la base de las pantallas de ajustes (Guardar/Salir con aviso). Ver [Menús](#menús-pausa-y-opciones). |
+| `PauseMenu`, `OptionsMenu`, `SettingsMenu`, `CameraMenu`, `ControlsMenu`, `AudioMenu` | Menús del juego (subclases de `UIPanel`) que reciben un `MenuContext`. `SettingsMenu` es la base de las pantallas de ajustes (Guardar/Salir con aviso). Ver [Menús](#menús-pausa-y-opciones). |
 | `Controls` | Registro de teclas: qué tecla hace cada `Action`. Todo lo que lee teclado lo consulta aquí. Ver [Controles](#controles-y-teclas). |
-| `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
-| `InteractionSystem` | Busca el `Interactable` más cercano al jugador, muestra el aviso y abre o cierra su panel con E. Solo abre si no hay otro panel abierto. Esc lo cierra `UIManager`. |
+| `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, verbo, punto, alcance, `buildInterface(UIPanel&)` y ganchos. Por defecto usarlo abre un panel; si `usesDirectly()` devuelve `true` (el RV), `onUse()` actúa al momento y no se abre ningún panel. `isInteractionAvailable()` lo oculta mientras no se puede usar (un RV ya ocupado). |
+| `InteractionSystem` | Busca el `Interactable` disponible más cercano al jugador, muestra el aviso ("E: <verbo> <nombre>") y, con E, abre o cierra su panel o, si se usa directamente, llama a `onUse`. Solo abre si no hay otro panel abierto. `update(pos, enabled)` con `enabled = false` (mientras se conduce) no ofrece ni usa nada. Esc lo cierra `UIManager`. |
 | `UIManager`, `UIRenderer`, `UI*` | Sistema de interfaz 2D genérico. Ver [Interfaz de usuario](#interfaz-de-usuario-ui). |
 | `Light` | La única luz puntual del shader (el sol o la luna, según el mapa). |
-| `SoundEngine`, `Sound`, `AudioClip` | Motor de sonido (miniaudio): reproduce clips en memoria, en 3D o directos; el oyente sigue a la cámara. Ver [Audio y voz](#audio-y-voz-tts). |
+| `SoundEngine`, `Sound`, `AudioClip` | Motor de sonido (miniaudio): reproduce clips en memoria, en 3D o directos; el oyente sigue a la cámara. Un `Sound` puede repetirse en bucle (`setLooping`). Ver [Audio y voz](#audio-y-voz-tts). |
 | `SpeechSynthesizer`, `EspeakSynthesizer`, `Voice` | Texto a voz: la interfaz abstracta, su implementación con espeak-ng, y una voz que dice textos en segundo plano e informa del progreso. |
-| `Npc` | `DynamicGameObject` + `Interactable`: personaje con un `Dialogue` que dice su `Voice`. Al usarlo se gira hacia el jugador y habla, con subtítulos sincronizados. |
+| `MusicPlayer` | Reproduce la música de fondo del mapa actual (una pista cada vez, directa a los dos oídos, no en un punto del mundo). `play(clip, bucle, volumen)` sustituye la pista anterior; `nullptr` la para. Ver [Música de fondo](#música-de-fondo). |
+| `Npc` | `DynamicGameObject` + `Interactable` con un rozamiento grande (`NPC_DRAG` = 10/s), para que un empujón (el RV, el jugador) no lo haga deslizarse sin fin: se para en una décima de segundo. Personaje con un `Dialogue` que dice su `Voice`. Al usarlo se gira hacia el jugador y habla, con subtítulos sincronizados. |
 | `Dialogue`, `LineNarrator`, `Typewriter` | Caja de diálogo común (páginas, "Siguiente"/"Cerrar", Esc) y cómo se entrega cada línea: con voz (`Voice`) o escribiéndose en silencio (`Typewriter`). Ver [Diálogos](#diálogos-hablar-y-leer). |
 | `Readable` | `GameObject` + `Interactable`: algo que se lee (un cartel). Usa la misma caja de diálogo, pero sin voz. |
 | `SceneFile` | Parser de `.scene`, sin OpenGL. Lo usa `SceneStage`. (La antigua clase `Scene` se eliminó: la sustituye `SceneStage`.) |
@@ -98,8 +99,9 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 ```
 [cambio de mapa pendiente]   si el selector (o el arranque) pidió un mapa: switchMap() aquí, fuera de la UI
 camera.resize()              viewport y proyección si cambia el framebuffer
-interaction.update(pos)      aviso "E: usar ..."; E abre o cierra el panel del objeto cercano
+interaction.update(pos, enabled)   aviso "E: usar ..."; E abre o cierra el panel del objeto cercano (o lo usa al momento, como el RV)
 ui.update()                  ratón y teclas → paneles; Esc cierra el de arriba; sin paneles, Esc → pausa y Z → mapas
+[cambio de jugador]          si stage->takePlayerChange(): controller.attach(nuevo jugador, distancia, altura, yaw)
 controller.setEnabled(!ui.hasPanels())   con cualquier panel abierto, controles en pausa y cursor libre
 controller.update()          ratón → rotación de la cámara; teclas → player->control(dir, up, yaw)
 stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las colisiones (ver "Suelo y colisiones")
@@ -212,8 +214,8 @@ Reglas para no romper nada:
 ## Menús (pausa y opciones)
 
 - **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `test.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones** y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
-- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
-- **`OptionsMenu`** ("Opciones") es solo una lista de pantallas de ajustes: **Cámara**, **Controles** y **Volver** (o Esc, que vuelve a la pausa).
+- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `SoundEngine`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
+- **`OptionsMenu`** ("Opciones") es solo una lista de pantallas de ajustes: **Cámara**, **Controles**, **Audio** y **Volver** (o Esc, que vuelve a la pausa).
 - **`SettingsMenu`** (abstracta) es la base de esas pantallas. Una subclase añade sus controles y termina su constructor con `addFooter()`, que añade un texto de estado y los botones:
   - **Por defecto** llama a `resetToDefaults()` (hay que guardar después);
   - **Guardar** llama a `apply()`, que hace definitivos los cambios y escribe `Settings`;
@@ -224,6 +226,9 @@ Reglas para no romper nada:
   - Los sliders cambian la `Camera` al momento, así que el efecto se ve.
   - Recuerda los valores que tenía la cámara al abrirse: `discard()` los repone, y hay cambios sin guardar si la cámara ya no coincide con ellos.
   - Tiene las claves y `applySettings`/`storeSettings`. `main` llama a `CameraMenu::applySettings` al arrancar.
+- **`AudioMenu`** ("Audio") tiene, de momento, un único slider: el **volumen general** (0–100 %, de 5 en 5, `SoundEngine::setMasterVolume`), que escala todo lo que suena (la música y las voces).
+  - Cambia el volumen al momento, así que se oye; recuerda el volumen que tenía el motor al abrirse: `discard()` lo repone, y hay cambios sin guardar si ya no coincide. Por defecto, 100 %.
+  - Clave `audio.master_volume` (fracción de 0 a 1; un valor ausente, no numérico o fuera de rango se deja en el valor por defecto o se limita). `main` llama a `AudioMenu::applySettings` al arrancar, justo después de crear el `SoundEngine`.
 - **`ControlsMenu`** ("Controles") muestra por grupos todas las acciones con su tecla, además de las entradas fijas (ratón, Esc, clic), y **permite cambiar las teclas** sobre una copia. Ver [Controles y teclas](#controles-y-teclas).
 - Los menús oscurecen el juego y no tienen botón de cerrar.
 - **El mundo no se detiene** con el menú abierto: `stage.update` sigue corriendo (el satélite termina de girar, por ejemplo). Solo se pausan los controles del jugador.
@@ -233,7 +238,7 @@ Reglas para no romper nada:
   2. Añade un `UISlider` (o un `UIButton`) en el constructor de `CameraMenu`, con sus límites como constantes de la clase.
   3. Añádela al valor recordado al abrir, y a `hasUnsavedChanges`, `discard` y `resetToDefaults`.
   4. Dale una clave (`..._KEY`) y añádela a `applySettings` (con su valor por defecto y limitada a su rango) y a `storeSettings`.
-- **Para una pantalla de ajustes nueva** (por ejemplo, Audio): hereda de `SettingsMenu`, implementa `hasUnsavedChanges`/`apply`/`discard`/`resetToDefaults`, termina el constructor con `addFooter()` y añade su botón en `OptionsMenu`.
+- **Para una pantalla de ajustes nueva** (`AudioMenu` es la más corta, un buen modelo): hereda de `SettingsMenu`, implementa `hasUnsavedChanges`/`apply`/`discard`/`resetToDefaults`, termina el constructor con `addFooter()` y añade su botón en `OptionsMenu`.
 
 ## Configuración guardada
 
@@ -241,8 +246,8 @@ Reglas para no romper nada:
 - `load()`: si el fichero no existe, se usan los valores por defecto (primera vez); las líneas inválidas se saltan con un aviso. `save()` crea la carpeta, escribe un `.tmp` y lo renombra, así que un fallo nunca deja el fichero a medias.
 - Las claves desconocidas se conservan al guardar: una versión antigua del juego no borra lo que guardó una más nueva.
 - Valores: `getFloat`/`setFloat` y `getString`/`setString`. Un valor que no es un número devuelve el valor por defecto.
-- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados), definidas por `CameraMenu`, que se guardan con su botón "Guardar". También `controls.<id>` (código de tecla GLFW), definidas por `Controls`, que se guardan con el botón "Guardar" de `ControlsMenu`.
-- **Para guardar algo nuevo:** elige una clave con prefijo (`audio.volume`), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
+- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados), definidas por `CameraMenu`, que se guardan con su botón "Guardar". `audio.master_volume` (0 a 1), definida por `AudioMenu`. También `controls.<id>` (código de tecla GLFW), definidas por `Controls`, que se guardan con el botón "Guardar" de `ControlsMenu`.
+- **Para guardar algo nuevo:** elige una clave con prefijo (`audio.master_volume`, por ejemplo), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
 - **En las pruebas**, lanza el juego con `XDG_CONFIG_HOME=<carpeta temporal>` para no sobrescribir la configuración real del usuario.
 
 ## Controles y teclas
@@ -258,6 +263,7 @@ Reglas para no romper nada:
 |---|---|---|
 | `MoveForward/Back/Left/Right` | W / S / A / D | `Controller::update` (cada frame) |
 | `Use` | E | `InteractionSystem::update` |
+| `LeaveVehicle` | Mayús izquierda | atajo `ui.bindKey` en `test.cpp` (sin paneles abiertos): llama a `GameStage::leaveVehicle()` |
 | `Quit` | X | `PauseMenu::onKey` y el texto de su botón |
 | `Maps` | Z | atajo `ui.bindKey` en `test.cpp` (con la tecla leída en cada pulsación) y `MapSelector` (que se cierra con su misma tecla) |
 
@@ -285,7 +291,7 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 - **`switchMap(i)`** crea el mapa nuevo (si falla, avisa y se queda en el actual). Después:
   1. cierra todos los paneles (`ui.closeAll`), porque pueden apuntar a objetos del mapa viejo;
   2. vacía el `InteractionSystem` y destruye el mapa viejo;
-  3. registra los interactuables nuevos;
+  3. registra los interactuables nuevos y **arranca la música del mapa** (`MusicPlayer::play`; sin música, silencia la anterior);
   4. conecta el `Controller` al nuevo jugador, con la cámara que pide el mapa y mirando al frente;
   5. aplica su entorno (luz, `moonDir`, `fogColor`).
 - **Regla:** nada fuera del mapa puede guardar punteros a sus objetos sin limpiarlos en `switchMap`.
@@ -324,6 +330,16 @@ EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espea
   - Su `AnimatedModel` debe crearse con `feetAtOrigin = true`, para que esté de pie sobre su posición: es un `DynamicGameObject` con gravedad y el stage lo apoya en el suelo.
   - Hoy hay uno, "Pingu", en `TestStage`, delante del inicio.
 - **Subtítulos:** `UITextBlock` ajusta primero el texto entero (así las palabras no saltan de línea mientras aparecen) y muestra solo la fracción `voice.progress()` de sus caracteres.
+
+## Música de fondo
+
+Cada `Stage` tiene una música de fondo (`Stage::setMusic(clip, loop = true, volume = 1)`; `loadMusic(ruta)` la carga de un WAV). **`nullptr` significa sin música**, que es lo que tiene por defecto. El stage solo la guarda: quien la reproduce es el `MusicPlayer`, que crea `main` después del `SoundEngine`.
+
+- **Cuándo suena:** `switchMap` llama a `music.play(stage->getMusic(), stage->isMusicLooping(), stage->getMusicVolume())` con cada mapa nuevo. La pista anterior se para siempre (si el mapa nuevo no tiene música, queda silencio) y la nueva empieza desde el principio. La música sigue sonando con los menús abiertos.
+- **En bucle por defecto:** `Sound::setLooping` (miniaudio) la repite hasta que se para. `desert.wav` está hecha para que el bucle no tenga salto (ver el pipeline de assets).
+- **No es espacial:** se oye igual en los dos oídos, sin atenuarse con la distancia (`play(clip, spatial = false)`).
+- **Mapas:** "Desierto de dia" (`TestStage`) carga `assets/music/desert.wav` en su constructor; "Desierto de noche" (`SceneStage`) no tiene música, de momento (los `.scene` no tienen un comando para ello).
+- **Memoria:** el clip son muestras `float` (unos 20 MB para 76.8 s a 32 kHz estéreo) y se vuelve a cargar cada vez que se entra en el mapa. Si falla la carga, el mapa se queda sin música y avisa por la salida de error.
 
 ## Diálogos: hablar y leer
 
@@ -428,7 +444,7 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
 
 ## El RV: vehículo con suspensión
 
-`RV` es el jugador del mapa de día. Su física está en `VehicleBody`, que no depende de OpenGL (se puede probar sola) y se mueve en pasos fijos de 1/240 s.
+`RV` es el vehículo del mapa de día (el jugador lo conduce tras subir por su puerta, ver [Subir y bajar del RV](#subir-y-bajar-del-rv)). Su física está en `VehicleBody`, que no depende de OpenGL (se puede probar sola) y se mueve en pasos fijos de 1/240 s.
 
 - **Chasis:** cuerpo rígido con masa (3000 kg), inercia y orientación (cuaternión). El **centro de masas está bajo los ejes de las ruedas** (peso en la parte baja) y la inercia es la de una caja baja, así que se resiste a volcar: en curvas rápidas se inclina unos 2°.
 - **Ruedas:** cuatro muelles amortiguados (rigidez y amortiguación se calculan para que lleven el peso con un recorrido de reposo de 0.35 m, entre 0.15 y 0.55). Cada rueda lanza un rayo de suelo desde su anclaje (`floorAt`) y empuja el chasis con la fuerza del muelle. Las ruedas se dibujan como piezas aparte (`wheel_negx.obj`, `wheel_posx.obj`), así que **suben y bajan con la suspensión** y las delanteras giran al dirigir.
@@ -437,6 +453,18 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
 - **Autoenderezado (tentetieso):** una aceleración angular lo devuelve siempre a apoyarse en las ruedas: suave si está algo inclinado y fuerte pasado ~26°, amortiguada para que se asiente. En el aire solo funciona al 15% (no hay nada contra lo que empujar). Desde cualquier postura, incluso boca abajo, vuelve a las ruedas en 1 a 2 s.
 - **Control:** `control()` solo guarda el acelerador (W/S) y la dirección (A/D); la dirección de la cámara se ignora a propósito. El `Stage` llama a `RV::contactFloor`, que avanza el `VehicleBody` y copia su posición y su orientación al objeto.
 - **Constantes:** la masa, el centro de masas, las esquinas y la forma del chasis están en `RV.cpp`; los parámetros de suspensión, neumáticos y autoenderezado, en `VehicleBody::Params` (`VehicleBody.h`).
+
+## Subir y bajar del RV
+
+En el mapa de día el jugador empieza siendo el pingüino a pie (`Walker`, primera persona). El RV es un `Interactable` que se usa directamente:
+
+- **Subir:** junto a su puerta (el lado +x del modelo, un poco por detrás del centro; con el RV orientado a +z, la puerta queda hacia el punto de inicio) aparece "E: conducir la autocaravana". Con E, `RV::onUse` ejecuta la acción de entrada que le pone el mapa (`setEnterAction`) y `TestStage::enterRV()` hace esto:
+  1. el pingüino deja de andar, se oculta, deja de ser colisionable (estaría dentro de la caja del RV) y no tiene gravedad;
+  2. cada frame `apply()` lo coloca en el asiento del RV (`seatPosition()`, dentro de la carrocería), así que va donde vaya el RV;
+  3. `setPlayer(rv, 12, 3.5, yaw)` entrega los controles y la cámara al RV, mirando por detrás (`headingYaw()`);
+  4. el RV pasa a "ocupado" (no se puede volver a usar y no frena) y las interacciones se desactivan (`interactionsEnabled() == false`).
+- **Bajar:** con la tecla `LeaveVehicle` (Mayús izquierda, reasignable), `TestStage::leaveVehicle()` pone al pingüino en el suelo junto a la puerta (`doorPosition(1.5)`, fuera de la caja del RV), con gravedad y colisión, y devuelve los controles y la cámara en primera persona, mirando hacia fuera de la puerta (`doorYaw()`). Un RV vacío tiene el **freno de mano** puesto (`VehicleBody::setHandbrake`), así que se queda donde se deja.
+- **Cómo llega el cambio al bucle:** `GameStage::setPlayer` marca el cambio; el bucle principal lo recoge con `takePlayerChange()` y llama a `controller.attach(jugador, distancia, altura, yaw)`. `Controller::attach` acepta el rumbo inicial de la vista (por defecto, hacia −z).
 
 ## Satélite
 
@@ -479,6 +507,7 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 ## Pipeline de assets
 
 - `desert/`, `sky/` y `creature/` se generan con `python3 assets/<dir>/generate_*.py` (necesita numpy y Pillow). La salida es reproducible porque usan semilla. **No edites los OBJ ni los JPG a mano: cambia el script y regenera.**
+- `music/` (`generate_desert_music.py`, solo numpy): **`desert.wav`**, la música de fondo del mapa de día (ver [Música de fondo](#música-de-fondo)). Es un bucle sin costura de 76.8 s (24 compases a 75 BPM), WAV de 16 bits, estéreo, a 32 kHz (unos 9.8 MB), que `AudioClip::loadWav` ya sabe leer. Árido, de aire flamenco/western en La con la cadencia andaluza (Am–G–F–E): guitarra clásica en arpegio y un banjo con la melodía (con trémolo en las notas largas), sintetizados con cuerda pulsada Karplus-Strong; un bordón grave en quinta, viento y un tambor de marco. Estructura: intro (compases 0–3), guitarra (4–11), guitarra + banjo + tambor (12–19) y final que vuelve a la intro (20–23). La reverberación es una convolución circular y el bordón y el viento tienen ciclos enteros en la duración del bucle, por eso no se oye el salto. Los niveles y las notas se ajustan con constantes al principio del script (`BPM`, `BANJO_GAIN`, `DRONE`, `MELODY`, `PROGRESSION`...).
 - Las alturas `y` de los objetos del desierto salen de `dune_height(x, z)` en `generate_assets.py`: `y = -1 + dune_height(x, z) - 0.05`. El visor muestra la `y` sugerida al pasar el cursor por las dunas.
 - Las texturas se cargan con `stb_image` a partir del `map_Kd`/`map_Ks` del material, relativo al directorio del modelo. Assimp invierte las UV (`aiProcess_FlipUVs`).
 

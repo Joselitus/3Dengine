@@ -11,7 +11,7 @@ Se leen de lo general a lo concreto:
 5. [Entrada e interacción](#5-entrada-e-interacción).
 6. [Audio y diálogos](#6-audio-y-diálogos).
 7. [Interfaz de usuario y menús](#7-interfaz-de-usuario-y-menús).
-8. [Secuencias](#8-secuencias): un frame, la física de un frame y una conversación.
+8. [Secuencias](#8-secuencias): un frame, la física de un frame, una conversación y subir y bajar del RV.
 9. [Índice de todas las clases](#9-índice-de-todas-las-clases).
 
 **Imágenes.** Cada diagrama también está exportado como PNG en [`docs/diagrams/`](diagrams/), por si no tienes un visor de Mermaid:
@@ -28,6 +28,7 @@ Se leen de lo general a lo concreto:
 | 8.1 Un frame | [`08a-secuencia-un-frame.png`](diagrams/08a-secuencia-un-frame.png) |
 | 8.2 La física de un frame | [`08b-secuencia-fisica.png`](diagrams/08b-secuencia-fisica.png) |
 | 8.3 Hablar con un NPC | [`08c-secuencia-hablar-con-npc.png`](diagrams/08c-secuencia-hablar-con-npc.png) |
+| 8.4 Subir y bajar del RV | [`08d-secuencia-subir-y-bajar-del-rv.png`](diagrams/08d-secuencia-subir-y-bajar-del-rv.png) |
 
 La imagen de la vista general (la que da una idea de todo el proyecto de un vistazo) es la primera.
 
@@ -150,7 +151,12 @@ classDiagram
         -FloorMode floorMode
         -Model floor_mesh
         -float gridCellSize
+        -AudioClip music
+        -bool musicLoop
+        -float musicVolume
         +loadModel(path) Model
+        +setMusic(clip, loop, volume)
+        +loadMusic(path, loop, volume) bool
         +add(GameObject)
         +addDynamic(DynamicGameObject)
         +setFloor(mesh, position) bool
@@ -178,6 +184,10 @@ classDiagram
         +render(shader, cameraPosition, time)
         +getPlayer() PlayableCharacter
         +getInteractables() Interactable[]
+        +setPlayer(player, distance, height, yaw)
+        +takePlayerChange() bool
+        +leaveVehicle()
+        +interactionsEnabled() bool
     }
     class Environment {
         <<struct>>
@@ -188,6 +198,10 @@ classDiagram
     class TestStage {
         Desierto de día, en código
         -RV rv
+        -Walker walker
+        -bool inVehicle
+        -enterRV()
+        +leaveVehicle()
     }
     class SceneStage {
         Desierto de noche, desde .scene
@@ -224,6 +238,7 @@ classDiagram
         #vec3 velocity
         #vec3 acceleration
         #float mass
+        #float drag
         #float maxSpeed
         #float gravity
         #bool grounded
@@ -243,9 +258,14 @@ classDiagram
         -VehicleBody body
         -float throttle
         -float steering
+        -bool occupied
         +setWheelModels(left, right)
+        +setEnterAction(action)
+        +seatPosition() vec3
+        +doorPosition(outside) vec3
         +contactFloor(stage, dt) bool
         +applyCollision(push, velocityChange)
+        +onUse(playerPosition)
     }
     class Walker {
         Jugador a pie, 1ª persona si la distancia es 0
@@ -272,6 +292,9 @@ classDiagram
         +getInteractionVerb() string
         +getInteractionPoint() vec3
         +getInteractionRange() float
+        +isInteractionAvailable() bool
+        +usesDirectly() bool
+        +onUse(playerPosition)
         +buildInterface(panel)*
         +onInterfaceOpened(playerPosition)
         +onInterfaceClosed()
@@ -311,6 +334,8 @@ classDiagram
     Interactable <|.. Npc
     Interactable <|.. Satellite
     Interactable <|.. Readable
+    Interactable <|.. RV
+    TestStage o-- Walker : walker, el jugador a pie
 
     GameObject "1" *-- "*" Part
     Part o-- Model
@@ -328,7 +353,7 @@ Cómo se usa:
 - **`GameObject`** se dibuja a sí mismo: `Draw(shader)` fija `objposition` y `objrotation` y dibuja cada pieza (`Part`), que puede tener su propia transformación local (las ruedas del RV).
 - **`DynamicGameObject`** añade velocidad, masa y gravedad. Quien lo controla (el `Controller` o una IA) **no cambia su posición**: lo guía con aceleración (`steerTowards`) y el `Stage` lo mueve en `update(dt)`.
 - **`PlayableCharacter`** es el personaje que maneja el `Controller`. Cada hijo decide cómo responde a la entrada y cómo lo sigue la cámara: `Walker` anda en la dirección de la cámara; `RV` se conduce como un coche (W/S acelera, A/D gira).
-- **`Interactable`** es una interfaz: los objetos que el jugador puede usar la implementan junto a su clase de objeto (`Npc`, `Satellite`, `Readable`).
+- **`Interactable`** es una interfaz: los objetos que el jugador puede usar la implementan junto a su clase de objeto (`Npc`, `Satellite`, `Readable`, `RV`). Por defecto usarlos abre un panel; el `RV` se usa directamente (`usesDirectly`, `onUse`) y hace que el escenario **cambie de jugador** (ver [8.4](#84-subir-y-bajar-del-rv)).
 
 ## 3. Física y colisiones
 
@@ -635,6 +660,7 @@ classDiagram
         MoveLeft
         MoveRight
         Use
+        LeaveVehicle
         Quit
         Maps
     }
@@ -660,13 +686,16 @@ classDiagram
         -UIPanel panel
         +add(target)
         +clear()
-        +update(playerPosition)
+        +update(playerPosition, enabled)
     }
     class Interactable {
         <<interface>>
         +getInteractionName() string
         +getInteractionPoint() vec3
         +getInteractionRange() float
+        +isInteractionAvailable() bool
+        +usesDirectly() bool
+        +onUse(playerPosition)
         +buildInterface(panel)*
     }
     class UIManager {
@@ -682,13 +711,13 @@ classDiagram
     Controls --> Action
     Controls ..> Settings : readFrom / writeTo
     InteractionSystem --> Controls : tecla de uso
-    InteractionSystem --> Interactable : el más cercano en alcance
-    InteractionSystem --> UIManager : abre su panel
+    InteractionSystem --> Interactable : el más cercano, disponible y en alcance
+    InteractionSystem --> UIManager : abre su panel (o llama a onUse)
     UIManager ..> Interactable : open
     Interactable ..> UIPanel : buildInterface
 ```
 
-El bucle del `main` hace `controller.setEnabled(!ui.hasPanels())`: con cualquier panel abierto los controles están en pausa y el cursor queda libre. `InteractionSystem` solo abre un panel cuando no hay otro.
+El bucle del `main` hace `controller.setEnabled(!ui.hasPanels())`: con cualquier panel abierto los controles están en pausa y el cursor queda libre. `InteractionSystem` solo abre un panel cuando no hay otro, y con `enabled = false` (mientras se conduce) no ofrece ni usa nada. La tecla de bajar del vehículo (`Action::LeaveVehicle`, Mayús izquierda) es un atajo de `UIManager` (`bindKey`) que llama a `GameStage::leaveVehicle()`.
 
 ## 6. Audio y diálogos
 
@@ -743,9 +772,10 @@ classDiagram
     }
     class SoundEngine {
         +isAvailable() bool
-        +play(clip, position) Sound
+        +play(clip, spatial, position, loop) Sound
         +setListener(position, forward)
         +setMasterVolume(volume)
+        +getMasterVolume() float
     }
     class Sound {
         +isPlaying() bool
@@ -753,7 +783,20 @@ classDiagram
         +getLengthSeconds() double
         +setPosition(position)
         +setVolume(volume)
+        +setLooping(looping)
         +stop()
+    }
+    class MusicPlayer {
+        -Sound sound
+        +play(clip, loop, volume)
+        +stop()
+        +isPlaying() bool
+    }
+    class Stage {
+        <<abstract>>
+        -AudioClip music
+        +setMusic(clip, loop, volume)
+        +loadMusic(path) bool
     }
     class AudioClip {
         <<struct>>
@@ -761,6 +804,8 @@ classDiagram
         +uint channels
         +uint sampleRate
         +duration() double
+        +loadWav(bytes) bool
+        +loadWavFile(path) bool
     }
     class Npc
     class Readable
@@ -780,11 +825,17 @@ classDiagram
     SpeechSynthesizer ..> AudioClip : devuelve
     SoundEngine ..> Sound : play() lo devuelve
     Sound o-- AudioClip : clip
+    MusicPlayer --> SoundEngine
+    MusicPlayer *-- Sound : la pista actual
+    Stage o-- AudioClip : music, null = ninguna
+    MusicPlayer ..> Stage : switchMap le pasa su música
     Npc *-- Voice
     Npc *-- Dialogue
     Readable *-- Typewriter
     Readable *-- Dialogue
 ```
+
+La **música de fondo** es del `Stage` (`music`, `nullptr` = ninguna, en bucle por defecto); la reproduce el `MusicPlayer` con un `Sound` en bucle y no espacial, y `switchMap` se la pasa al cambiar de mapa.
 
 `Dialogue` no sabe si el texto se habla o se lee: delega en un `LineNarrator`. `Voice` (con voz, para los `Npc`) y `Typewriter` (en silencio, para los `Readable`) lo implementan, y `progress()` hace que los subtítulos avancen al ritmo de la entrega. El oyente de `SoundEngine` sigue a la cámara cada frame.
 
@@ -859,6 +910,7 @@ classDiagram
         +Camera camera
         +Controls controls
         +Settings settings
+        +SoundEngine sound
         +function quit
     }
 
@@ -881,9 +933,15 @@ classDiagram
     class ControlsMenu {
         Reasigna teclas sobre una copia
     }
+    class AudioMenu {
+        Volumen general, un slider
+        +applySettings(settings, sound)$
+        +storeSettings(settings, sound)$
+    }
     class ConfirmDialog {
         Pregunta con varias respuestas
     }
+    class SoundEngine
     class MapSelector {
         Debug, tecla Z
     }
@@ -909,6 +967,8 @@ classDiagram
     UIPanel <|-- MapSelector
     SettingsMenu <|-- CameraMenu
     SettingsMenu <|-- ControlsMenu
+    SettingsMenu <|-- AudioMenu
+    AudioMenu ..> SoundEngine : setMasterVolume
 
     UIManager "1" *-- "*" UIPanel : panels, el último arriba
     UIManager *-- UIRenderer
@@ -920,10 +980,11 @@ classDiagram
     PauseMenu ..> OptionsMenu : abre
     OptionsMenu ..> CameraMenu : abre
     OptionsMenu ..> ControlsMenu : abre
+    OptionsMenu ..> AudioMenu : abre
     SettingsMenu ..> ConfirmDialog : cambios sin guardar
 ```
 
-`UIManager` es el **único dueño** del callback de teclado de GLFW. Reparte las teclas al panel de arriba (`onKey`); Esc cierra ese panel y, sin paneles, abre la pausa. Todos los menús son `UIPanel` y reciben un `MenuContext` con lo que necesitan (la interfaz, la cámara, los controles, los ajustes y cómo salir).
+`UIManager` es el **único dueño** del callback de teclado de GLFW. Reparte las teclas al panel de arriba (`onKey`); Esc cierra ese panel y, sin paneles, abre la pausa. Todos los menús son `UIPanel` y reciben un `MenuContext` con lo que necesitan (la interfaz, la cámara, los controles, los ajustes, el motor de sonido y cómo salir).
 
 ## 8. Secuencias
 
@@ -946,12 +1007,17 @@ sequenceDiagram
     M->>M: dt = tiempo desde el frame anterior
     opt hay un cambio de mapa pendiente
         M->>M: switchMap() (diferido, fuera de la UI)
+        Note over M: arranca la música del mapa nuevo (MusicPlayer)
     end
     M->>K: resize()
-    M->>I: update(posición del jugador)
+    M->>I: update(posición del jugador, interactionsEnabled)
     I->>U: setHint() / open(Interactable)
     M->>U: update()
     U-->>M: hasPanels()
+    opt el mapa cambió de jugador (subir o bajar del RV)
+        M->>S: takePlayerChange()
+        M->>C: attach(nuevo jugador, distancia, altura, yaw)
+    end
     M->>C: setEnabled(!hasPanels)
     M->>C: update()
     C->>K: setAngles(yaw, pitch)
@@ -1048,6 +1114,47 @@ sequenceDiagram
     I->>N: onInterfaceClosed()
 ```
 
+
+### 8.4 Subir y bajar del RV
+
+```mermaid
+---
+title: Subir al RV por su puerta y bajar con Mayús
+---
+sequenceDiagram
+    autonumber
+    actor J as Jugador
+    participant I as InteractionSystem
+    participant R as RV (Interactable)
+    participant T as TestStage (GameStage)
+    participant W as Walker
+    participant M as main (bucle)
+    participant C as Controller
+    participant U as UIManager
+
+    Note over J,W: empieza a pie, en primera persona
+    J->>I: E junto a la puerta (disponible y en alcance)
+    I->>R: usesDirectly() → true
+    I->>R: onUse(posición)
+    R->>T: enterAction → enterRV()
+    T->>W: oculto, sin colisión ni gravedad
+    T->>R: setOccupied(true)
+    T->>T: setPlayer(rv, 12, 3.5, yaw por detrás)
+    Note over T: apply() pega al Walker al asiento cada frame
+    M->>T: takePlayerChange()
+    T-->>M: true
+    M->>C: attach(rv, 12, 3.5, yaw)
+    C->>R: control(...) cada frame, y la cámara sigue al RV
+    J->>U: Mayús izquierda (LeaveVehicle, sin paneles)
+    U->>T: leaveVehicle()
+    T->>R: control(0) y setOccupied(false)
+    Note over R: freno de mano: se queda donde está
+    T->>W: junto a la puerta, con colisión y gravedad
+    T->>T: setPlayer(walker, 0, 1.6, yaw hacia fuera)
+    M->>T: takePlayerChange()
+    M->>C: attach(walker, 0, 1.6, yaw)
+    Note over J,W: otra vez a pie, en primera persona
+```
 
 ## 9. Índice de todas las clases
 

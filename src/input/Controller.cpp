@@ -12,10 +12,12 @@ Controller::Controller(GLFWwindow *window, Camera *camera,
 }
 
 void Controller::attach(PlayableCharacter *character, float cameraDistance,
-                        float cameraHeight) {
+                        float cameraHeight, float cameraYaw) {
   this->character = character;
   // A new character (e.g. after a map change) starts looking straight ahead
-  yaw = pitch = 0.0f;
+  // (yaw 0, towards -z) unless told where
+  yaw = cameraYaw;
+  pitch = 0.0f;
   camera->setAngles(yaw, pitch);
   resync = true;
   character->attachCamera(camera, cameraDistance, cameraHeight);

@@ -157,6 +157,10 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     float along = dot(pointVelocity, heading);
     float across = dot(pointVelocity, side);
     float alongForce = perWheel - params.rolling * wheelMass * along;
+    if (handbrake) // proportional so it stops the wheel instead of reversing it
+      alongForce -= clamp(wheelMass * along / h,
+                          -params.mass * params.braking / params.wheels.size(),
+                          params.mass * params.braking / params.wheels.size());
     float sideForce = -params.grip * wheelMass * across / h;
     vec3 tyre = heading * alongForce + side * sideForce;
     float limit = params.friction * load;

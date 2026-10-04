@@ -1,4 +1,6 @@
 #include "DynamicGameObject.h"
+
+#include <cmath>
 using namespace glm;
 
 void DynamicGameObject::steerTowards(const vec3 &wantedVelocity,
@@ -18,6 +20,13 @@ void DynamicGameObject::update(double dt) {
   if (speed > maxSpeed) {
     velocity.x *= maxSpeed / speed;
     velocity.z *= maxSpeed / speed;
+  }
+  // Drag on the ground plane (not on falling): exponential, so it does not
+  // depend on the frame rate
+  if (drag > 0.0f) {
+    float keep = std::exp(-drag * (float)dt);
+    velocity.x *= keep;
+    velocity.z *= keep;
   }
   position += velocity * (float)dt;
 }

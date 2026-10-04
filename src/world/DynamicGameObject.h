@@ -16,6 +16,8 @@ protected:
   float gravity = 0.0f;   // units / second^2 pulling down (0 = flies)
   bool grounded = false;  // standing on the floor, set by the stage
   float mass = 70.0f;     // kg: the lighter one is pushed more in a collision
+  float drag = 0.0f;      // 1/s: how fast the horizontal velocity dies out
+                          // (0 = never; big = stops soon after a push)
 
 public:
   using GameObject::GameObject;
@@ -26,6 +28,7 @@ public:
   void setMaxAcceleration(float accel) { maxAcceleration = accel; }
   void setGravity(float g) { gravity = g; }
   void setMass(float m) { mass = m; }
+  void setDrag(float d) { drag = d; }
   void setGrounded(bool g) { grounded = g; }
   glm::vec3 getVelocity() const { return velocity; }
   glm::vec3 getAcceleration() const { return acceleration; }
@@ -33,6 +36,7 @@ public:
   float getGravity() const { return gravity; }
   bool isGrounded() const { return grounded; }
   virtual float getMass() const { return mass; }
+  float getDrag() const { return drag; }
   float getMaxAcceleration() const { return maxAcceleration; }
 
   // Accelerates towards a wanted velocity, never faster than maxAcceleration

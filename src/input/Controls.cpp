@@ -13,6 +13,7 @@ Controls::Controls() {
   bind(Action::MoveLeft, GLFW_KEY_A);
   bind(Action::MoveRight, GLFW_KEY_D);
   bind(Action::Use, GLFW_KEY_E);
+  bind(Action::LeaveVehicle, GLFW_KEY_LEFT_SHIFT);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
 }
@@ -24,6 +25,7 @@ const char *Controls::describe(Action action) {
   case Action::MoveLeft: return "Izquierda";
   case Action::MoveRight: return "Derecha";
   case Action::Use: return "Usar objeto / hablar / cerrar";
+  case Action::LeaveVehicle: return "Bajar del vehiculo";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::Count: break;
@@ -38,6 +40,7 @@ const char *Controls::id(Action action) {
   case Action::MoveLeft: return "move_left";
   case Action::MoveRight: return "move_right";
   case Action::Use: return "use";
+  case Action::LeaveVehicle: return "leave_vehicle";
   case Action::Quit: return "quit";
   case Action::Maps: return "maps";
   case Action::Count: break;
@@ -99,7 +102,8 @@ void Controls::writeTo(Settings &settings) const {
 
 const char *Controls::group(Action action) {
   switch (action) {
-  case Action::Use: return "Acciones";
+  case Action::Use:
+  case Action::LeaveVehicle: return "Acciones";
   case Action::Quit:
   case Action::Maps: return "Menus";
   default: return "Movimiento";

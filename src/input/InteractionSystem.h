@@ -37,7 +37,8 @@ public:
     panel = nullptr;
     inUse = nullptr;
   }
-  void update(const glm::vec3 &playerPosition);
+  // enabled = false: nothing can be used and no prompt is shown
+  void update(const glm::vec3 &playerPosition, bool enabled = true);
 };
 
 #endif

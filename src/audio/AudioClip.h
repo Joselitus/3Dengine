@@ -18,6 +18,9 @@ struct AudioClip {
   // Parses a whole PCM WAV file held in memory (8/16/32-bit integer or
   // 32-bit float). False if it isn't one.
   bool loadWav(const std::string &bytes);
+  // The same, reading the file at `path`. False if it can't be read or isn't
+  // a supported WAV (the clip is left empty).
+  bool loadWavFile(const std::string &path);
 };
 
 #endif

@@ -6,6 +6,7 @@
 class Camera;
 class Controls;
 class Settings;
+class SoundEngine;
 class UIManager;
 
 // What the game menus (PauseMenu, OptionsMenu, ControlsMenu) need, passed
@@ -16,6 +17,7 @@ struct MenuContext {
   Camera &camera;
   Controls &controls;
   Settings &settings;         // saved between sessions (OptionsMenu)
+  SoundEngine &sound;         // master volume (AudioMenu)
   std::function<void()> quit; // ends the game
 };
 

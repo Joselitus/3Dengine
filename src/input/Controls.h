@@ -13,6 +13,7 @@ enum class Action {
   MoveLeft,
   MoveRight,
   Use,      // open/close the panel of the object in front (InteractionSystem)
+  LeaveVehicle, // get out of the vehicle being driven (Left Shift)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   Count     // number of actions, not an action

@@ -24,6 +24,10 @@ static const float WHEEL_RADIUS = 0.5f;
 // Half the length of the RV (with the bumpers): how far it keeps from the
 // edge of the floor
 static const float BODY_RADIUS = 4.0f;
+// The door is on the +x side, a bit behind the middle (see generate_rv.py), and
+// the driver sits in the cab
+static const float DOOR_Z = -0.35f;
+static const float SEAT_Y = 1.2f, SEAT_Z = 1.4f;
 static const float ANCHOR_HEIGHT = 0.85f; // suspension mounts, on the chassis
 
 // The chassis, without the wheels (which hang under it, on the suspension): 2.5
@@ -94,6 +98,33 @@ void RV::setWheelModels(std::shared_ptr<Model> negativeX,
   placeWheels();
 }
 
+vec3 RV::seatPosition() const {
+  return position + vec3(rotation * vec4(0.0f, SEAT_Y, SEAT_Z, 0.0f));
+}
+
+vec3 RV::doorPosition(float outside) const {
+  return position +
+         vec3(rotation * vec4(HALF_TRACK + outside, 0.0f, DOOR_Z, 0.0f));
+}
+
+// The camera yaw that looks along a world direction
+static float yawOf(const vec3 &direction) {
+  return std::atan2(direction.x, -direction.z);
+}
+
+float RV::headingYaw() const {
+  return yawOf(vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f)));
+}
+
+float RV::doorYaw() const {
+  return yawOf(vec3(rotation * vec4(1.0f, 0.0f, 0.0f, 0.0f)));
+}
+
+void RV::onUse(const vec3 &playerPosition) {
+  if (enterAction && !occupied)
+    enterAction();
+}
+
 void RV::attachCamera(Camera *camera, float distance, float height) {
   this->camera = camera;
   setYaw(facing);
@@ -139,6 +170,7 @@ bool RV::contactFloor(const Stage &stage, double dt) {
     body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
     body->place(position, facing);
   }
+  body->setHandbrake(!occupied); // an empty RV stays where it is
   body->setInput(throttle, -steering);
   body->step(dt, [&stage](float x, float z, float maxY, float &height,
                           vec3 &normal) {

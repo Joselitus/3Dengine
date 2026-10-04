@@ -30,13 +30,28 @@ protected:
   std::shared_ptr<PlayableCharacter> player;
   float cameraDistance = 0.0f; // 0 = first person
   float cameraHeight = 1.6f;   // above the player's position (its feet)
+  float cameraYaw = 0.0f;      // where the view starts looking (0 = towards -z)
   std::vector<Interactable *> interactables; // owned by the stage
+  bool playerChanged = false; // see takePlayerChange()
 
   explicit GameStage(FloorMode mode) : Stage(mode) {}
 
   // Dynamic objects stay on the floor (override for other rules)
   void apply(DynamicGameObject &object, double dt) override {
     collideWithFloor(object, dt);
+  }
+
+  // Hands the controls and the camera to another character (e.g. when the
+  // player gets into a vehicle): the main loop notices it (takePlayerChange)
+  // and attaches the controller to the new player with this distance (0 =
+  // first person) and height
+  void setPlayer(std::shared_ptr<PlayableCharacter> newPlayer, float distance,
+                 float height, float yaw = 0.0f) {
+    player = newPlayer;
+    cameraDistance = distance;
+    cameraHeight = height;
+    cameraYaw = yaw;
+    playerChanged = true;
   }
 
   // A sky dome model (drawn unlit, with twinkling stars; see shader.frag)
@@ -46,9 +61,23 @@ protected:
 
 public:
   const Environment &getEnvironment() const { return environment; }
+
+  // True once after the player has changed (setPlayer): then the controller
+  // has to be attached to getPlayer() again
+  bool takePlayerChange() {
+    bool changed = playerChanged;
+    playerChanged = false;
+    return changed;
+  }
+  // The "leave the vehicle" key was pressed (no panel open): a map where the
+  // player can drive something gives the controls back to a character on foot
+  virtual void leaveVehicle() {}
+  // False while the player can't use objects (e.g. while driving)
+  virtual bool interactionsEnabled() const { return true; }
   std::shared_ptr<PlayableCharacter> getPlayer() const { return player; }
   float getCameraDistance() const { return cameraDistance; }
   float getCameraHeight() const { return cameraHeight; }
+  float getCameraYaw() const { return cameraYaw; }
   const std::vector<Interactable *> &getInteractables() const {
     return interactables;
   }

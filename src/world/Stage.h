@@ -9,6 +9,7 @@
 
 #include <glm/glm.hpp>
 
+#include "AudioClip.h"
 #include "DynamicGameObject.h"
 #include "GameObject.h"
 
@@ -40,6 +41,12 @@ enum class FloorMode {
 class Stage {
 private:
   const FloorMode floorMode;
+
+  // Background music (null: none). The stage only holds it; the MusicPlayer
+  // plays it while this is the current map.
+  std::shared_ptr<const AudioClip> music;
+  bool musicLoop = true;
+  float musicVolume = 1.0f;
 
   // The collision grid
   float gridCellSize;
@@ -122,6 +129,20 @@ public:
   }
 
   FloorMode getFloorMode() const { return floorMode; }
+
+  // The stage's background music: played in a loop by default, at `volume`
+  // (1 = as recorded). nullptr means no music.
+  void setMusic(std::shared_ptr<const AudioClip> clip, bool loop = true,
+                float volume = 1.0f) {
+    music = clip;
+    musicLoop = loop;
+    musicVolume = volume;
+  }
+  // Loads a WAV file as the music; false (and no music) if it can't be read
+  bool loadMusic(const std::string &path, bool loop = true, float volume = 1.0f);
+  std::shared_ptr<const AudioClip> getMusic() const { return music; }
+  bool isMusicLooping() const { return musicLoop; }
+  float getMusicVolume() const { return musicVolume; }
   // How many pairs of shapes were tested in the last update (the grid keeps
   // it far below testing every pair)
   int getShapeTests() const { return shapeTests; }

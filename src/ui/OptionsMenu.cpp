@@ -1,5 +1,6 @@
 #include "OptionsMenu.h"
 
+#include "AudioMenu.h"
 #include "CameraMenu.h"
 #include "ControlsMenu.h"
 #include "PauseMenu.h"
@@ -17,6 +18,10 @@ OptionsMenu::OptionsMenu(const MenuContext &context)
   }));
   add(new UIButton("Controles", [this]() {
     this->context.ui.open(new ControlsMenu(this->context));
+    requestClose();
+  }));
+  add(new UIButton("Audio", [this]() {
+    this->context.ui.open(new AudioMenu(this->context));
     requestClose();
   }));
   add(new UIButton("Volver", [this]() { back(); }));

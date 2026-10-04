@@ -93,6 +93,9 @@ public:
   // suspension settled (as if it had been standing there)
   void place(const glm::vec3 &origin, float yaw);
 
+  // Holds the vehicle still: the tyres brake it (nobody is driving it)
+  void setHandbrake(bool on) { handbrake = on; }
+
   // throttle -1 (reverse) .. 1, steering -1 (right) .. 1 (left)
   void setInput(float throttle, float steering) {
     this->throttle = throttle;
@@ -129,6 +132,7 @@ private:
   glm::vec3 velocity = glm::vec3(0.0f);
   glm::vec3 angular = glm::vec3(0.0f);
   float throttle = 0.0f, steering = 0.0f;
+  bool handbrake = false;
   float steerAngle = 0.0f;
   std::vector<WheelState> wheelStates;
 

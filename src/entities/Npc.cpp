@@ -8,12 +8,19 @@ using namespace glm;
 // Where the player has to look at: chest height
 #define CHEST_HEIGHT 0.9f
 
+// How fast an NPC loses the horizontal velocity a push gave it (1 / seconds)
+#define NPC_DRAG 10.0f
+
 Npc::Npc(shared_ptr<AnimatedModel> model, const string &name,
          const vector<string> &lines, SoundEngine &engine,
          SpeechSynthesizer &synthesizer, const VoiceSettings &voiceSettings)
     : DynamicGameObject(model), name(name),
       voice(engine, synthesizer, voiceSettings),
-      dialogue(lines, voice, "hablando") {}
+      dialogue(lines, voice, "hablando") {
+  // Nobody drives it: when something pushes it, it must stop soon after
+  // instead of sliding away (a velocity dies out in about 1 / NPC_DRAG s)
+  setDrag(NPC_DRAG);
+}
 
 void Npc::faceTowards(const vec3 &point) {
   vec3 d = point - position;

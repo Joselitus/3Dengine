@@ -18,6 +18,17 @@ shared_ptr<Model> Stage::loadModel(const string &path) {
   return model;
 }
 
+bool Stage::loadMusic(const string &path, bool loop, float volume) {
+  auto clip = make_shared<AudioClip>();
+  if (!clip->loadWavFile(path)) {
+    cerr << "Stage: could not load the music '" << path << "'" << endl;
+    music = nullptr;
+    return false;
+  }
+  setMusic(clip, loop, volume);
+  return true;
+}
+
 shared_ptr<GameObject> Stage::add(shared_ptr<GameObject> object) {
   objects.push_back(object);
   registerBody(object.get(), nullptr);

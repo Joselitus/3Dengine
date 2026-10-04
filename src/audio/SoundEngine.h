@@ -34,6 +34,8 @@ public:
   double getLengthSeconds() const;
   void setPosition(const glm::vec3 &position);
   void setVolume(float volume); // 1 = as recorded
+  // Starts again from the beginning each time it ends, until stopped
+  void setLooping(bool looping);
   void stop();
 };
 
@@ -47,6 +49,7 @@ public:
 class SoundEngine {
 private:
   ma_engine *engine = nullptr;
+  float masterVolume = 1.0f;
 
 public:
   SoundEngine();
@@ -57,13 +60,17 @@ public:
   bool isAvailable() const { return engine != nullptr; }
 
   void setListener(const glm::vec3 &position, const glm::vec3 &forward);
+  // The volume of everything that sounds (music, voices): 1 = as recorded
   void setMasterVolume(float volume);
+  float getMasterVolume() const { return masterVolume; }
 
   // Starts playing `clip`. Spatial: heard from `position` in the world (mono
-  // clips); otherwise straight to both ears (music, interface).
+  // clips); otherwise straight to both ears (music, interface). `loop`: it
+  // plays again and again until the Sound is stopped or destroyed.
   std::unique_ptr<Sound> play(std::shared_ptr<const AudioClip> clip,
                               bool spatial = false,
-                              const glm::vec3 &position = glm::vec3(0.0f));
+                              const glm::vec3 &position = glm::vec3(0.0f),
+                              bool loop = false);
 };
 
 #endif

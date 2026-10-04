@@ -50,6 +50,11 @@ void Sound::setVolume(float volume) {
     ma_sound_set_volume(&playback->sound, volume);
 }
 
+void Sound::setLooping(bool looping) {
+  if (playback->hasSound)
+    ma_sound_set_looping(&playback->sound, looping ? MA_TRUE : MA_FALSE);
+}
+
 void Sound::stop() {
   if (playback->hasSound)
     ma_sound_stop(&playback->sound);
@@ -81,12 +86,14 @@ void SoundEngine::setListener(const glm::vec3 &p, const glm::vec3 &forward) {
 }
 
 void SoundEngine::setMasterVolume(float volume) {
+  masterVolume = volume;
   if (engine)
     ma_engine_set_volume(engine, volume);
 }
 
 unique_ptr<Sound> SoundEngine::play(shared_ptr<const AudioClip> clip,
-                                    bool spatial, const glm::vec3 &position) {
+                                    bool spatial, const glm::vec3 &position,
+                                    bool loop) {
   if (!engine || !clip || clip->frames() == 0)
     return nullptr;
 
@@ -111,6 +118,8 @@ unique_ptr<Sound> SoundEngine::play(shared_ptr<const AudioClip> clip,
     ma_sound_set_min_distance(&p.sound, MIN_DISTANCE);
     ma_sound_set_max_distance(&p.sound, MAX_DISTANCE);
   }
+  if (loop)
+    ma_sound_set_looping(&p.sound, MA_TRUE);
   ma_sound_start(&p.sound);
   return s;
 }

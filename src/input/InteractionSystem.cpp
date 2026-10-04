@@ -13,6 +13,8 @@ Interactable *InteractionSystem::closest(const glm::vec3 &player) const {
   Interactable *best = nullptr;
   float bestDistance = 0.0f;
   for (Interactable *target : targets) {
+    if (!target->isInteractionAvailable())
+      continue;
     float range = target->getInteractionRange();
     float d = glm::distance2(player, target->getInteractionPoint());
     if (d <= range * range && (!best || d < bestDistance)) {
@@ -23,7 +25,7 @@ Interactable *InteractionSystem::closest(const glm::vec3 &player) const {
   return best;
 }
 
-void InteractionSystem::update(const glm::vec3 &playerPosition) {
+void InteractionSystem::update(const glm::vec3 &playerPosition, bool enabled) {
   bool use = glfwGetKey(window, controls.key(Action::Use)) == GLFW_PRESS;
   bool usePressed = use && !useWasDown;
   useWasDown = use;
@@ -35,7 +37,8 @@ void InteractionSystem::update(const glm::vec3 &playerPosition) {
     inUse = nullptr;
   }
 
-  Interactable *target = closest(playerPosition);
+  // Disabled (e.g. while driving): nothing is offered or used
+  Interactable *target = enabled ? closest(playerPosition) : nullptr;
   if (usePressed) {
     if (panel) {
       ui->close(panel);
@@ -43,12 +46,19 @@ void InteractionSystem::update(const glm::vec3 &playerPosition) {
       inUse->onInterfaceClosed();
       inUse = nullptr;
     } else if (target && !ui->hasPanels()) {
-      panel = ui->open(*target);
-      inUse = target;
-      target->onInterfaceOpened(playerPosition);
+      if (target->usesDirectly()) {
+        target->onUse(playerPosition); // no panel
+      } else {
+        panel = ui->open(*target);
+        inUse = target;
+        target->onInterfaceOpened(playerPosition);
+      }
     }
   }
 
+  // (after onUse the object may have become unavailable: look again)
+  if (target && !target->isInteractionAvailable())
+    target = nullptr;
   if (!panel && target && !ui->hasPanels())
     ui->setHint(controls.keyName(Action::Use) + ": " +
                 target->getInteractionVerb() + " " +

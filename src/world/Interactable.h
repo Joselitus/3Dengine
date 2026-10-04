@@ -22,9 +22,19 @@ public:
   // Where the player has to be close to
   virtual glm::vec3 getInteractionPoint() const = 0;
   virtual float getInteractionRange() const { return 3.0f; }
+  // False while it can't be used right now (e.g. a vehicle someone is already
+  // driving): it is ignored, with no prompt
+  virtual bool isInteractionAvailable() const { return true; }
+
+  // By default using it opens its panel (buildInterface). An object that
+  // acts straight away instead (getting into a vehicle) returns true here and
+  // gets onUse(); no panel is opened.
+  virtual bool usesDirectly() const { return false; }
+  virtual void onUse(const glm::vec3 &playerPosition) {}
 
   // Adds the object's controls to an empty panel. The controls may keep
-  // pointers to the object: it must outlive the panel.
+  // pointers to the object: it must outlive the panel. (Not called if the
+  // object usesDirectly(): leave it empty.)
   virtual void buildInterface(UIPanel &panel) = 0;
 
   // Optional hooks, called by the InteractionSystem: right after the panel

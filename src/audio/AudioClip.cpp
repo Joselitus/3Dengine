@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -64,4 +66,17 @@ bool AudioClip::loadWav(const string &bytes) {
       break;
   }
   return false;
+}
+
+bool AudioClip::loadWavFile(const string &path) {
+  ifstream file(path, ios::binary);
+  if (!file)
+    return false;
+  stringstream bytes;
+  bytes << file.rdbuf();
+  if (!loadWav(bytes.str())) {
+    samples.clear();
+    return false;
+  }
+  return true;
 }

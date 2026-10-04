@@ -27,6 +27,7 @@
 #include "Satellite.h"
 #include "Model.h"
 #include "Npc.h"
+#include "AudioMenu.h"
 #include "CameraMenu.h"
 #include "PauseMenu.h"
 #include "SceneStage.h"
@@ -34,6 +35,7 @@
 #include "Shader.h"
 #include "Stage.h"
 #include "Skeleton.h"
+#include "MusicPlayer.h"
 #include "SoundEngine.h"
 #include "UIManager.h"
 #include "Walker.h"
@@ -113,13 +115,38 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   return window;
 }
 
-// The desert: dunes with a road winding through them, cacti and rocks, a
-// RV the player drives (third person camera), a satellite the player can
-// orient, a penguin on foot and an NPC.
+// The desert: dunes with a road winding through them, cacti and rocks, an RV,
+// a satellite the player can orient, a sign, an NPC and the player: a penguin
+// on foot, in first person. Using the RV's door (Use key) puts the penguin
+// inside it and hands the controls and the camera (third person) to the RV;
+// the leave-vehicle key (Left Shift) puts the penguin on foot at the door and
+// goes back to first person.
 class TestStage : public GameStage {
 private:
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
+  static constexpr float CAR_CAMERA_DISTANCE = 12.0f;
+  static constexpr float CAR_CAMERA_HEIGHT = 3.5f;
+  static constexpr float EYE_HEIGHT = 1.6f; // first person, above the feet
   std::shared_ptr<RV> rv;
+  std::shared_ptr<Walker> walker; // the penguin on foot
+  bool inVehicle = false;         // the penguin is inside the RV
+
+  // The penguin gets into the RV: it is hidden inside its body and goes
+  // wherever the RV goes, and the RV gets the controls and the camera
+  void enterRV() {
+    if (inVehicle)
+      return;
+    inVehicle = true;
+    walker->control(vec2(0.0f), 0.0f, 0.0f); // stops walking
+    walker->setVelocity(vec3(0.0f));
+    walker->setGravity(0.0f);       // it rides: nothing pulls it down
+    walker->setCollidable(false);   // inside the RV's box
+    walker->setVisible(false);
+    vec3 seat = rv->seatPosition();
+    walker->setPosition(seat.x, seat.y, seat.z);
+    rv->setOccupied(true);
+    setPlayer(rv, CAR_CAMERA_DISTANCE, CAR_CAMERA_HEIGHT, rv->headingYaw());
+  }
 
   // Ground height at (x, z), or GROUND_Y where there is no floor
   float groundAt(float x, float z) const {
@@ -127,23 +154,52 @@ private:
   }
 
 protected:
-  // Everything dynamic stays on the dunes
+  // Everything dynamic stays on the dunes (the penguin inside the RV just
+  // rides in it)
   void apply(DynamicGameObject &object, double dt) override {
+    if (inVehicle && &object == walker.get()) {
+      vec3 seat = rv->seatPosition();
+      object.setPosition(seat.x, seat.y, seat.z);
+      object.setVelocity(vec3(0.0f));
+      return;
+    }
     collideWithFloor(object, dt);
   }
 
 public:
+  // Interactions are for the penguin on foot, not while driving
+  bool interactionsEnabled() const override { return !inVehicle; }
+
+  // The penguin gets out at the RV's door, on foot and in first person
+  void leaveVehicle() override {
+    if (!inVehicle)
+      return;
+    inVehicle = false;
+    rv->control(vec2(0.0f), 0.0f, 0.0f); // the RV stops being driven
+    rv->setOccupied(false);
+    vec3 door = rv->doorPosition(1.5f); // beside the door, clear of the body
+    walker->setPosition(door.x, groundAt(door.x, door.z), door.z);
+    walker->setVelocity(vec3(0.0f));
+    walker->setGravity(25.0f);
+    walker->setCollidable(true);
+    // (attaching it hides its model); it looks away from the RV
+    setPlayer(walker, 0.0f, EYE_HEIGHT, rv->doorYaw());
+  }
+
   // The NPCs speak through `sound` with voices made by `speech`
   TestStage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer &speech)
       : GameStage(mode) {
+    // The desert's background music: an arid guitar and banjo loop
+    loadMusic("../assets/music/desert.wav");
+
     // Daylight: plain blue sky (the clear colour), distant geometry fades
     // into it; warm white sunlight
     environment.lightDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
     environment.lightColor = vec3(0.85f, 0.83f, 0.78f);
     environment.horizon = vec3(0.45f, 0.68f, 0.92f);
-    // Third person: the camera follows the RV from behind
-    cameraDistance = 12.0f;
-    cameraHeight = 3.5f;
+    // First person: the camera at the penguin's eyes, 1.6 above its feet
+    cameraDistance = 0.0f;
+    cameraHeight = EYE_HEIGHT;
 
     // Desert scenery
     auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes.obj"));
@@ -205,23 +261,27 @@ public:
     // The RV (front toward +z, wheels on y = 0)
     rv = make_shared<RV>(loadModel("../assets/rv/rv.obj"));
     rv->setPosition(0.0f, GROUND_Y, 0.0f);
+    rv->setHeading(0.0f); // facing +z: its door (+x side) is towards the start
     // The wheels are separate models so they follow the suspension
     rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
                        loadModel("../assets/rv/wheel_posx.obj"));
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
     addDynamic(rv);
-    player = rv; // the RV is what the player drives
+    // Using its door gets the player in (see enterRV)
+    rv->setEnterAction([this]() { enterRV(); });
+    interactables.push_back(rv.get());
 
-    // A penguin on foot (a Walker), its feet on the floor. It is drawn
-    // centred on its position (AnimatedModel fits it to 1.8 units around the
-    // origin). Nobody controls it now; to play as it, set it as the player
-    // and use cameraDistance = 0, cameraHeight = 1.6 for first person.
-    auto walker = make_shared<Walker>(
+    // The player: a penguin on foot (a Walker), its feet on the floor, seen
+    // in first person. It is drawn centred on its position (AnimatedModel
+    // fits it to 1.8 units around the origin), which only shows if the camera
+    // is moved out of first person.
+    walker = make_shared<Walker>(
         make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx"));
     walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
     walker->setGravity(25.0f);
     addDynamic(walker);
+    player = walker;
 
     // A satellite next to the start, within reach (see Interactable)
     auto satellite = make_shared<Satellite>(loadModel("../assets/cube/cube.obj"),
@@ -315,6 +375,8 @@ int main(int argc, char **argv) {
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
+  AudioMenu::applySettings(settings, sound); // the saved master volume
+  MusicPlayer music(sound); // the current map's background music
   EspeakSynthesizer speech;
 
   // The single light (the sun or the moon, set by each map)
@@ -359,10 +421,13 @@ int main(int argc, char **argv) {
     interaction.clear();
     stage = std::move(next);
     currentMap = index;
+    // Each map brings its own music (or none, which silences the previous)
+    music.play(stage->getMusic(), stage->isMusicLooping(),
+               stage->getMusicVolume());
     for (Interactable *object : stage->getInteractables())
       interaction.add(object);
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
-                      stage->getCameraHeight());
+                      stage->getCameraHeight(), stage->getCameraYaw());
 
     const Environment &env = stage->getEnvironment();
     vec3 lightPosition = env.lightDir * 100.0f; // far: almost directional
@@ -375,7 +440,7 @@ int main(int argc, char **argv) {
   // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
   // key ends the game), the Maps key (Z) the debug map selector
   auto quit = [window]() { glfwSetWindowShouldClose(window, true); };
-  MenuContext menus = {ui, camera, controls, settings, quit};
+  MenuContext menus = {ui, camera, controls, settings, sound, quit};
   ui.bindKey(GLFW_KEY_ESCAPE, [&]() { ui.open(new PauseMenu(menus)); });
   std::vector<std::string> mapNames;
   for (const Map &map : maps)
@@ -384,6 +449,11 @@ int main(int argc, char **argv) {
     ui.open(new MapSelector(mapNames, currentMap, controls.key(Action::Maps),
                             [&](int index) { requestedMap = index; }));
   });
+
+  // Leave-vehicle key (with no panel open): the map puts the player back on
+  // foot, if it was driving
+  ui.bindKey([&controls]() { return controls.key(Action::LeaveVehicle); },
+             [&]() { stage->leaveVehicle(); });
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -406,8 +476,14 @@ int main(int argc, char **argv) {
     camera.resize();
     // The interface first: while any panel (menu or object) is open, the
     // player's controls are paused and the cursor is free
-    interaction.update(stage->getPlayer()->getPosition());
+    interaction.update(stage->getPlayer()->getPosition(),
+                       stage->interactionsEnabled());
     ui.update();
+    // The map handed the controls to another character (got in or out of a
+    // vehicle): the controller and the camera follow it
+    if (stage->takePlayerChange())
+      controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
+                        stage->getCameraHeight(), stage->getCameraYaw());
     controller.setEnabled(!ui.hasPanels());
     controller.update();
     stage->update(dt);

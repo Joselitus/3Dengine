@@ -31,7 +31,9 @@ public:
   Controller(GLFWwindow *window, Camera *camera, const Controls &controls);
   // Attach to a character: WASD moves it and the camera follows it, looking
   // straight ahead (yaw and pitch reset)
-  void attach(PlayableCharacter *character, float cameraDistance, float cameraHeight);
+  // cameraYaw: where the view starts looking (radians; 0 = towards -z)
+  void attach(PlayableCharacter *character, float cameraDistance,
+              float cameraHeight, float cameraYaw = 0.0f);
   void update();
   // While disabled (e.g. an interface is open) it ignores the input, the
   // character gets no input and the cursor is free; when enabled again the
