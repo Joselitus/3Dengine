@@ -35,5 +35,5 @@ See [tools/scene_viewer/README.md](tools/scene_viewer/README.md).
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): modules, frame loop, floor and collisions, the RV's physics, shader contract, scene file format, asset pipeline, how-tos.
-- [docs/UML.md](docs/UML.md): UML diagrams (Mermaid): an overview of the subsystems, class diagrams of every module, sequence diagrams of a frame, the physics step and a conversation, and an index of all the classes.
+- [docs/UML.md](docs/UML.md): UML diagrams (Mermaid, also as PNG images in [docs/diagrams/](docs/diagrams/), starting with [the overview](docs/diagrams/01-vista-general.png)): an overview of the subsystems, class diagrams of every module, sequence diagrams of a frame, the physics step and a conversation, and an index of all the classes.
 - [CLAUDE.md](CLAUDE.md): working notes and log.

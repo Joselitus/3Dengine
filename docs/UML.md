@@ -14,6 +14,23 @@ Se leen de lo general a lo concreto:
 8. [Secuencias](#8-secuencias): un frame, la física de un frame y una conversación.
 9. [Índice de todas las clases](#9-índice-de-todas-las-clases).
 
+**Imágenes.** Cada diagrama también está exportado como PNG en [`docs/diagrams/`](diagrams/), por si no tienes un visor de Mermaid:
+
+| Diagrama | Imagen |
+|---|---|
+| 1. Vista general | [`01-vista-general.png`](diagrams/01-vista-general.png) |
+| 2. Mundo | [`02-mundo.png`](diagrams/02-mundo.png) |
+| 3. Física y colisiones | [`03-fisica-y-colisiones.png`](diagrams/03-fisica-y-colisiones.png) |
+| 4. Renderizado | [`04-renderizado.png`](diagrams/04-renderizado.png) |
+| 5. Entrada e interacción | [`05-entrada-e-interaccion.png`](diagrams/05-entrada-e-interaccion.png) |
+| 6. Audio y diálogos | [`06-audio-y-dialogos.png`](diagrams/06-audio-y-dialogos.png) |
+| 7. Interfaz y menús | [`07-interfaz-y-menus.png`](diagrams/07-interfaz-y-menus.png) |
+| 8.1 Un frame | [`08a-secuencia-un-frame.png`](diagrams/08a-secuencia-un-frame.png) |
+| 8.2 La física de un frame | [`08b-secuencia-fisica.png`](diagrams/08b-secuencia-fisica.png) |
+| 8.3 Hablar con un NPC | [`08c-secuencia-hablar-con-npc.png`](diagrams/08c-secuencia-hablar-con-npc.png) |
+
+La imagen de la vista general (la que da una idea de todo el proyecto de un vistazo) es la primera.
+
 **Leyenda de las flechas** (en los diagramas de clases):
 
 | Flecha | Significa |
@@ -1114,4 +1131,5 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 
 - Si añades una clase, ponla en el diagrama de su subsistema (con sus relaciones, no hace falta listar todos los miembros) y en el índice.
 - Si cambias una herencia, un dueño (`*--`) o una dependencia importante, actualiza la flecha. Es lo que más se desfasa.
+- **Los PNG de `docs/diagrams/` hay que regenerarlos** cuando cambie un diagrama: son una copia del bloque Mermaid. Se hace con mermaid-cli (`mmdc -p cfg.json -i bloque.mmd -o imagen.png -s 2`; ver `CLAUDE.md`).
 - Los diagramas son texto: se editan a mano y se ven en GitHub. Para comprobar que la sintaxis es válida antes de subir el cambio, se puede pasar cada bloque por el parser de Mermaid (`mermaid.parse`).
