@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <GLFW/glfw3.h>
+#include <cmath>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -22,6 +23,7 @@
 #include "MapSelector.h"
 #include "PlayableCharacter.h"
 #include "RV.h"
+#include "Readable.h"
 #include "Satellite.h"
 #include "Model.h"
 #include "Npc.h"
@@ -238,6 +240,21 @@ public:
     guide->setGravity(25.0f);
     addDynamic(guide);
     interactables.push_back(guide.get());
+
+    // A sign to read (no voice: the text types itself out), past the
+    // satellite, turned towards the start
+    auto sign = make_shared<Readable>(
+        loadModel("../assets/sign/sign.obj"), "Cartel",
+        std::vector<std::string>{
+            "AVISO: estación de seguimiento del desierto. Prohibido el paso a personal no autorizado.",
+            "La antena se orienta con el azimut y el cénit. No la apuntéis nunca directamente al sol.",
+            "Si de noche veis algo moverse entre las dunas, no os acerquéis. Volved a la carretera.",
+        },
+        1.3f); // the board's height
+    sign->setPosition(7.5f, groundAt(7.5f, -1.0f), -1.0f);
+    sign->setYaw(std::atan2(3.0f - 7.5f, 4.0f + 1.0f)); // face (3, 4)
+    add(sign);
+    interactables.push_back(sign.get());
   }
 };
 
