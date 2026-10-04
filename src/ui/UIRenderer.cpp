@@ -62,7 +62,7 @@ UIRenderer::UIRenderer() : screen(1.0f) {
   // Creating a Shader leaves it in use: give the engine's program back
   GLint previous;
   glGetIntegerv(GL_CURRENT_PROGRAM, &previous);
-  shader.reset(new Shader("ui.vert", "ui.frag"));
+  shader.reset(new Shader("shaders/ui.vert", "shaders/ui.frag"));
   glUseProgram(previous);
 
   glGenVertexArrays(1, &VAO);

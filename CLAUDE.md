@@ -5,10 +5,10 @@ Memoria de trabajo del proyecto. **Léela al empezar cada sesión y actualízala
 ## Qué es
 
 Juego 3D en C++ sobre un motor propio (OpenGL 3.3 core). El objetivo es construir el motor y su arquitectura a la vez que el juego. Dos mapas, que se cambian con el selector de depuración (tecla Z):
-- **"Desierto de dia"** (`TestStage`, en código en `test.cpp`): dunas, carretera, cactus, rocas, una autocaravana aparcada y un satélite orientable.
+- **"Desierto de dia"** (`TestStage`, en código en `test.cpp`): dunas, carretera, cactus, rocas, un satélite orientable, un cartel, un NPC (Pingu) y un pingüino a pie. **El jugador es el `RV`** (autocaravana con suspensión), en tercera persona.
 - **"Desierto de noche"** (`SceneStage` + `assets/scenes/desert.scene`): cielo estrellado, luna y la criatura.
 
-En los dos, el jugador es un pingüino a pie, en primera persona a la altura de la cabeza.
+En el de noche el jugador es un pingüino a pie (`Walker`), en primera persona a la altura de la cabeza.
 
 ## Compilar, ejecutar, visualizar
 
@@ -21,27 +21,32 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 
 - **Para ver la escena tras un cambio, usa `--shot` y lee el PNG**. No hace falta lanzar el juego: genera la imagen con Firefox headless en ~10 s.
 - Para comprobar el juego de verdad sin molestar mucho: lánzalo con `timeout 12 ../test/test --windowed &`, captura su ventana con `xwd -id $(wmctrl -l | grep "test bimbow" | awk '{print $1}')` y convierte el XWD con un script numpy (PIL no lee XWD).
-- Dependencias: GLFW3, GLEW, GL, Assimp, GLM; Vulkan está enlazado pero no se usa. `stb_image` va incluido.
+- Dependencias: GLFW3, GLEW, GL, Assimp, GLM; Vulkan está enlazado pero no se usa. `stb_image` va incluido (en `src/third_party/`).
 - **Para probar la interfaz sin molestar al usuario:** (ojo: el ratón real que pase por encima de la ventana de Xephyr también llega al juego) no lances el juego en su pantalla (puede estar usándola y se mezclan las entradas). Usa un X anidado, `Xephyr :57 -screen 760x660 -ac &`, con `DISPLAY=:57 LIBGL_ALWAYS_SOFTWARE=1`. Envía teclas y ratón con python-xlib (`Xlib.ext.xtest.fake_input`), captura con `xwd -display :57 -id <ventana>` y busca la ventana por su título con `query_tree` (allí no hay gestor de ventanas). Al terminar, cierra Xephyr. Si un script falla a mitad, suelta los botones que haya pulsado y mata el juego que haya dejado abierto.
+- **Organización de `src/`:** `render/` (mallas, modelos, animación, Shader, Camera), `physics/` (CollisionShape, VehicleBody), `world/` (GameObject, Stage, GameStage, SceneStage...), `entities/` (RV, Walker, Npc, Satellite, Readable), `input/`, `audio/`, `dialogue/`, `ui/` (UI* y menús), `core/` (Settings), `shaders/`, `third_party/`; `test.cpp` (el `main`) y el makefile quedan en `src/`. El makefile compila cualquier `.cpp` y pone cada subdirectorio como include path, así que los `#include` son por nombre (`#include "Stage.h"`). Un fichero nuevo va en el subdirectorio que corresponda; no hay que tocar el makefile. Los shaders se abren como `shaders/...` (el directorio de trabajo es `src/`).
+- **Diagramas ([docs/UML.md](docs/UML.md)):** son Mermaid. Para validarlos: en un directorio temporal, `npm i mermaid jsdom` y un script que cree un `JSDOM`, lo ponga en `globalThis.window/document` y llame a `mermaid.parse(bloque)` por cada ```` ```mermaid ````. Para verlos: `npm i @mermaid-js/mermaid-cli` con `PUPPETEER_SKIP_DOWNLOAD=1` y `mmdc -p cfg.json -i bloque.mmd -o salida.png`, con un `cfg.json` `{"executablePath":"/usr/bin/google-chrome-stable","args":["--no-sandbox"]}`. Si cambia una herencia o un dueño, actualiza el diagrama y el índice del final.
 - No hay tests automáticos. `test.cpp` es el `main` del juego (el nombre es histórico). Para probar el parser de escenas sin GL, compila `SceneFile.cpp` con un `main` mínimo.
 
-## Estado tras el merge con `Scene` (4 oct 2026)
+## Estado actual: mundo, física y colisiones
 
-`test.cpp` ahora usa **`Stage`** (abstracta, con `FloorMode::HeightField|DownwardRay`, `--ray` para el segundo) en vez de `Scene`: `TestStage` carga el desierto en C++, el jugador es un `RV` (`PlayableCharacter` abstracta -> `DynamicGameObject` -> `GameObject`, que ahora comparte `shared_ptr<Model>` y dibuja sus partes). Es de día (cielo azul liso, sin skydome), hay una carretera (`road.obj`) y la criatura está comentada. `Scene`/`SceneFile`/`desert.scene` y el visor web **siguen compilando pero ya no los usa el juego**: están desfasados (noche, pingüino) hasta decidir si `Stage` lee `.scene` o se retiran. `GameObject` ya no tiene los constructores con `Model*`.
+`test.cpp` monta los mapas sobre **`Stage`** (abstracta, con `FloorMode::HeightField|DownwardRay`; `--ray` elige el segundo): `TestStage` (día, en C++) y `SceneStage` (noche, desde `assets/scenes/desert.scene` con `SceneFile`). Los dos heredan de `GameStage`. `GameObject` comparte `shared_ptr<Model>` y dibuja sus piezas (cada una con transformación local opcional). El visor web y `.scene` solo cubren la noche.
 
-**Física y colisiones.** `RV` es un `VehicleBody` (chasis rígido sobre 4 muelles, ruedas separadas en `wheel_negx/posx.obj`; ver `VehicleBody.h`), con el peso bajo (centro de masas bajo las ruedas) y un par de autoenderezado tipo tentetieso: tiende siempre a volver a apoyarse en las ruedas). Cada `GameObject` tiene una forma de colisión (`CollisionShape.h`): por defecto una cápsula ajustada al modelo, o la que se pase al construir (el RV usa una `Box`). `Stage` tiene una rejilla fija de celdas (8 m) y solo prueba pares que comparten celda; los objetos no se solapan y la forma de un dinámico no atraviesa el suelo. El suelo y la carretera deben ser `setCollidable(false)`. Los estáticos se registran en la rejilla al hacer `add()`: no moverlos después.
+- **Jerarquía:** `GameObject` → `DynamicGameObject` (velocidad, masa, gravedad; ganchos `contactFloor` y `applyCollision`) → `PlayableCharacter` (abstracta) → `Walker` / `RV`; también `Npc` (dinámico) y `Satellite`/`Readable` (estáticos), los tres `Interactable`.
+- **Colisiones (en `Stage`):** cada `GameObject` tiene una `CollisionShape` (`physics/CollisionShape.h`): por defecto una `Capsule` ajustada al modelo, o la que se pase **al construir** (el RV usa una `Box`). Rejilla fija de celdas (8 m, 2.º argumento del constructor de `Stage`): solo se comparan los objetos que comparten celda. Los objetos no se solapan (se mueve el dinámico; entre dos, el más ligero) y la forma de un dinámico no atraviesa el suelo **de ningún lado** (`floorSamples`: esquinas y cara más baja en el mundo). `setCollidable(false)` en el suelo y la carretera, **antes de `add()`**: un estático se registra al añadirlo y no debe moverse después.
+- **El RV** es un `VehicleBody` (`physics/VehicleBody.h`, sin OpenGL): chasis rígido sobre 4 muelles con recorrido limitado, neumáticos con círculo de fricción, **centro de masas bajo los ejes** y un par de autoenderezado tipo tentetieso (vuelve solo a las ruedas). Las ruedas son piezas aparte (`wheel_negx/posx.obj`) que siguen la suspensión. Las 8 esquinas del chasis son contactos elásticos *por fuera* de la caja de colisión: así la física actúa antes que la corrección dura del stage (si no, un RV volcado se desliza sin rozamiento). W/S aceleran, A/D giran; la dirección de la cámara se ignora.
+- **Cada frame** (`Stage::update`): objetos → por cada dinámico `update`, `apply` (suelo; el RV lo hace en `contactFloor`) y forma-contra-suelo → `resolveCollisions` → forma-contra-suelo otra vez. Detalle y diagramas en ARCHITECTURE.md ("Suelo y colisiones", "El RV") y en [docs/UML.md](docs/UML.md).
 
 ## Arquitectura (resumen)
 
 **`main` manda** (es el código de la otra persona). Lo nuestro se construye heredando de sus clases, no al revés.
 
-- **Jerarquía de objetos:** `GameObject` (piezas `Part` compartidas o un `AnimatedModel`; posición, rotación, escala; `update(dt)` virtual; `setVisible`). De él deriva `DynamicGameObject` (velocidad, gravedad, `steerTowards`), y de este `PlayableCharacter` (abstracta: `control`, `attachCamera`, `followCamera`), que implementan `Walker` (el jugador) y `RV`.
-- **`Stage`** (abstracta, de `main`) es dueño de los objetos (`add`, `addDynamic`) y del suelo (`setFloor`, `floorAt`, `collideWithFloor`).
+- **Jerarquía de objetos:** `GameObject` (piezas `Part` compartidas o un `AnimatedModel`; posición, rotación, escala; `update(dt)` virtual; `setVisible`). De él deriva `DynamicGameObject` (velocidad, gravedad, `steerTowards`), y de este `PlayableCharacter` (abstracta: `control`, `attachCamera`, `followCamera`), que implementan `Walker` (el jugador de la noche, a pie) y `RV` (el del día).
+- **`Stage`** (abstracta) es dueño de los objetos (`add`, `addDynamic`), del suelo (`setFloor`, `floorAt`, `collideWithFloor`) y de la rejilla de colisiones. Cada escenario implementa `apply(objeto, dt)`.
 - **`GameStage : Stage`** (abstracta, nuestra) es un mapa jugable: `Environment` (luz y horizonte), cielo opcional, jugador y cámara, interactuables y `render()`. De ella derivan `TestStage` (día, en código) y `SceneStage` (cualquier `.scene`).
 - **Mapas:** la lista `maps` de `main()` (nombre + fábrica). Cambiar de mapa siempre pasa por `switchMap`, **diferido** al principio del frame (`requestedMap`), nunca dentro de un callback de la UI. `switchMap` cierra los paneles, vacía el `InteractionSystem`, cambia el stage, conecta el `Controller` y aplica el entorno. Nada puede guardar punteros a objetos del mapa sin limpiarlos ahí. Guía "Añadir un mapa" en ARCHITECTURE.md.
-- **Cámara:** `Controller` → `PlayableCharacter::attachCamera(camera, distancia, altura)`. La distancia 0 es primera persona: `Walker` se oculta. Hoy es `attach(player, 0, 1.6)`, con la posición del jugador en sus pies.
+- **Cámara:** `Controller` → `PlayableCharacter::attachCamera(camera, distancia, altura)`. La distancia 0 es primera persona: `Walker` se oculta. Cada mapa pide la suya (`cameraDistance`/`cameraHeight`): a pie 0 y 1.6 (con la posición del jugador en sus pies); el RV, 12 y 3.5.
 - **`.scene`**: mapas en datos. Los leen `SceneFile` → `SceneStage` y el visor web, cuyos parsers deben estar sincronizados. `floor` define el suelo, y una `y` = `ground` apoya el objeto en él; úsalo siempre, porque las dunas se regeneran. La clase `Scene` antigua se eliminó.
-- Un solo shader para el mundo: `animatedshader.vert` + `shader.frag`. **Trampa:** en el shader, `model` es la *rotación de la cámara*, no la matriz del objeto. El objeto usa `objposition` + `objrotation` (que incluye la escala).
+- Un solo shader para el mundo: `shaders/animatedshader.vert` + `shaders/shader.frag`. **Trampa:** en el shader, `model` es la *rotación de la cámara*, no la matriz del objeto. El objeto usa `objposition` + `objrotation` (que incluye la escala).
 - Uniforms de control: `skinned`, `unlit` (0 iluminado, 1 cielo, 2 emisivo; por pieza), `breathAmp`/`breathTime`, `fitCenter`/`fitScale`. Tabla completa en ARCHITECTURE.md.
 - **Interfaz 2D propia** (`UI*`):
   - `UIElement` es la base y de ella derivan `UILabel`, `UIButton`, `UISlider` y `UIContainer` (de la que salen `UIPanel` y `UIRow`).
@@ -58,7 +63,7 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
   - `SettingsMenu` (abstracta): base de las pantallas de ajustes, con Por defecto / Guardar / Volver y aviso `ConfirmDialog` si hay cambios sin guardar. De ella heredan `CameraMenu` (sensibilidad y FOV, con vista previa en directo y descarte que repone) y `ControlsMenu` (reasigna teclas sobre una copia).
   - `MapSelector`: Z, debug. Para cualquier ventana nueva, sigue la guía "Crear una ventana nueva" de ARCHITECTURE.md: heredar de `UIPanel`, añadir hijos en el constructor, `onKey` para atajos, `closable = false` y `dimsBackground()` en menús, y `ui.open(...)` + `requestClose()` para pasar de una ventana a otra.
 - **Cámara:** `Camera::setAngles(yaw, pitch)` en radianes, más `setFov`/`setSensitivity`. `Controller` acumula el giro a partir del desplazamiento del ratón en cada frame (antes usaba la posición absoluta del cursor, y cambiar la sensibilidad hacía saltar la cámara).
-- **Audio y voz:** `SoundEngine` (miniaudio, cabecera única en `src/`) con `Sound`/`AudioClip`; el oyente sigue a la cámara cada frame. `SpeechSynthesizer` es abstracta y `EspeakSynthesizer` lanza `espeak-ng` con fork/exec, así que **espeak-ng es una dependencia en tiempo de ejecución**. `Voice` sintetiza con `std::async` y da `progress()` para los subtítulos (`UITextBlock`). `Npc : DynamicGameObject, Interactable` (de momento "Pingu" en `TestStage`).
+- **Audio y voz:** `SoundEngine` (miniaudio, cabecera única en `src/third_party/`) con `Sound`/`AudioClip`; el oyente sigue a la cámara cada frame. `SpeechSynthesizer` es abstracta y `EspeakSynthesizer` lanza `espeak-ng` con fork/exec, así que **espeak-ng es una dependencia en tiempo de ejecución**. `Voice` sintetiza con `std::async` y da `progress()` para los subtítulos (`UITextBlock`). `Npc : DynamicGameObject, Interactable` (de momento "Pingu" en `TestStage`).
 - **Diálogos:** `Dialogue` es la caja común (páginas, "Siguiente"/"Cerrar", Esc) y usa un `LineNarrator`: `Voice` (TTS) en `Npc`, `Typewriter` (silencioso, letra a letra) en `Readable : GameObject, Interactable` (el "Cartel" de `TestStage`, `assets/sign/`). Para un objeto que se lee, usa `Readable`; para otra forma de entregar el texto, crea una subclase de `LineNarrator`. El narrador se declara antes que el `Dialogue`. `Interactable::getInteractionVerb()` da el verbo del aviso ("hablar con", "leer"). `Interactable` tiene ahora `onInterfaceOpened`/`onInterfaceClosed`. `AnimatedModel(path, feetAtOrigin)`. Todo está en la sección "Audio y voz" de ARCHITECTURE.md.
 - **Para probar el audio:** usa siempre una salida virtual (`pactl load-module module-null-sink sink_name=engine_test`, juego con `PULSE_SINK=engine_test`, `parec --device=engine_test.monitor`) y descárgala al terminar. Grabar el monitor por defecto mezcla lo que el usuario escucha (le pasó: tenía audio sonando), y además así el usuario no oye las pruebas.
 - `Satellite`: la cabeza es el objeto y el poste un `GameObject` aparte (`getMount()`), porque todas las piezas de un `GameObject` comparten la misma transformación. Azimut desde −z en sentido horario hacia +x; cénit 0 = vertical. Gira hacia el objetivo a `slewRate` °/s.
@@ -66,14 +71,15 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 ## Puntos que deben estar sincronizados
 
 - `SceneFile::load` ↔ `parseScene` en `viewer.js`.
-- `animatedshader.vert`/`shader.frag` ↔ los shaders copiados en `viewer.js`.
+- `shaders/animatedshader.vert`/`shaders/shader.frag` ↔ los shaders copiados en `viewer.js`.
+- Medidas del RV: `RV.cpp` (ejes de las ruedas 2.4 y −2.3, vía 1.2, radio 0.5, caja del chasis) ↔ `assets/rv/generate_rv.py`. Las ruedas salen de ese script como `wheel_negx/posx.obj` centradas en su eje.
 - `moon` del `.scene` ↔ `MOON_DIR` en `assets/sky/generate_sky.py`. `fog` ↔ `HORIZON`.
 - Altura `y` de los objetos del desierto = `-1 + dune_height(x, z) - 0.05` (`assets/desert/generate_assets.py`).
 - Constantes del visor (`FOV`, `SENSIVILITY`, `PLAYER_HEIGHT`, `BREATH_AMPLITUDE`) ↔ `Camera`, `Controller`, `AnimatedModel`, `SceneStage`.
 
 ## Assets
 
-- `desert/`, `sky/` y `creature/` se generan con `generate_*.py` (numpy + Pillow, con semilla). Se edita el script, no el OBJ.
+- `desert/`, `sky/`, `creature/` y `rv/` se generan con `generate_*.py` (numpy + Pillow, con semilla). Se edita el script, no el OBJ.
 - `ping/PenguinoAnimado.fbx` es el jugador; el `.original.fbx` es la copia sin tocar. `backpack/` no se usa.
 
 ## Estilo
@@ -86,7 +92,7 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 
 - `AnimatedMesh` duplica `Mesh` (TODO de herencia). `GameObject` usa un flag `anim` con dos punteros en vez de polimorfismo.
 - `Light`/`Camera` escriben uniforms directamente; no hay un renderer como abstracción.
-- No hay delta time, colisiones ni ajuste al terreno. Solo se reproduce la animación 0 (`Animation` está sin usar).
+- Las colisiones entre objetos no tienen rebote ni rozamiento; solo separan. No hay botón de recolocar un RV volcado (aunque se endereza solo). Solo se reproduce la animación 0 (`Animation` está sin usar).
 - No se liberan los recursos GL.
 - Typos heredados: `SENSIVILITY`, `NUM_BONES_PER_VEREX`.
 
@@ -124,6 +130,10 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 
 - 2026-10-04 (`main`): **Opciones pasa a ser una lista** (Cámara / Controles / Volver). Nueva base `SettingsMenu` (Por defecto / Guardar / Volver + aviso de cambios sin guardar), de la que heredan `CameraMenu` (nuevo: sensibilidad y FOV, en directo, descartables) y `ControlsMenu`. Ya no se guarda nada al cerrar sin pulsar Guardar. Verificado en Xephyr: FOV 90 en directo, aviso, descartar (vuelve a 45), guardar (90 en el fichero, sin aviso al salir), Controles desde el menú nuevo.
 
+- 2026-10-04 (`main`): **estructura de `src/` en subdirectorios** (`render/`, `physics/`, `world/`, `entities/`, `input/`, `audio/`, `dialogue/`, `ui/`, `core/`, `shaders/`, `third_party/`), con `git mv` (se conserva el historial). El makefile busca los `.cpp` con `find` y añade cada directorio como `-I`, así que los `#include` siguen siendo por nombre. Solo cambian las dos rutas de shader (`shaders/...`) en `test.cpp` y `UIRenderer.cpp`. Compila sin avisos desde cero y arranca desde `src/` y desde `/tmp`.
+- 2026-10-04 (`main`): **suspensión del RV y colisiones.** `VehicleBody` (cuerpo rígido, 4 muelles, neumáticos, esquinas elásticas, autoenderezado), ruedas separadas del modelo que suben y bajan, centro de masas bajo las ruedas. `CollisionShape` (`Capsule`, `Box`), forma por defecto en todo `GameObject`, rejilla fija en `Stage` y `contactFloor`/`applyCollision`/`mass` en `DynamicGameObject`. El RV es el jugador del mapa de día. Verificado con programas de prueba sin ventana (en el directorio temporal, no se versionan): 57 049 choques aleatorios entre formas se separan bien; ninguna caja queda bajo el suelo en cinco posturas (también boca abajo) y en los dos modos de suelo; el RV sube rampas de 15/20/25° y vuelve a las ruedas desde cualquier postura en 0.7–2 s; el stage real no tiene solapes. Lecciones: la corrección dura del stage no tiene rozamiento ni par (si actúa antes que los contactos elásticos, el RV "se desliza en cámara lenta"); un contacto sin tope de fuerza dispara el chasis si nace dentro del suelo; el rayo del suelo no debe descartar puntos muy hundidos (el corte es la altura del objeto).
+- 2026-10-04 (`main`): documentación al día: README, ARCHITECTURE.md (secciones "Suelo y colisiones" y "El RV") y **docs/UML.md** (10 diagramas Mermaid: vista general, mundo, física, render, entrada, audio y diálogos, UI, y secuencias de un frame, de la física y de una conversación, más el índice de las 71 clases). Todos validados con `mermaid.parse` y dibujados con mermaid-cli.
+
 ## Próximos pasos / ideas
 
 (Rellenar según lo que se decida con el usuario.)
@@ -131,6 +141,6 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 - Volumen en Opciones (`SoundEngine::setMasterVolume`), NPCs en `.scene` (comando `npc`), subtítulos palabra a palabra.
 - ¿Pausar el mundo con el menú abierto? Pantalla de Audio (volumen) como otro `SettingsMenu`.
 - ¿Pasar también el mapa de día a `.scene` (para verlo en el visor)? Habría que respetar que es código de `main`.
-- Entrar en la autocaravana (que sea `Interactable` y cambie el `PlayableCharacter` del `Controller`).
+- Entrar y salir de la autocaravana (que sea `Interactable` y cambie el `PlayableCharacter` del `Controller`; hoy el RV es el jugador del día y el pingüino a pie se queda quieto). Un botón para recolocar un RV volcado. Ruedas con giro visible (hoy solo suben, bajan y dirigen: son discos sin textura).
 - Modelo del pingüino apoyado por los pies (hoy `AnimatedModel` lo centra en su posición); solo afecta a la tercera persona.
 - Posibles: rueda del ratón o teclado en la UI, satélite en el `.scene` y en el visor, delta time, que el jugador siga la altura del terreno, varias animaciones (andar/parado) usando `Animation`, una clase Renderer.

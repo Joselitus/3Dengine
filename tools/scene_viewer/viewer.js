@@ -1,7 +1,7 @@
 // Web viewer for the engine's .scene files (see docs/ARCHITECTURE.md).
 //
 // It reads the same scene file and assets as the game and reproduces its
-// shading (src/animatedshader.vert + src/shader.frag), so the scene can be
+// shading (src/shaders/animatedshader.vert + src/shaders/shader.frag), so the scene can be
 // inspected without building or running the engine. Served by serve.py.
 //
 // Query parameters:
@@ -35,7 +35,7 @@ const LIGHT_DISTANCE = 100;      // test.cpp, the moon is a far point light
 const PROP_SINK = 0.05;          // SceneStage::PROP_SINK, see desert.scene
 
 // ------------------------------------------------------------ scene file
-// Mirror of SceneFile::load (src/SceneFile.cpp). Keep both in sync.
+// Mirror of SceneFile::load (src/world/SceneFile.cpp). Keep both in sync.
 function parseScene(text, path) {
   const scene = {
     moon: new THREE.Vector3(0, 1, 0), light: new THREE.Vector3(1, 1, 1),
@@ -112,7 +112,7 @@ const globals = {
   fogOn: { value: 1 },
 };
 
-// Port of src/animatedshader.vert. The skinning comes from three.js; the
+// Port of src/shaders/animatedshader.vert. The skinning comes from three.js; the
 // fit of AnimatedModel is applied to the player's group instead.
 const vertexShader = /* glsl */`
 #include <common>
@@ -151,7 +151,7 @@ void main() {
   gl_Position = projectionMatrix * viewMatrix * world;
 }`;
 
-// Port of src/shader.frag (mode = the `unlit` uniform)
+// Port of src/shaders/shader.frag (mode = the `unlit` uniform)
 const fragmentShader = /* glsl */`
 uniform sampler2D map;
 uniform int mode;

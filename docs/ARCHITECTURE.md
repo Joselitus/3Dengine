@@ -1,22 +1,32 @@
 # Arquitectura del motor
 
-Este documento explica cómo está montado el motor 3D y cómo se dibuja un frame. También indica qué hay que tocar para las tareas más habituales. Para compilar y ejecutar, consulta el [README](../README.md).
+Este documento explica cómo está montado el motor 3D y cómo se dibuja un frame. También indica qué hay que tocar para las tareas más habituales. Para compilar y ejecutar, consulta el [README](../README.md). Para ver cómo encajan las clases, mira los [diagramas UML](UML.md).
 
 ## Mapa del repositorio
 
 ```
 src/                 motor + juego (C++11, OpenGL 3.3 core)
   test.cpp           main: lista de mapas, cambio de mapa, TestStage (el mapa de día) y bucle principal
-  *.h / *.cpp        una clase por par de ficheros (ver tabla de abajo)
-  animatedshader.vert, shader.frag   el único programa de shaders en uso
-  makefile           compila todos los .cpp de src/ y genera ../test/test
+  render/            mallas, modelos, animación, Shader, Light, Camera, myopengl
+  physics/           CollisionShape (cápsula, caja) y VehicleBody (chasis sobre muelles)
+  world/             GameObject, DynamicGameObject, PlayableCharacter, Stage, GameStage, SceneStage, SceneFile, Interactable
+  entities/          RV, Walker, Npc, Satellite, Readable
+  input/             Controller, Controls, InteractionSystem
+  audio/             SoundEngine, AudioClip, Voice, SpeechSynthesizer, EspeakSynthesizer
+  dialogue/          Dialogue, LineNarrator, Typewriter
+  ui/                UIManager, UIRenderer, los UI* y los menús (Pause, Options, Controls, Settings, Camera, ConfirmDialog, MapSelector)
+  core/              Settings (ajustes entre sesiones)
+  shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag; shader.vert está en desuso
+  third_party/       miniaudio, stb_image, stb_easy_font (se compilan con -w)
+  makefile           compila todos los .cpp de src/ (en cualquier subdirectorio) y genera ../test/test.
+                     Cada subdirectorio es un include path: los .h se incluyen por su nombre, sin ruta
 assets/
   scenes/*.scene     mapas en datos (SceneStage), también los muestra el visor
   desert/ sky/ creature/ rv/ cube/   assets procedurales + su script generate_*.py
   ping/              pingüino animado (FBX), el jugador
   backpack/          modelo de ejemplo (sin usar)
 tools/scene_viewer/  visor web de escenas (ver su README)
-docs/                esta documentación
+docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secuencias)
 ```
 
 ## Módulos
@@ -32,12 +42,13 @@ docs/                esta documentación
                                    ├── TestStage   (test.cpp, desierto de día; en código)
                                    └── SceneStage  (un .scene; desierto de noche)
 
-   GameObject ─ Model
-                    ├── Satellite (+ Interactable)
+   GameObject ─ Model, CollisionShape (Capsule | Box)
+                    ├── Satellite, Readable (+ Interactable)
                     └── DynamicGameObject
+                          ├── Npc (+ Interactable)
                           └── PlayableCharacter (abstracta)
-                                ├── Walker  (el jugador: a pie, 1ª persona)
-                                └── RV      (autocaravana conducible, aparcada)
+                                ├── Walker  (a pie, 1ª persona: el jugador de la noche)
+                                └── RV      (autocaravana con VehicleBody: el jugador del día)
            (todo usa myopengl: utilidades GL, texturas, conversión de matrices)
 ```
 
@@ -49,19 +60,21 @@ docs/                esta documentación
 | `AnimatedMesh` | Como `Mesh`, pero con 12 pares (hueso, peso) por vértice. |
 | `AnimatedModel` | Carga un FBX con esqueleto: mallas, lista global de huesos, `Skeleton` y ajuste de escala (`computeFit`). Posee el `Assimp::Importer`. |
 | `Skeleton` | Evalúa la primera animación del fichero y calcula las matrices de hueso (`boneMats`, como máximo 100). |
-| `GameObject` | Todo lo que está en el mundo. Hecho de piezas (`Part`: un `shared_ptr<Model>` y su modo `unlit`) o de un `AnimatedModel`, con posición, rotación y escala. `update(dt)` es virtual. `Draw()` fija los uniforms y no dibuja nada si `setVisible(false)`. |
-| `DynamicGameObject` | `GameObject` que se mueve: velocidad, aceleración, velocidad máxima y gravedad. `steerTowards` acelera hacia una velocidad deseada. |
+| `GameObject` | Todo lo que está en el mundo. Hecho de piezas (`Part`: un `shared_ptr<Model>`, su modo `unlit` y una transformación local opcional, que usan las ruedas del RV) o de un `AnimatedModel`, con posición, rotación y escala. Tiene una **forma de colisión** (`CollisionShape`; por defecto una cápsula ajustada al modelo, o la que se pase al construir) y un flag `collidable`. `update(dt)` es virtual. `Draw()` fija los uniforms y no dibuja nada si `setVisible(false)`. |
+| `DynamicGameObject` | `GameObject` que se mueve: velocidad, aceleración, velocidad máxima, masa y gravedad. Quien lo controla lo guía con `steerTowards` (aceleración); el `Stage` lo mueve. Ganchos virtuales para el stage: `contactFloor` (el objeto lleva su propio suelo, como el RV) y `applyCollision` (cómo recibe un empujón). |
 | `PlayableCharacter` | Personaje que maneja el `Controller` (abstracta). Cada uno decide cómo responde a la entrada (`control`) y cómo lo sigue la cámara (`attachCamera`, `followCamera`). |
-| `Walker` | El jugador: anda en la dirección de la cámara y se orienta hacia donde camina. Con distancia de cámara 0 es primera persona y se oculta a sí mismo. |
-| `RV` | Autocaravana: W/S aceleran y A/D giran, como un coche. Ahora está aparcada (no es el jugador). |
+| `Walker` | Personaje a pie: anda en la dirección de la cámara y se orienta hacia donde camina. Con distancia de cámara 0 es primera persona y se oculta a sí mismo. Es el jugador del mapa de noche. |
+| `RV` | Autocaravana, el jugador del mapa de día: W/S aceleran y A/D giran las ruedas delanteras, y la cámara orbita libremente sin girar la malla. Es un `VehicleBody` (chasis sobre 4 muelles) con las ruedas como piezas aparte. Ver [El RV](#el-rv-vehículo-con-suspensión). Su forma de colisión es una caja larga. |
 | `Satellite` | `GameObject` + `Interactable`: cubo orientable en azimut y cénit. Ver [Satélite](#satélite). |
-| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez y tiene el suelo (height field o rayo hacia abajo, `floorAt`). Cada frame actualiza los objetos y aplica `apply()` a los dinámicos. |
+| `Stage` | Nivel (abstracta): es dueño de los objetos estáticos y dinámicos, carga cada modelo una sola vez, tiene el suelo (height field o rayo hacia abajo, `floorAt`) y la **rejilla de colisiones**. Cada frame actualiza los objetos, aplica `apply()` a los dinámicos y resuelve las colisiones. Ver [Suelo y colisiones](#suelo-y-colisiones). |
+| `CollisionShape`, `Capsule`, `Box` | Volumen de colisión de un objeto (abstracta + pastilla vertical + caja orientada), con la prueba de choque entre cualquier par (`collide`) y los puntos bajos que no pueden quedar bajo el suelo (`floorSamples`). Ver [Suelo y colisiones](#suelo-y-colisiones). |
+| `VehicleBody` | Física de un vehículo con ruedas, sin OpenGL: cuerpo rígido con masa e inercia sobre muelles amortiguados (un "vehículo de rayos"), neumáticos y autoenderezado. Lo usa `RV`. Ver [El RV](#el-rv-vehículo-con-suspensión). |
 | `GameStage` | Mapa jugable (abstracta, hereda de `Stage`): añade todo lo que el juego necesita para ejecutarlo y cambiarlo en marcha. Incluye el `Environment` (dirección y color de la luz, color del horizonte), el cielo opcional (`setSky`) y el jugador con la cámara que quiere (distancia, altura). También tiene los interactuables, una regla `apply()` por defecto (suelo) y `render()` (cielo alrededor de la cámara + stage). |
-| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código (de `main`): dunas, carretera, cactus, rocas, la autocaravana, el satélite y el jugador, con luz de sol. |
+| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo), carretera, cactus, rocas, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador es el `RV`**, en tercera persona (cámara a 12 de distancia y 3.5 de altura). El suelo y la carretera no son colisionables. |
 | `SceneStage` | Mapa a partir de un `.scene` ("Desierto de noche" = `desert.scene`): suelo, objetos (apoyados con `ground`), efectos, cielo, luz y un `Walker` como jugador. |
 | `MapSelector` | Menú de depuración (tecla Z) para cambiar de mapa (subclase de `UIPanel`). Ver [Mapas](#mapas-y-selector-de-depuración). |
 | `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject`: en primera persona (distancia 0, a la altura de los ojos) o en tercera, desde detrás. El FOV (`setFov`) y la sensibilidad (`setSensitivity`) se pueden cambiar en marcha. |
-| `Controller` | Gestiona la entrada: el desplazamiento del ratón en cada frame × la sensibilidad gira la cámara, y WASD/Espacio/Shift llegan al `PlayableCharacter`. Se puede pausar (`setEnabled(false)`), y entonces el personaje recibe una entrada nula. **No lee Esc.** |
+| `Controller` | Gestiona la entrada: el desplazamiento del ratón en cada frame × la sensibilidad gira la cámara, y las teclas de movimiento (WASD, ver `Controls`) llegan al `PlayableCharacter`. Se puede pausar (`setEnabled(false)`), y entonces el personaje recibe una entrada nula. **No lee Esc.** |
 | `PauseMenu`, `OptionsMenu`, `SettingsMenu`, `CameraMenu`, `ControlsMenu` | Menús del juego (subclases de `UIPanel`) que reciben un `MenuContext`. `SettingsMenu` es la base de las pantallas de ajustes (Guardar/Salir con aviso). Ver [Menús](#menús-pausa-y-opciones). |
 | `Controls` | Registro de teclas: qué tecla hace cada `Action`. Todo lo que lee teclado lo consulta aquí. Ver [Controles](#controles-y-teclas). |
 | `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
@@ -78,7 +91,7 @@ docs/                esta documentación
 
 ## Arranque
 
-`main` cambia el directorio de trabajo a `src/`, que localiza junto al ejecutable a partir de `/proc/self/exe` (`test/test` → `test/../src`). Por eso los shaders se abren como `animatedshader.vert` y los assets como `../assets/...`, se lance desde donde se lance. Si falta un shader, `fileToString` lo dice y termina. Antes devolvía una cadena vacía y el driver acababa fallando al enlazar con un error confuso (`must write to gl_Position`).
+`main` cambia el directorio de trabajo a `src/`, que localiza junto al ejecutable a partir de `/proc/self/exe` (`test/test` → `test/../src`). Por eso los shaders se abren como `shaders/animatedshader.vert` y los assets como `../assets/...`, se lance desde donde se lance. Si falta un shader, `fileToString` lo dice y termina. Antes devolvía una cadena vacía y el driver acababa fallando al enlazar con un error confuso (`must write to gl_Position`).
 
 ## Un frame
 
@@ -89,7 +102,7 @@ interaction.update(pos)      aviso "E: usar ..."; E abre o cierra el panel del o
 ui.update()                  ratón y teclas → paneles; Esc cierra el de arriba; sin paneles, Esc → pausa y Z → mapas
 controller.setEnabled(!ui.hasPanels())   con cualquier panel abierto, controles en pausa y cursor libre
 controller.update()          ratón → rotación de la cámara; teclas → player->control(dir, up, yaw)
-stage->update(dt)            update(dt) de cada objeto; a los dinámicos, además, apply() (suelo)
+stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las colisiones (ver "Suelo y colisiones")
 player->followCamera()       la cámara sigue al jugador ya movido
 glClear(horizonte del mapa)
 stage->render(shader, camPos, t)   cielo del mapa (si tiene) y después cada GameObject
@@ -101,7 +114,7 @@ glfwSwapBuffers / glfwPollEvents
 
 ## Sistema de coordenadas y transformaciones
 
-- Mano derecha, **+y arriba**. Al empezar, la cámara mira hacia **−z**. El claro del desierto está en y = −1 (`GROUND_Y`), y fuera de él la altura la da el suelo del `Stage`. La posición del jugador está en sus pies, sobre el suelo, y la cámara queda 1.6 por encima.
+- Mano derecha, **+y arriba**. Al empezar, la cámara mira hacia **−z**. El claro del desierto está en y = −1 (`GROUND_Y`), y fuera de él la altura la da el suelo del `Stage`. La posición de un personaje está en sus pies, sobre el suelo: a pie la cámara queda 1.6 por encima (primera persona); con el RV en tercera persona, 3.5 por encima y a 12 de distancia. El origen del RV está en el suelo, entre las ruedas.
 - La rotación positiva alrededor de +y (yaw) es antihoraria vista desde arriba (`glm::rotate`).
 - En el vertex shader: `world = objrotation * fitted + objposition` y `gl_Position = projection * model * view * world`.
   - **`model` no es la matriz del objeto.** Es la rotación de la cámara (pitch·yaw), que se aplica *después* de `view` (la traslación a la posición de la cámara). Así la cámara gira sobre sí misma.
@@ -109,7 +122,7 @@ glfwSwapBuffers / glfwPollEvents
 
 ## Contrato del shader
 
-El motor dibuja todo con **`animatedshader.vert` + `shader.frag`**. `shader.vert` es antiguo y ya no se usa.
+El motor dibuja todo con **`shaders/animatedshader.vert` + `shaders/shader.frag`**. `shader.vert` es antiguo y ya no se usa.
 
 | Uniform | Lo escribe | Significado |
 |---|---|---|
@@ -121,7 +134,7 @@ El motor dibuja todo con **`animatedshader.vert` + `shader.frag`**. `shader.vert
 | `breathAmp` / `breathTime` | `GameObject::Draw` / `Stage::Draw` | Respiración procedural de mallas estáticas. 0 la desactiva. |
 | `unlit` | `GameObject::Draw` (por pieza) | 0 = iluminado (Phong + niebla), 1 = cúpula de cielo (estrellas que titilan), 2 = emisivo. |
 | `lightPosition`, `lightColor` | `Light` | El sol, a 100 unidades en la dirección `sunDir` (`test.cpp`). |
-| `moonDir`, `fogColor`, `time` | `test.cpp` | Dirección del astro y color del horizonte, que es también el de la niebla (de 30 a 70 unidades). |
+| `moonDir`, `fogColor`, `time` | `test.cpp` | Dirección del astro y color del horizonte, que es también el de la niebla (de 80 a 140 unidades; el plano lejano de la cámara está a 300). |
 | `texture_diffuse1` (…) | `Mesh` / `AnimatedMesh::Draw` | Texturas del material. |
 
 Atributos: 0 posición, 1 normal, 2 uv, 3–8 tres grupos `ivec4` de ids de hueso + `vec4` de pesos.
@@ -154,8 +167,8 @@ Interactable contrato entre un objeto del juego y la interfaz
 - **Teclado:** `UIManager` instala el *key callback* de GLFW (y el *user pointer* de la ventana), así que **nada más puede instalarlos**. Si algo necesita teclas, que lea con `glfwGetKey` o que pase por `UIManager`. Cada pulsación va al `onKey(key)` del panel de arriba. Si no la gestiona (devuelve `false`) y es Esc, el panel se cierra. Con ningún panel abierto, la tecla ejecuta su **atajo** (`ui.bindKey(tecla, acción)`). En el juego, Esc abre la pausa y Z el selector de mapas.
 - **Pausa de controles:** una sola regla en el bucle: `controller.setEnabled(!ui.hasPanels())`. Ningún panel ni sistema tiene que tocar el `Controller`.
 - **Valores en vivo:** `UILabel` y `UISlider` no guardan el valor, lo leen cada frame con una `std::function`. Así siempre muestran el estado real del objeto, aunque cambie por otra vía (por ejemplo, mientras el satélite gira).
-- **Dibujo:** `UIRenderer` usa su propio shader (`ui.vert`/`ui.frag`) y, al terminar, **vuelve a activar el programa anterior**, porque los setters de `Shader` suponen que el shader del motor está activo. Desactiva el depth test y activa el blending solo mientras dibuja.
-- **Texto:** se dibuja con `stb_easy_font.h` (de dominio público y en `src/`), que solo tiene ASCII. `UIRenderer::text` acepta UTF-8 y lo pasa a ASCII con `toAscii`: á → a, ñ → n, ¿ y ¡ desaparecen, ° → " deg", y cualquier otro carácter → "?". Así se puede escribir español correcto (lo que necesita la voz) y en pantalla sale sin tildes.
+- **Dibujo:** `UIRenderer` usa su propio shader (`shaders/ui.vert`/`ui.frag`) y, al terminar, **vuelve a activar el programa anterior**, porque los setters de `Shader` suponen que el shader del motor está activo. Desactiva el depth test y activa el blending solo mientras dibuja.
+- **Texto:** se dibuja con `stb_easy_font.h` (de dominio público y en `src/third_party/`), que solo tiene ASCII. `UIRenderer::text` acepta UTF-8 y lo pasa a ASCII con `toAscii`: á → a, ñ → n, ¿ y ¡ desaparecen, ° → " deg", y cualquier otro carácter → "?". Así se puede escribir español correcto (lo que necesita la voz) y en pantalla sale sin tildes.
 - **Estilo:** los colores y márgenes son comunes y están en `UITheme` (`UIElement.h`).
 - **Abrir paneles:** `ui.open(Interactable&)` coloca el panel a la derecha. `ui.open(new MiPanel(...))` abre cualquier panel (el `UIManager` pasa a ser su dueño) centrado. `ui.close(panel)` y `panel->requestClose()` lo cierran al final del `update`, así que se pueden llamar desde sus propios botones o teclas. `ui.isOpen(panel)` solo compara punteros y es seguro aunque el panel ya no exista.
 - **Opciones de `UIPanel`:** el constructor es `UIPanel(título, ancho = 360, closable = true)`. Con `closable = false` no hay botón de cerrar (útil en menús, donde la X confundiría). Si `dimsBackground()` devuelve `true`, el juego se oscurece detrás.
@@ -368,6 +381,63 @@ addDynamic(npc);  interactables.push_back(npc.get());
 
 Grabar `@DEFAULT_MONITOR@` recoge también lo que el usuario esté escuchando.
 
+## Suelo y colisiones
+
+Todo esto vive en `Stage` (y en `physics/`). Un objeto nunca sabe nada del suelo ni de los demás: el stage lo mueve y lo empuja.
+
+### El suelo
+
+`Stage::setFloor(malla, posición)` (una sola vez) guarda la malla del suelo y construye su estructura de consulta. El modo se elige **al crear el stage** (`FloorMode`) y no cambia después; `--ray` en la línea de órdenes elige el segundo.
+
+| Modo | Cómo busca la altura | Pros y contras |
+|---|---|---|
+| `HeightField` (por defecto) | La malla debe ser una rejilla regular en x/z. Se interpola la altura del triángulo de la celda (la misma diagonal que el generador de dunas). | O(1). No admite voladizos ni túneles. |
+| `DownwardRay` | Un rayo vertical contra los triángulos, indexados en una rejilla 2D (unos 2 triángulos por celda). Con `maxY` se ignora lo que queda por encima del objeto (un techo, un puente). | Cualquier malla. Algo más lento. |
+
+`Stage::floorAt(x, z, altura, normal, maxY)` da la altura y la normal. Los dos modos dan la misma altura (diferencia < 1e-5 en las pruebas).
+
+### Formas de colisión
+
+Cada `GameObject` tiene una `CollisionShape`:
+
+- **`Capsule`** (por defecto): una pastilla vertical. Se ajusta a la caja del modelo (`Capsule::fit`); para un modelo animado es una de 0.4 de radio y 1.8 de alto, con la base en la posición del objeto (los pies).
+- **`Box`**: una caja orientada. Se pasa **al construir** el objeto, como último argumento opcional del constructor. El `RV` lo hace así (2.5 × 7.4, desde 0.5 de altura hasta el techo).
+- Las dimensiones se dan en el sistema del objeto y se escalan, giran y trasladan con su `Pose`.
+- `CollisionShape::collide` prueba cualquier par (cápsula-cápsula, cápsula-caja, caja-caja con el teorema del eje separador) y devuelve la **normal de salida y la profundidad**, que es el empujón mínimo que los separa.
+- `setCollidable(false)` hace que el stage ignore la forma. **El suelo y la carretera deben ir así**, o serían un obstáculo gigante.
+
+### La rejilla
+
+El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto, segundo argumento del constructor). Cada objeto se registra en las celdas que cubre su caja envolvente. **Solo se comparan los objetos que comparten celda**, y nunca dos estáticos entre sí.
+
+- Los estáticos (`add`) se colocan en la rejilla **al añadirlos**; no hay que moverlos después. Un estático que cubre más de 1024 celdas se ignora con un aviso (casi seguro es el suelo, que debería ser no colisionable).
+- Los dinámicos (`addDynamic`) se recolocan en la rejilla cada frame.
+- `getShapeTests()` dice cuántos pares se probaron en el último frame, para ver cuánto ahorra.
+
+### Un frame de física (`Stage::update(dt)`)
+
+1. Cada estático: `update(dt)`.
+2. Cada dinámico: `update(dt)`, después `apply(objeto, dt)` (la regla del escenario, que llama a `collideWithFloor`) y después la comprobación **forma contra suelo**.
+   - `collideWithFloor` mantiene el objeto dentro de los límites del suelo, lo sube si se hundió y lo pega al suelo en las bajadas. Si el objeto lleva su propia lógica (`contactFloor` devuelve `true`), como el RV, el stage se la deja.
+3. **Forma contra suelo:** los puntos más bajos de la forma (`floorSamples`) no pueden quedar bajo el suelo. Una caja da sus ocho esquinas y una rejilla de puntos en su cara más baja *en el mundo*, así que vale **de cualquier lado que esté boca arriba**. Si algo se hunde, se empuja el objeto hacia arriba con `applyCollision`. El rayo solo cuenta suelo dentro de la altura del propio objeto.
+4. `resolveCollisions()`: coloca los dinámicos en la rejilla y prueba los pares de cada celda (dos pasadas, porque un empujón puede meter un objeto en otro).
+   - Contra un estático se mueve solo el dinámico. Entre dos dinámicos se reparte el empujón según la masa (`getMass`): el más ligero se mueve más.
+   - Se quita la velocidad con la que se acercaban (sin rebote).
+   - `applyCollision(empuje, cambioDeVelocidad)` es virtual: el RV lo sobrescribe para mover también su cuerpo de física.
+5. Otra vez forma contra suelo, por si un empujón metió algo en el terreno.
+
+## El RV: vehículo con suspensión
+
+`RV` es el jugador del mapa de día. Su física está en `VehicleBody`, que no depende de OpenGL (se puede probar sola) y se mueve en pasos fijos de 1/240 s.
+
+- **Chasis:** cuerpo rígido con masa (3000 kg), inercia y orientación (cuaternión). El **centro de masas está bajo los ejes de las ruedas** (peso en la parte baja) y la inercia es la de una caja baja, así que se resiste a volcar: en curvas rápidas se inclina unos 2°.
+- **Ruedas:** cuatro muelles amortiguados (rigidez y amortiguación se calculan para que lleven el peso con un recorrido de reposo de 0.35 m, entre 0.15 y 0.55). Cada rueda lanza un rayo de suelo desde su anclaje (`floorAt`) y empuja el chasis con la fuerza del muelle. Las ruedas se dibujan como piezas aparte (`wheel_negx.obj`, `wheel_posx.obj`), así que **suben y bajan con la suspensión** y las delanteras giran al dirigir.
+- **Neumáticos:** dan tracción, freno y agarre lateral, limitados por la carga de cada rueda (círculo de fricción). Las delanteras dirigen (menos ángulo a más velocidad), así que el giro sale de las fuerzas de los neumáticos. La velocidad máxima (`setMaxSpeed`) es la real: el motor tapa el rozamiento de rodadura.
+- **Esquinas del chasis:** ocho puntos de contacto elásticos, con rozamiento, algo por fuera de la caja de colisión. Entran en juego antes que la corrección dura del stage, así que un RV volcado se desliza, rueda y se frena con fricción en vez de "flotar" sin rozamiento. La fuerza de cada uno está limitada para que un choque fuerte no lo dispare.
+- **Autoenderezado (tentetieso):** una aceleración angular lo devuelve siempre a apoyarse en las ruedas: suave si está algo inclinado y fuerte pasado ~26°, amortiguada para que se asiente. En el aire solo funciona al 15% (no hay nada contra lo que empujar). Desde cualquier postura, incluso boca abajo, vuelve a las ruedas en 1 a 2 s.
+- **Control:** `control()` solo guarda el acelerador (W/S) y la dirección (A/D); la dirección de la cámara se ignora a propósito. El `Stage` llama a `RV::contactFloor`, que avanza el `VehicleBody` y copia su posición y su orientación al objeto.
+- **Constantes:** la masa, el centro de masas, las esquinas y la forma del chasis están en `RV.cpp`; los parámetros de suspensión, neumáticos y autoenderezado, en `VehicleBody::Params` (`VehicleBody.h`).
+
 ## Satélite
 
 `Satellite` representa una montura altazimutal, como una antena o un telescopio: un cubo (la cabeza) sobre un poste. La cara +y del cubo es el *boresight*, la dirección a la que apunta, y está marcada con una diana naranja (`assets/cube/`, generado por `generate_cube.py`).
@@ -378,7 +448,7 @@ Grabar `@DEFAULT_MONITOR@` recoge también lo que el usuario esté escuchando.
 - **Cómo gira:** las órdenes fijan un objetivo (`pointAt`, `setTargetAzimuth`, `setTargetZenith`, `stop`). `update(dt)` mueve los dos ejes a la vez, sin pasar de `slewRate` grados por segundo (entre 1 y 120). El azimut gira por el camino más corto.
 - **Panel:** muestra el azimut y el cénit actuales, la elevación, el vector de dirección y el estado (girando o apuntando). Tiene deslizadores para el azimut y el cénit objetivo y para la velocidad, y botones Cenit, Norte 45 y Parar.
 - **Dos objetos:** `Satellite` es la cabeza, que gira con su `rotation`, y su escala es el tamaño del cubo. El poste es un `GameObject` aparte (`getMount()`), porque en `GameObject` todas las piezas comparten la misma transformación. Hay que añadir ambos al stage.
-- **Ubicación:** `TestStage` lo crea en (4.5, suelo, 2), con la altura que da `floorAt`, al alcance del jugador desde el punto de inicio (3, suelo, 4).
+- **Ubicación:** `TestStage` lo crea en (4.5, suelo, 2), con la altura que da `floorAt`, al alcance de quien esté en (3, suelo, 4), donde está el pingüino a pie. Con el RV como jugador hay que acercarlo: la distancia se mide desde su origen, en el centro de su base.
 
 ## Animación esquelética
 
@@ -420,7 +490,11 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 
 **Un personaje controlable nuevo.** Hereda de `PlayableCharacter` (ver `Walker` y `RV`): `control()` recibe la entrada, `update(dt)` la convierte en movimiento (con `steerTowards`) y `attachCamera`/`followCamera` deciden la cámara. Después, `controller.attach(personaje, distancia, altura)`.
 
-**Añadir un efecto de sombreado.** Impleméntalo en `animatedshader.vert` y/o `shader.frag`, controlado por un uniform. Fíjalo por objeto en `GameObject::Draw` (como `breathAmp`) o por pieza (como `Part::unlit`). Si el visor web tiene que mostrarlo, copia también el cambio en sus shaders (`viewer.js`).
+**Dar otra forma de colisión a un objeto.** Pásala como último argumento del constructor: `make_shared<GameObject>(modelo, make_shared<Box>(medioTamaño, centro))` (o una `Capsule(radio, alto, base)`). Sin ella, el objeto recibe una cápsula ajustada al modelo. Si un objeto no debe chocar con nada (el suelo, la carretera, decoración), llama a `setCollidable(false)` **antes** de `add()`.
+
+**Un objeto que se mueve y choca.** Hereda de `DynamicGameObject` y añádelo con `addDynamic`. Si necesita reaccionar al choque con algo más que mover su posición (como el RV, que tiene un cuerpo de física propio), sobrescribe `applyCollision`; si necesita su propio suelo, sobrescribe `contactFloor` y devuelve `true`. Pon `setMass` si debe empujar o dejarse empujar de forma realista.
+
+**Añadir un efecto de sombreado.** Impleméntalo en `shaders/animatedshader.vert` y/o `shaders/shader.frag`, controlado por un uniform. Fíjalo por objeto en `GameObject::Draw` (como `breathAmp`) o por pieza (como `Part::unlit`). Si el visor web tiene que mostrarlo, copia también el cambio en sus shaders (`viewer.js`).
 
 **Cambiar la cámara del jugador.** `controller.attach(player, distancia, altura)` en `main`. Distancia 0 es primera persona (altura 1.6 = los ojos del pingüino). Con una distancia mayor que 0 es tercera persona y el pingüino vuelve a verse, aunque medio hundido: `AnimatedModel` lo centra en su posición y la posición está en los pies.
 
@@ -428,7 +502,8 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 
 - La interfaz muestra el texto en ASCII (`toAscii` quita tildes y eñes). Recibe teclas sueltas (`onKey`), pero no hay campos de texto ni rueda del ratón.
 - Solo se reproduce la primera animación del FBX y no hay mezcla entre animaciones (`Animation` está sin usar).
-- No hay colisiones entre objetos: solo con el suelo. Con gravedad, Espacio/Shift no hacen nada (no se puede saltar).
+- Las colisiones entre objetos no tienen rebote ni rozamiento, solo se separan. Los objetos estáticos se colocan en la rejilla al hacer `add()` y no pueden moverse después. Nadie puede saltar (no hay tecla para ello).
+- Un RV volcado vuelve solo a apoyarse en las ruedas (autoenderezado), pero no hay un botón de recolocarlo.
 - El visor web solo muestra los mapas `.scene` (la noche), no `TestStage`.
 - Al cambiar de mapa se vuelven a cargar todos sus modelos (no hay caché entre mapas).
 - El volumen no se puede ajustar en Opciones (existe `SoundEngine::setMasterVolume`). La voz de espeak-ng es robótica.

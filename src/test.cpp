@@ -51,10 +51,10 @@ bool FULLSCREEN = true; // pass --windowed to disable
 const char *WINDOWNAME = "test bimbow";
 
 // Vertex shader
-const char *vertexShaderFile = "animatedshader.vert";
+const char *vertexShaderFile = "shaders/animatedshader.vert";
 
 // Fragment shader
-const char *fragmentShaderFile = "shader.frag";
+const char *fragmentShaderFile = "shaders/shader.frag";
 
 GLFWwindow *initializeGLFW(const char *windowname) {
   // Initialise GLFW

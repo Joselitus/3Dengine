@@ -1,8 +1,11 @@
 CC = g++
-CXXFLAGS = -std=c++11 -g -Wall -pthread
+# Every subdirectory is an include path, so a header is included by its bare
+# name wherever it lives (#include "Stage.h")
+DIRS = $(shell find . -type d)
+CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS))
 LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
-SRCS = $(wildcard *.cpp)
+SRCS = $(shell find . -name '*.cpp')
 
 OBJS = $(SRCS:%.cpp=%.o)
 
@@ -12,17 +15,17 @@ test: $(OBJS)
 	$(CC) -o ../test/$@ $(OBJS) $(LIBS) -g
 
 %.o: %.cpp
-	$(CC) $(CXXFLAGS) $< -c -MMD -MP
+	$(CC) $(CXXFLAGS) $< -c -o $@ -MMD -MP
 
 # Third-party code (stb_image, miniaudio): no warnings for it
-stb_image.o: stb_image.cpp
-	$(CC) $(CXXFLAGS) -w $< -c -MMD -MP
-miniaudio.o: miniaudio.cpp
-	$(CC) $(CXXFLAGS) -w $< -c -MMD -MP
+third_party/%.o: third_party/%.cpp
+	$(CC) $(CXXFLAGS) -w $< -c -o $@ -MMD -MP
 
 -include $(SRCS:%.cpp=%.d)
 
 clean:
-	rm -f *.o *.d ../test/test
+	find . -name '*.o' -delete
+	find . -name '*.d' -delete
+	rm -f ../test/test
 
 .PHONY: clean

@@ -35,8 +35,8 @@ Hay tres puntos que deben coincidir con el motor:
 
 | Visor (`viewer.js`) | Motor |
 |---|---|
-| `parseScene` | `SceneFile::load` (`src/SceneFile.cpp`) |
-| `vertexShader` / `fragmentShader` | `src/animatedshader.vert` / `src/shader.frag` |
+| `parseScene` | `SceneFile::load` (`src/world/SceneFile.cpp`) |
+| `vertexShader` / `fragmentShader` | `src/shaders/animatedshader.vert` / `src/shaders/shader.frag` |
 | `FOV`, `SENSIVILITY`, `PLAYER_HEIGHT`, `BREATH_AMPLITUDE`, `PROP_SINK`… | `Camera`, `Controller`, `AnimatedModel::computeFit`, `SceneStage` |
 
 El pingüino se carga con el `FBXLoader` de three.js, no con Assimp. Su postura en cada momento puede variar un poco respecto al juego, pero el ajuste de tamaño y posición es el mismo.
