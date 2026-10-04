@@ -5,7 +5,6 @@
 #include "UIButton.h"
 #include "UILabel.h"
 #include "UIPanel.h"
-#include "UIRow.h"
 #include "UITextBlock.h"
 
 using namespace std;
@@ -59,19 +58,24 @@ void Npc::buildInterface(UIPanel &panel) {
       },
       UITheme::MUTED));
 
-  UIRow *buttons = panel.add(new UIRow());
-  buttons->add(new UIButton("Repetir", [this]() { sayCurrent(); }));
-  buttons->add(new UIButton("Siguiente", [this]() {
-    if (lines.empty())
-      return;
-    current = (current + 1) % lines.size();
-    sayCurrent();
-  }));
+  // "Siguiente" until the last line, where it becomes "Cerrar"
+  UIPanel *box = &panel;
+  panel.add(new UIButton(
+      [this]() { return isLastLine() ? string("Cerrar") : string("Siguiente"); },
+      [this, box]() {
+        if (isLastLine()) {
+          box->requestClose(); // the InteractionSystem then calls
+          return;              // onInterfaceClosed, which silences it
+        }
+        current++;
+        sayCurrent();
+      }));
   panel.add(new UILabel("Esc: terminar", UITheme::MUTED));
 }
 
 void Npc::onInterfaceOpened(const vec3 &playerPosition) {
   faceTowards(playerPosition);
+  current = 0; // every conversation starts from the first line
   sayCurrent();
 }
 

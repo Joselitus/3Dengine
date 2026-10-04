@@ -133,7 +133,7 @@ Es un sistema propio y orientado a objetos (sin dependencias externas), pensado 
 ```
 UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
 ├── UILabel                      texto fijo o generado cada frame (valores en vivo)
-├── UIButton                     acción al pulsar y soltar encima
+├── UIButton                     acción al pulsar y soltar encima (texto fijo o leído cada frame)
 ├── UISlider                     número en [min, max]; lee y escribe a través de funciones
 ├── UIInfoRow                    texto a la izquierda y valor a la derecha (p. ej. acción y tecla)
 ├── UITextBlock                  párrafo con ajuste de línea; puede mostrar solo una fracción (subtítulos)
@@ -262,7 +262,7 @@ EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espea
      SoundEngine (miniaudio)               mezcla los Sound; oyente = cámara (setListener cada frame)
           ▲
          Npc : DynamicGameObject, Interactable
-           panel: UITextBlock(texto, visible = voice.progress()) + Repetir / Siguiente
+           panel: UITextBlock(texto, visible = voice.progress()) + Siguiente (en la última: Cerrar)
 ```
 
 - **`SoundEngine`:** hay uno por juego, creado en `main` después de la ventana. miniaudio elige el backend (PulseAudio/PipeWire, ALSA) al arrancar y no añade nada al enlazado salvo `-ldl -lpthread -lm`. Si no hay dispositivo de audio, el juego funciona en silencio: `isAvailable()` es `false` y `play()` devuelve `nullptr`.
@@ -275,8 +275,9 @@ EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espea
   - La voz `es` de espeak-ng suena robótica. Las voces MBROLA (`mb-es1`…) necesitan el paquete `mbrola-es*`.
 - **`Voice`:** `say()` vuelve al momento, porque sintetiza con `std::async` y reproduce cuando el resultado está listo (en `update`). `progress()` es la posición de reproducción dividida por la duración, y sirve para revelar los subtítulos. `stop()` la calla. Al destruirse espera a la síntesis pendiente (no se puede cancelar).
 - **`Npc`:**
-  - Al abrirse su panel (`onInterfaceOpened`, con la posición del jugador) se gira hacia él y dice la frase actual.
-  - Al cerrarse (`onInterfaceClosed`) se calla.
+  - Al abrirse su panel (`onInterfaceOpened`, con la posición del jugador) se gira hacia él y dice la primera frase: cada conversación empieza desde el principio.
+  - El botón dice "Siguiente" y, en la última frase, "Cerrar", que cierra el diálogo (`panel.requestClose()`). Su texto se lee en cada frame (`UIButton` con texto dinámico).
+  - Esc cierra el diálogo en cualquier momento. Al cerrarse, de cualquier forma (`onInterfaceClosed`), la voz se corta.
   - La voz sale de `MOUTH_HEIGHT` sobre su posición.
   - Su `AnimatedModel` debe crearse con `feetAtOrigin = true`, para que esté de pie sobre su posición: es un `DynamicGameObject` con gravedad y el stage lo apoya en el suelo.
   - Hoy hay uno, "Pingu", en `TestStage`, delante del inicio.

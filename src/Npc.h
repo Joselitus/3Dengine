@@ -11,10 +11,11 @@
 
 // A character the player can talk to. It has a name, lines of dialogue and
 // a Voice. Using it (the Use key) opens a dialogue panel: the NPC turns to
-// face the player and says the current line out loud (text to speech, heard
+// face the player and says the first line out loud (text to speech, heard
 // from where it stands), while the panel shows the line as it is spoken.
-// "Siguiente" goes to the next line, "Repetir" says it again; closing the
-// panel silences it. The next conversation starts where it was left.
+// "Siguiente" goes to the next line; on the last one the button says
+// "Cerrar" and closes the dialogue. Esc closes it at any moment, cutting
+// the voice. Every conversation starts again from the first line.
 //
 // A DynamicGameObject, so the stage keeps it on the floor (give it gravity)
 // and it could walk later. Its AnimatedModel should be fitted with
@@ -28,6 +29,7 @@ private:
   float facing = 0.0f; // radians, around +y
 
   void sayCurrent();
+  bool isLastLine() const { return current + 1 >= lines.size(); }
 
 public:
   // Height of the mouth above the position, where the voice comes from

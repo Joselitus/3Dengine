@@ -106,6 +106,8 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 
 - 2026-10-04 (`main`): **TTS + motor de sonido + NPC.** miniaudio 0.11.21 (`miniaudio.h`/`.cpp`, compilado con `-w`; makefile con `-pthread -ldl`). `SoundEngine`/`Sound`/`AudioClip`, `SpeechSynthesizer` → `EspeakSynthesizer` (voz `es`; las MBROLA no están instaladas; `/usr/bin/piper` es una aplicación de ratones, no TTS), `Voice` asíncrona, `Npc` "Pingu" en el mapa de día, `UITextBlock` (subtítulos que avanzan con la voz) y `UIRenderer::toAscii`. Verificado: el sintetizador funciona con tildes, comillas y `$(...)`; la grabación en una salida virtual muestra silencio → voz al pulsar E → fin de la frase → "Siguiente" → silencio inmediato con Esc. Subtítulos y NPC verificados en Xephyr.
 
+- 2026-10-04 (`main`): diálogo del `Npc` sin "Repetir"; "Siguiente" pasa a "Cerrar" en la última frase y cierra el panel; cada conversación empieza en la frase 1; Esc corta la voz en cualquier momento. `UIButton` admite texto dinámico. Verificado en Xephyr con la salida virtual.
+
 ## Próximos pasos / ideas
 
 (Rellenar según lo que se decida con el usuario.)

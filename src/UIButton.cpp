@@ -3,6 +3,9 @@
 using namespace std;
 
 UIButton::UIButton(const string &text, function<void()> action)
+    : text([text]() { return text; }), action(action) {}
+
+UIButton::UIButton(function<string()> text, function<void()> action)
     : text(text), action(action) {}
 
 float UIButton::preferredHeight() const {
@@ -16,8 +19,9 @@ void UIButton::draw(UIRenderer &renderer, const UIState &state) const {
                                            : UITheme::CONTROL;
   renderer.rect(rect.x, rect.y, rect.w, rect.h, fill);
   renderer.frame(rect.x, rect.y, rect.w, rect.h, 1.0f, UITheme::BORDER);
-  float width = UIRenderer::textWidth(text);
-  renderer.text(rect.x + (rect.w - width) / 2, rect.y + 6.0f, text,
+  string shown = text();
+  float width = UIRenderer::textWidth(shown);
+  renderer.text(rect.x + (rect.w - width) / 2, rect.y + 6.0f, shown,
                 UITheme::TEXT);
 }
 
