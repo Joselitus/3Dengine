@@ -114,9 +114,11 @@ void UIManager::update() {
       if (!top->onKey(key) && key == GLFW_KEY_ESCAPE)
         top->requestClose();
     } else {
-      auto binding = bindings.find(key);
-      if (binding != bindings.end())
-        binding->second();
+      for (const Binding &binding : bindings)
+        if (binding.key() == key) {
+          binding.action();
+          break;
+        }
     }
   }
 

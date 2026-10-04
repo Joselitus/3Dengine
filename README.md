@@ -15,7 +15,7 @@ make
 
 It can be launched from any directory: at startup it moves to `src/` (found next to the binary), where the shader and asset paths are relative to.
 
-Controls: mouse looks around, WASD walks (the floor keeps you on the dunes), E uses the object in front (the satellite: its panel sets azimuth and zenith; Pingu, an NPC who talks to you out loud with subtitles; a sign you can read), Esc closes a panel, or opens the pause menu (Resume; Options: mouse sensitivity, field of view and the list of all controls; Exit, or the X key, quits). Options are saved in `~/.config/3dengine/settings.cfg`. Z opens the debug map selector.
+Controls: mouse looks around, WASD walks (the floor keeps you on the dunes; keys can be changed in Options > Controls), E uses the object in front (the satellite: its panel sets azimuth and zenith; Pingu, an NPC who talks to you out loud with subtitles; a sign you can read), Esc closes a panel, or opens the pause menu (Resume; Options: Camera — mouse sensitivity and field of view — and Controls — rebind the keys —, each with Save/Exit; Exit, or the X key, quits). Saved options go to `~/.config/3dengine/settings.cfg`. Z opens the debug map selector.
 
 ## View a scene without running the game
 

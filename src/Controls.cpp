@@ -3,6 +3,8 @@
 #include <GLFW/glfw3.h>
 #include <cctype>
 
+#include "Settings.h"
+
 using namespace std;
 
 Controls::Controls() {
@@ -10,8 +12,6 @@ Controls::Controls() {
   bind(Action::MoveBack, GLFW_KEY_S);
   bind(Action::MoveLeft, GLFW_KEY_A);
   bind(Action::MoveRight, GLFW_KEY_D);
-  bind(Action::MoveUp, GLFW_KEY_SPACE);
-  bind(Action::MoveDown, GLFW_KEY_LEFT_SHIFT);
   bind(Action::Use, GLFW_KEY_E);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
@@ -23,14 +23,78 @@ const char *Controls::describe(Action action) {
   case Action::MoveBack: return "Retroceder";
   case Action::MoveLeft: return "Izquierda";
   case Action::MoveRight: return "Derecha";
-  case Action::MoveUp: return "Subir (sin gravedad)";
-  case Action::MoveDown: return "Bajar (sin gravedad)";
   case Action::Use: return "Usar objeto / hablar / cerrar";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::Count: break;
   }
   return "?";
+}
+
+const char *Controls::id(Action action) {
+  switch (action) {
+  case Action::MoveForward: return "move_forward";
+  case Action::MoveBack: return "move_back";
+  case Action::MoveLeft: return "move_left";
+  case Action::MoveRight: return "move_right";
+  case Action::Use: return "use";
+  case Action::Quit: return "quit";
+  case Action::Maps: return "maps";
+  case Action::Count: break;
+  }
+  return "?";
+}
+
+Action Controls::actionFor(int key) const {
+  for (int i = 0; i < (int)Action::Count; i++)
+    if (keys[i] == key)
+      return (Action)i;
+  return Action::Count;
+}
+
+bool Controls::operator==(const Controls &other) const {
+  for (int i = 0; i < (int)Action::Count; i++)
+    if (keys[i] != other.keys[i])
+      return false;
+  return true;
+}
+
+bool Controls::isBindable(int key) {
+  return key != GLFW_KEY_ESCAPE && key != GLFW_KEY_UNKNOWN && key >= 0 &&
+         key <= GLFW_KEY_LAST;
+}
+
+void Controls::readFrom(const Settings &settings) {
+  // The whole set is checked at once: saved keys may be swapped (W/S)
+  const int count = (int)Action::Count;
+  int wanted[count];
+  bool fromFile[count];
+  for (int i = 0; i < count; i++) {
+    float saved = settings.getFloat(string("controls.") + id((Action)i), -1.0f);
+    fromFile[i] = saved >= 0.0f && isBindable((int)saved);
+    wanted[i] = fromFile[i] ? (int)saved : keys[i];
+  }
+  // Two actions on one key (an edited file): drop the saved ones involved
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int i = 0; i < count && !changed; i++)
+      for (int j = i + 1; j < count && !changed; j++)
+        if (wanted[i] == wanted[j]) {
+          int drop = fromFile[j] ? j : fromFile[i] ? i : -1;
+          if (drop < 0)
+            return; // can't be fixed: keep the current keys
+          wanted[drop] = keys[drop];
+          fromFile[drop] = false;
+          changed = true;
+        }
+  }
+  for (int i = 0; i < count; i++)
+    keys[i] = wanted[i];
+}
+
+void Controls::writeTo(Settings &settings) const {
+  for (int i = 0; i < (int)Action::Count; i++)
+    settings.setFloat(string("controls.") + id((Action)i), (float)keys[i]);
 }
 
 const char *Controls::group(Action action) {
