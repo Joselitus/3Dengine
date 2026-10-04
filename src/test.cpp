@@ -27,8 +27,10 @@
 #include "Satellite.h"
 #include "Model.h"
 #include "Npc.h"
+#include "OptionsMenu.h"
 #include "PauseMenu.h"
 #include "SceneStage.h"
+#include "Settings.h"
 #include "Shader.h"
 #include "Stage.h"
 #include "Skeleton.h"
@@ -295,6 +297,11 @@ int main(int argc, char **argv) {
   // Creation of camera
   Camera camera(window, &shader);
   camera.reposition(0.0, 0.0, 3.0);
+  // The player's options from previous sessions (FOV, sensitivity...)
+  Settings settings;
+  settings.load();
+  OptionsMenu::applySettings(settings, camera);
+
   // Which key does what, read by everything that handles input
   Controls controls;
   Controller controller(window, &camera, controls);
@@ -361,7 +368,7 @@ int main(int argc, char **argv) {
   // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
   // key ends the game), the Maps key (Z) the debug map selector
   auto quit = [window]() { glfwSetWindowShouldClose(window, true); };
-  MenuContext menus = {ui, camera, controls, quit};
+  MenuContext menus = {ui, camera, controls, settings, quit};
   ui.bindKey(GLFW_KEY_ESCAPE, [&]() { ui.open(new PauseMenu(menus)); });
   std::vector<std::string> mapNames;
   for (const Map &map : maps)

@@ -198,16 +198,27 @@ Reglas para no romper nada:
 ## Menús (pausa y opciones)
 
 - **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `test.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones** y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
-- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
+- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
 - **`OptionsMenu`** ("Opciones") tiene la **sensibilidad** (0.2x–3x, múltiplos de `SENSIVILITY` = 0.005 rad/píxel) y el **FOV** vertical (40–110°, por defecto `DEFAULT_FOV` = 45). Los cambios se aplican al momento sobre la `Camera`. "Restablecer" vuelve a los valores por defecto, y "Volver" o Esc vuelven a la pausa.
 - **`ControlsMenu`** ("Controles", desde Opciones) muestra por grupos todas las acciones con su tecla, además de las entradas fijas (ratón, Esc, clic). Por ahora es solo informativo. "Volver" o Esc regresan a Opciones.
 - Los menús oscurecen el juego y no tienen botón de cerrar.
 - **El mundo no se detiene** con el menú abierto: `stage.update` sigue corriendo (el satélite termina de girar, por ejemplo). Solo se pausan los controles del jugador.
-- **Las opciones no se guardan en disco:** duran hasta que se cierra el juego.
+- **Las opciones se guardan entre sesiones** (ver [Configuración guardada](#configuración-guardada)). `OptionsMenu` las escribe en su destructor, es decir, cuando se cierra, salga uno como salga (Volver, Esc o Controles). Al arrancar, `main` las carga y llama a `OptionsMenu::applySettings`.
 - **Para añadir una opción:**
   1. Si el valor no está en una clase, dale un getter y un setter que la apliquen al momento (como `Camera::setFov`).
   2. Añade un `UISlider` (o un `UIButton`) en el constructor de `OptionsMenu`, con sus límites como constantes de la clase.
   3. Inclúyela en "Restablecer".
+  4. Dale una clave (`..._KEY`) y añádela a `applySettings` (con su valor por defecto y limitada a su rango) y a `storeSettings`.
+
+## Configuración guardada
+
+- **`Settings`** (`Settings.h`) es un almacén `clave = valor` en un fichero de texto (`#` inicia comentario), por defecto en **`$XDG_CONFIG_HOME/3dengine/settings.cfg`** (normalmente `~/.config/3dengine/settings.cfg`). Está fuera del repositorio porque son los ajustes de cada jugador.
+- `load()`: si el fichero no existe, se usan los valores por defecto (primera vez); las líneas inválidas se saltan con un aviso. `save()` crea la carpeta, escribe un `.tmp` y lo renombra, así que un fallo nunca deja el fichero a medias.
+- Las claves desconocidas se conservan al guardar: una versión antigua del juego no borra lo que guardó una más nueva.
+- Valores: `getFloat`/`setFloat` y `getString`/`setString`. Un valor que no es un número devuelve el valor por defecto.
+- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados). Las define `OptionsMenu`.
+- **Para guardar algo nuevo** (por ejemplo, las teclas cuando se puedan reasignar): elige una clave con prefijo (`controls.use = 69`), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
+- **En las pruebas**, lanza el juego con `XDG_CONFIG_HOME=<carpeta temporal>` para no sobrescribir la configuración real del usuario.
 
 ## Controles y teclas
 
@@ -400,7 +411,6 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 ## Limitaciones conocidas
 
 - La interfaz muestra el texto en ASCII (`toAscii` quita tildes y eñes). Recibe teclas sueltas (`onKey`), pero no hay campos de texto ni rueda del ratón.
-- Las opciones (sensibilidad, FOV) no se guardan entre partidas.
 - Solo se reproduce la primera animación del FBX y no hay mezcla entre animaciones (`Animation` está sin usar).
 - No hay colisiones entre objetos: solo con el suelo. Con gravedad, Espacio/Shift no hacen nada (no se puede saltar).
 - El visor web solo muestra los mapas `.scene` (la noche), no `TestStage`.

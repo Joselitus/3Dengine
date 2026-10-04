@@ -5,6 +5,7 @@
 
 class Camera;
 class Controls;
+class Settings;
 class UIManager;
 
 // What the game menus (PauseMenu, OptionsMenu, ControlsMenu) need, passed
@@ -14,6 +15,7 @@ struct MenuContext {
   UIManager &ui;
   Camera &camera;
   Controls &controls;
+  Settings &settings;         // saved between sessions (OptionsMenu)
   std::function<void()> quit; // ends the game
 };
 
