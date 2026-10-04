@@ -3,6 +3,7 @@
 #include "Camera.h"
 #include "ControlsMenu.h"
 #include "PauseMenu.h"
+#include "Settings.h"
 #include "UIButton.h"
 #include "UILabel.h"
 #include "UIManager.h"
@@ -35,6 +36,24 @@ OptionsMenu::OptionsMenu(const MenuContext &context)
   }));
   buttons->add(new UIButton("Volver", [this]() { back(); }));
   add(new UILabel("Esc: volver", UITheme::MUTED));
+}
+
+void OptionsMenu::applySettings(const Settings &settings, Camera &camera) {
+  float sensitivity = settings.getFloat(SENSITIVITY_KEY, 1.0f);
+  float fov = settings.getFloat(FOV_KEY, DEFAULT_FOV);
+  camera.setSensitivity(
+      glm::clamp(sensitivity, MIN_SENSITIVITY, MAX_SENSITIVITY) * SENSIVILITY);
+  camera.setFov(glm::clamp(fov, MIN_FOV, MAX_FOV));
+}
+
+void OptionsMenu::storeSettings(Settings &settings, const Camera &camera) {
+  settings.setFloat(SENSITIVITY_KEY, camera.getSensitivity() / SENSIVILITY);
+  settings.setFloat(FOV_KEY, camera.getFov());
+}
+
+OptionsMenu::~OptionsMenu() {
+  storeSettings(context.settings, context.camera);
+  context.settings.save();
 }
 
 void OptionsMenu::back() {

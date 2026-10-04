@@ -10,8 +10,12 @@
 //   FOV           vertical field of view in degrees (Camera::setFov)
 //   Controles     opens the ControlsMenu (every key and what it does)
 // "Restablecer" restores the defaults; "Volver" and Esc go back to the
-// PauseMenu. The values live in the Camera, so they last until the game
-// closes (they are not saved to disk).
+// PauseMenu.
+//
+// The values live in the Camera and are kept between sessions in the
+// Settings file: the menu saves them when it closes (however it is left),
+// and the game loads them at start with applySettings(). A new option needs
+// its key, its limits, and a line in applySettings and storeSettings.
 class OptionsMenu : public UIPanel {
 private:
   MenuContext context;
@@ -24,7 +28,19 @@ public:
   static constexpr float MIN_FOV = 40.0f; // degrees
   static constexpr float MAX_FOV = 110.0f;
 
+  // Keys in the Settings file
+  static constexpr const char *SENSITIVITY_KEY = "camera.sensitivity";
+  static constexpr const char *FOV_KEY = "camera.fov";
+
+  // Saved values -> camera (clamped to the limits above; missing or bad
+  // values keep the defaults)
+  static void applySettings(const Settings &settings, Camera &camera);
+  // Camera -> settings (not written to disk: see Settings::save)
+  static void storeSettings(Settings &settings, const Camera &camera);
+
   explicit OptionsMenu(const MenuContext &context);
+  // Saves the options (the menu is closing)
+  ~OptionsMenu();
 
   bool dimsBackground() const override { return true; }
   bool onKey(int key) override;

@@ -70,7 +70,9 @@ docs/                esta documentación
 | `Light` | La única luz puntual del shader (el sol o la luna, según el mapa). |
 | `SoundEngine`, `Sound`, `AudioClip` | Motor de sonido (miniaudio): reproduce clips en memoria, en 3D o directos; el oyente sigue a la cámara. Ver [Audio y voz](#audio-y-voz-tts). |
 | `SpeechSynthesizer`, `EspeakSynthesizer`, `Voice` | Texto a voz: la interfaz abstracta, su implementación con espeak-ng, y una voz que dice textos en segundo plano e informa del progreso. |
-| `Npc` | `DynamicGameObject` + `Interactable`: personaje con nombre, frases y `Voice`. Al usarlo se gira hacia el jugador y habla, con subtítulos sincronizados. |
+| `Npc` | `DynamicGameObject` + `Interactable`: personaje con un `Dialogue` que dice su `Voice`. Al usarlo se gira hacia el jugador y habla, con subtítulos sincronizados. |
+| `Dialogue`, `LineNarrator`, `Typewriter` | Caja de diálogo común (páginas, "Siguiente"/"Cerrar", Esc) y cómo se entrega cada línea: con voz (`Voice`) o escribiéndose en silencio (`Typewriter`). Ver [Diálogos](#diálogos-hablar-y-leer). |
+| `Readable` | `GameObject` + `Interactable`: algo que se lee (un cartel). Usa la misma caja de diálogo, pero sin voz. |
 | `SceneFile` | Parser de `.scene`, sin OpenGL. Lo usa `SceneStage`. (La antigua clase `Scene` se eliminó: la sustituye `SceneStage`.) |
 | `Animation` | Rango de frames con nombre. **Todavía no se usa.** |
 
@@ -133,7 +135,7 @@ Es un sistema propio y orientado a objetos (sin dependencias externas), pensado 
 ```
 UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
 ├── UILabel                      texto fijo o generado cada frame (valores en vivo)
-├── UIButton                     acción al pulsar y soltar encima
+├── UIButton                     acción al pulsar y soltar encima (texto fijo o leído cada frame)
 ├── UISlider                     número en [min, max]; lee y escribe a través de funciones
 ├── UIInfoRow                    texto a la izquierda y valor a la derecha (p. ej. acción y tecla)
 ├── UITextBlock                  párrafo con ajuste de línea; puede mostrar solo una fracción (subtítulos)
@@ -196,16 +198,27 @@ Reglas para no romper nada:
 ## Menús (pausa y opciones)
 
 - **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `test.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones** y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
-- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
+- Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
 - **`OptionsMenu`** ("Opciones") tiene la **sensibilidad** (0.2x–3x, múltiplos de `SENSIVILITY` = 0.005 rad/píxel) y el **FOV** vertical (40–110°, por defecto `DEFAULT_FOV` = 45). Los cambios se aplican al momento sobre la `Camera`. "Restablecer" vuelve a los valores por defecto, y "Volver" o Esc vuelven a la pausa.
 - **`ControlsMenu`** ("Controles", desde Opciones) muestra por grupos todas las acciones con su tecla, además de las entradas fijas (ratón, Esc, clic). Por ahora es solo informativo. "Volver" o Esc regresan a Opciones.
 - Los menús oscurecen el juego y no tienen botón de cerrar.
 - **El mundo no se detiene** con el menú abierto: `stage.update` sigue corriendo (el satélite termina de girar, por ejemplo). Solo se pausan los controles del jugador.
-- **Las opciones no se guardan en disco:** duran hasta que se cierra el juego.
+- **Las opciones se guardan entre sesiones** (ver [Configuración guardada](#configuración-guardada)). `OptionsMenu` las escribe en su destructor, es decir, cuando se cierra, salga uno como salga (Volver, Esc o Controles). Al arrancar, `main` las carga y llama a `OptionsMenu::applySettings`.
 - **Para añadir una opción:**
   1. Si el valor no está en una clase, dale un getter y un setter que la apliquen al momento (como `Camera::setFov`).
   2. Añade un `UISlider` (o un `UIButton`) en el constructor de `OptionsMenu`, con sus límites como constantes de la clase.
   3. Inclúyela en "Restablecer".
+  4. Dale una clave (`..._KEY`) y añádela a `applySettings` (con su valor por defecto y limitada a su rango) y a `storeSettings`.
+
+## Configuración guardada
+
+- **`Settings`** (`Settings.h`) es un almacén `clave = valor` en un fichero de texto (`#` inicia comentario), por defecto en **`$XDG_CONFIG_HOME/3dengine/settings.cfg`** (normalmente `~/.config/3dengine/settings.cfg`). Está fuera del repositorio porque son los ajustes de cada jugador.
+- `load()`: si el fichero no existe, se usan los valores por defecto (primera vez); las líneas inválidas se saltan con un aviso. `save()` crea la carpeta, escribe un `.tmp` y lo renombra, así que un fallo nunca deja el fichero a medias.
+- Las claves desconocidas se conservan al guardar: una versión antigua del juego no borra lo que guardó una más nueva.
+- Valores: `getFloat`/`setFloat` y `getString`/`setString`. Un valor que no es un número devuelve el valor por defecto.
+- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados). Las define `OptionsMenu`.
+- **Para guardar algo nuevo** (por ejemplo, las teclas cuando se puedan reasignar): elige una clave con prefijo (`controls.use = 69`), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
+- **En las pruebas**, lanza el juego con `XDG_CONFIG_HOME=<carpeta temporal>` para no sobrescribir la configuración real del usuario.
 
 ## Controles y teclas
 
@@ -257,12 +270,12 @@ Reglas para no romper nada:
 ```
 EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espeak-ng, sin shell)
           │ (en otro hilo, std::async)
-        Voice                              say(texto) → sintetiza → Sound espacial; progress() 0..1
+        Voice : LineNarrator               say(texto) → sintetiza → Sound espacial; progress() 0..1
           │                                 (sin audio: "lee" en silencio a CHARS_PER_SECOND)
      SoundEngine (miniaudio)               mezcla los Sound; oyente = cámara (setListener cada frame)
           ▲
          Npc : DynamicGameObject, Interactable
-           panel: UITextBlock(texto, visible = voice.progress()) + Repetir / Siguiente
+           Dialogue(frases, voice): UITextBlock(visible = voice.progress()) + Siguiente / Cerrar
 ```
 
 - **`SoundEngine`:** hay uno por juego, creado en `main` después de la ventana. miniaudio elige el backend (PulseAudio/PipeWire, ALSA) al arrancar y no añade nada al enlazado salvo `-ldl -lpthread -lm`. Si no hay dispositivo de audio, el juego funciona en silencio: `isAvailable()` es `false` y `play()` devuelve `nullptr`.
@@ -275,12 +288,49 @@ EspeakSynthesizer : SpeechSynthesizer   texto UTF-8 → AudioClip (proceso espea
   - La voz `es` de espeak-ng suena robótica. Las voces MBROLA (`mb-es1`…) necesitan el paquete `mbrola-es*`.
 - **`Voice`:** `say()` vuelve al momento, porque sintetiza con `std::async` y reproduce cuando el resultado está listo (en `update`). `progress()` es la posición de reproducción dividida por la duración, y sirve para revelar los subtítulos. `stop()` la calla. Al destruirse espera a la síntesis pendiente (no se puede cancelar).
 - **`Npc`:**
-  - Al abrirse su panel (`onInterfaceOpened`, con la posición del jugador) se gira hacia él y dice la frase actual.
-  - Al cerrarse (`onInterfaceClosed`) se calla.
+  - Al abrirse su panel (`onInterfaceOpened`, con la posición del jugador) se gira hacia él y dice la primera frase: cada conversación empieza desde el principio.
+  - El botón dice "Siguiente" y, en la última frase, "Cerrar", que cierra el diálogo (`panel.requestClose()`). Su texto se lee en cada frame (`UIButton` con texto dinámico).
+  - Esc cierra el diálogo en cualquier momento. Al cerrarse, de cualquier forma (`onInterfaceClosed`), la voz se corta.
   - La voz sale de `MOUTH_HEIGHT` sobre su posición.
   - Su `AnimatedModel` debe crearse con `feetAtOrigin = true`, para que esté de pie sobre su posición: es un `DynamicGameObject` con gravedad y el stage lo apoya en el suelo.
   - Hoy hay uno, "Pingu", en `TestStage`, delante del inicio.
 - **Subtítulos:** `UITextBlock` ajusta primero el texto entero (así las palabras no saltan de línea mientras aparecen) y muestra solo la fracción `voice.progress()` de sus caracteres.
+
+## Diálogos: hablar y leer
+
+Un NPC y un cartel muestran la misma caja de diálogo. Lo único que cambia es cómo se entrega cada línea:
+
+```
+Dialogue (frases, página actual, panel)  ──usa──▶  LineNarrator (abstracta)
+   ▲                ▲                                 ├── Voice       TTS con sonido (Npc)
+  Npc            Readable                             └── Typewriter  letra a letra, sin sonido (Readable)
+```
+
+- **`LineNarrator`:** `say(texto)`, `stop()`, `update(dt, posición)`, `progress()` (0..1 de la línea entregada), `isSpeaking()` e `isPreparing()` (por ejemplo, mientras se sintetiza la voz).
+- **`Typewriter`:** revela `DEFAULT_SPEED` = 40 caracteres por segundo (configurable), sin sonido. `stop()` deja la línea completa.
+- **`Dialogue(frases, narrador, textoOcupado)`** construye el panel con `buildPanel(panel)`:
+  - el `UITextBlock` con la línea, revelada según `narrator.progress()`;
+  - "n/N", con "..." mientras se prepara y `textoOcupado` mientras habla ("hablando" en el NPC; vacío en el cartel);
+  - el botón "Siguiente", que en la última línea pasa a "Cerrar" y cierra el panel;
+  - "Esc: terminar".
+
+  `start()` empieza desde la primera línea y `end()` calla al narrador. Su dueño los llama desde `onInterfaceOpened`/`onInterfaceClosed`.
+- **`Npc`** = `Voice` + `Dialogue(frases, voice, "hablando")`. **`Readable`** = `Typewriter` + `Dialogue(páginas, typewriter)`.
+  - En los dos, **el narrador se declara antes que el `Dialogue`**, que guarda una referencia a él (orden de construcción).
+  - Los dos llaman a `narrator.update` en su `update(dt)`.
+- **Verbo del aviso:** `Interactable::getInteractionVerb()` (por defecto "usar"). El NPC usa "hablar con" y el cartel "leer", así que el aviso dice "E: leer Cartel".
+- **El cartel:** `assets/sign/` (`generate_sign.py`). Es un poste con un tablón de madera y "AVISO" pintado. El origen está al pie del poste y el tablón mira hacia +z, a unos 1.3 de altura. En `TestStage` está en (7.5, suelo, −1), lejos del satélite, para que el más cercano no sea siempre el satélite.
+
+**Añadir algo que se lee** (en el constructor del mapa; no necesita audio):
+```cpp
+auto nota = make_shared<Readable>(loadModel("../assets/sign/sign.obj"), "Cartel",
+                                  std::vector<std::string>{"Página 1", "Página 2"},
+                                  1.3f);          // altura del texto sobre su posición
+nota->setPosition(x, groundAt(x, z), z);  nota->setYaw(...);
+add(nota);  interactables.push_back(nota.get());
+```
+
+**Otra forma de entregar el texto** (por ejemplo, voz pregrabada en ficheros WAV): crea una subclase de `LineNarrator` y pásasela a un `Dialogue`.
 
 **Añadir un NPC:** en el constructor del mapa (necesita el `SoundEngine` y el `SpeechSynthesizer`; mira cómo se los pasa `main` a `TestStage`):
 ```cpp
@@ -361,7 +411,6 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 ## Limitaciones conocidas
 
 - La interfaz muestra el texto en ASCII (`toAscii` quita tildes y eñes). Recibe teclas sueltas (`onKey`), pero no hay campos de texto ni rueda del ratón.
-- Las opciones (sensibilidad, FOV) no se guardan entre partidas.
 - Solo se reproduce la primera animación del FBX y no hay mezcla entre animaciones (`Animation` está sin usar).
 - No hay colisiones entre objetos: solo con el suelo. Con gravedad, Espacio/Shift no hacen nada (no se puede saltar).
 - El visor web solo muestra los mapas `.scene` (la noche), no `TestStage`.

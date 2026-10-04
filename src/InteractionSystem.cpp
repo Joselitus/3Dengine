@@ -50,7 +50,8 @@ void InteractionSystem::update(const glm::vec3 &playerPosition) {
   }
 
   if (!panel && target && !ui->hasPanels())
-    ui->setHint(controls.keyName(Action::Use) + ": usar " +
+    ui->setHint(controls.keyName(Action::Use) + ": " +
+                target->getInteractionVerb() + " " +
                 target->getInteractionName());
   else
     ui->setHint("");

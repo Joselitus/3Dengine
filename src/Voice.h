@@ -7,18 +7,19 @@
 
 #include <glm/glm.hpp>
 
+#include "LineNarrator.h"
 #include "SoundEngine.h"
 #include "SpeechSynthesizer.h"
 
-// Something that speaks: says one text at a time, out loud, from a position
-// in the world. say() returns at once: the text is synthesized on another
+// Something that speaks (the LineNarrator of NPCs): says one text at a
+// time, out loud, from a position in the world. say() returns at once: the text is synthesized on another
 // thread, then played through the SoundEngine as a spatial sound.
 //
 // progress() tells how much of the text has been spoken (0..1), so subtitles
 // can show it as it is read. Without audio (no device, or the synthesizer
 // failed) the voice still "reads" at CHARS_PER_SECOND, so subtitles work the
 // same, silently. Call update() every frame.
-class Voice {
+class Voice : public LineNarrator {
 public:
   enum class State { Idle, Synthesizing, Speaking };
 
@@ -44,16 +45,17 @@ public:
   ~Voice();
 
   // Starts saying `text` (UTF-8), interrupting what it was saying
-  void say(const std::string &text);
-  void stop();
+  void say(const std::string &text) override;
+  void stop() override;
   // Advances the speech; `position`: where the voice comes from now
-  void update(double dt, const glm::vec3 &position);
+  void update(double dt, const glm::vec3 &position) override;
 
   State getState() const { return state; }
-  bool isSpeaking() const { return state != State::Idle; }
+  bool isSpeaking() const override { return state != State::Idle; }
+  bool isPreparing() const override { return state == State::Synthesizing; }
   const std::string &getText() const { return text; }
   // How much of the text has been said: 0 before it starts, 1 when done
-  float progress() const;
+  float progress() const override;
 };
 
 #endif

@@ -17,6 +17,8 @@ public:
 
   // Shown in the prompt and as the panel title
   virtual std::string getInteractionName() const = 0;
+  // The prompt's verb: "<key>: <verb> <name>", e.g. "E: leer Cartel"
+  virtual std::string getInteractionVerb() const { return "usar"; }
   // Where the player has to be close to
   virtual glm::vec3 getInteractionPoint() const = 0;
   virtual float getInteractionRange() const { return 3.0f; }
