@@ -18,8 +18,11 @@ sky     sky/skydome.obj
 
 # Animated character driven by the Controller: model x y z
 player  ping/PenguinoAnimado.fbx  0 0 0
-# Third-person camera: distance behind the player, height above it
-camera  4.0 0.8
+# Camera: distance behind the player, height above its origin. Distance 0
+# is first person: the eyes at that height and the player is not drawn.
+# The player is fitted to 1.8 units centred on its origin, so the top of
+# the head is at +0.9; 0.7 is about eye level.
+camera  0 0.7
 
 # object <model> <x> <y> <z> <yaw (rad)> <scale> [lit|emissive|breathe]
 #

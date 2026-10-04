@@ -157,10 +157,12 @@ int main(int argc, char **argv) {
   light.moveTo(info.moonDir.x * 100, info.moonDir.y * 100,
                info.moonDir.z * 100);
 
-  // The controller drives the player; the camera follows behind it
+  // The controller drives the player; the camera follows it, from its eyes
+  // when the distance is 0 (first person)
   if (scene.getPlayer())
     controller.attach(scene.getPlayer(), info.cameraDistance,
                       info.cameraHeight);
+  scene.setPlayerVisible(info.cameraDistance > 0.0f);
 
   // A satellite the player can orient through its interface, in range from
   // the start position (the clearing is flat, the ground is at y = -1)

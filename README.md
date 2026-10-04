@@ -1,6 +1,6 @@
 # 3Dengine
 
-Basic 3D engine: a small C++/OpenGL 3.3 engine and the game being built on top of it. The current scene is a desert at night, with a skinned penguin controlled in third person.
+Basic 3D engine: a small C++/OpenGL 3.3 engine and the game being built on top of it. The current scene is a desert at night, with a skinned penguin controlled in first person (head height).
 
 ## Build and run
 

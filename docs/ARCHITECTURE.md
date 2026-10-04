@@ -46,7 +46,7 @@ docs/                esta documentación
 | `Satellite` | `GameObject` + `Interactable`: cubo orientable en azimut y cénit sobre un poste. Ver [Satélite](#satélite). |
 | `SceneFile` | Parser de ficheros `.scene`. No depende de OpenGL. |
 | `Scene` | Construye la escena a partir de un `SceneFile`. Carga cada modelo una sola vez, crea los `GameObject` y los dibuja con su efecto. |
-| `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject` en tercera persona. |
+| `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject`: en primera persona (distancia 0, a la altura de los ojos) o en tercera, desde detrás. |
 | `Controller` | Gestiona la entrada: el ratón mueve la cámara y WASD/Espacio/Shift mueven al personaje. Se puede pausar (`setEnabled(false)`) mientras hay una interfaz abierta. |
 | `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
 | `InteractionSystem` | Busca el `Interactable` más cercano al jugador, muestra el aviso y abre/cierra su panel con E/Esc, pausando el `Controller`. |
@@ -168,7 +168,7 @@ Va un comando por línea, con los campos separados por espacios. `#` inicia un c
 | `fog` | `r g b` | Color del horizonte: niebla y color de fondo. |
 | `sky` | `modelo` | Cúpula de cielo (opcional). |
 | `player` | `modelo x y z` | Modelo animado que maneja el `Controller` (opcional). |
-| `camera` | `distancia altura` | Cámara en tercera persona detrás del jugador. |
+| `camera` | `distancia altura` | Distancia detrás del jugador y altura sobre su origen. **Con distancia 0 es primera persona:** la cámara queda en los ojos y el jugador no se dibuja (`Scene::setPlayerVisible`). En `desert.scene` vale `0 0.7`: el pingüino mide 1.8 y está centrado en su origen, así que la coronilla queda en +0.9. |
 | `object` | `modelo x y z yaw escala [efecto]` | Objeto estático. `yaw` en radianes. `y` es la altura final en el mundo. Efecto: `lit` (por defecto), `emissive` o `breathe`. |
 
 Si hay un error, el juego muestra `fichero:línea: mensaje` y termina. El visor muestra el mismo mensaje en su barra de estado.

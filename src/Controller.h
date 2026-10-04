@@ -6,7 +6,7 @@
 
 // Turns keyboard and mouse input into actions on the attached game character
 // and the camera that follows it.
-// Third-person input. The cursor position (relative to where it was at start)
+// First/third-person input (see Camera::attachTo). The cursor position (relative to where it was at start)
 // sets the camera yaw/pitch; WASD moves the attached character relative to
 // the camera heading and turns it to face where it walks; Space/Left Shift
 // move it up/down; Esc closes the window. Call update() once per frame.

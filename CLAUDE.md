@@ -4,7 +4,7 @@ Memoria de trabajo del proyecto. **Léela al empezar cada sesión y actualízala
 
 ## Qué es
 
-Juego 3D en C++ sobre un motor propio (OpenGL 3.3 core). El objetivo es construir el motor y su arquitectura a la vez que el juego. Escena actual: un desierto nocturno (dunas, cactus, rocas, cielo con luna y estrellas, una "criatura" que respira a lo lejos) y un pingüino animado que se controla en tercera persona.
+Juego 3D en C++ sobre un motor propio (OpenGL 3.3 core). El objetivo es construir el motor y su arquitectura a la vez que el juego. Escena actual: un desierto nocturno (dunas, cactus, rocas, cielo con luna y estrellas, una "criatura" que respira a lo lejos) y un pingüino animado que se controla en primera persona (antes, en tercera).
 
 ## Compilar, ejecutar, visualizar
 
@@ -18,7 +18,7 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 - **Para ver la escena tras un cambio, usa `--shot` y lee el PNG**. No hace falta lanzar el juego: genera la imagen con Firefox headless en ~10 s.
 - Para comprobar el juego de verdad sin molestar mucho: lánzalo con `timeout 12 ../test/test --windowed &`, captura su ventana con `xwd -id $(wmctrl -l | grep "test bimbow" | awk '{print $1}')` y convierte el XWD con un script numpy (PIL no lee XWD).
 - Dependencias: GLFW3, GLEW, GL, Assimp, GLM; Vulkan está enlazado pero no se usa. `stb_image` va incluido.
-- **Para probar la interfaz sin molestar al usuario:** no lances el juego en su pantalla (puede estar usándola y se mezclan las entradas). Usa un X anidado, `Xephyr :57 -screen 760x660 -ac &`, con `DISPLAY=:57 LIBGL_ALWAYS_SOFTWARE=1`. Envía teclas y ratón con python-xlib (`Xlib.ext.xtest.fake_input`), captura con `xwd -display :57 -id <ventana>` y busca la ventana por su título con `query_tree` (allí no hay gestor de ventanas). Al terminar, cierra Xephyr. Si un script falla a mitad, suelta los botones que haya pulsado y mata el juego que haya dejado abierto.
+- **Para probar la interfaz sin molestar al usuario:** (ojo: el ratón real que pase por encima de la ventana de Xephyr también llega al juego) no lances el juego en su pantalla (puede estar usándola y se mezclan las entradas). Usa un X anidado, `Xephyr :57 -screen 760x660 -ac &`, con `DISPLAY=:57 LIBGL_ALWAYS_SOFTWARE=1`. Envía teclas y ratón con python-xlib (`Xlib.ext.xtest.fake_input`), captura con `xwd -display :57 -id <ventana>` y busca la ventana por su título con `query_tree` (allí no hay gestor de ventanas). Al terminar, cierra Xephyr. Si un script falla a mitad, suelta los botones que haya pulsado y mata el juego que haya dejado abierto.
 - No hay tests automáticos. `test.cpp` es el `main` del juego (el nombre es histórico). Para probar el parser de escenas sin GL, compila `SceneFile.cpp` con un `main` mínimo.
 
 ## Arquitectura (resumen)
@@ -75,6 +75,8 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 
 - 2026-10-04: **ramas.** `main` (= `origin/main`, `4b7d902`) incluye el merge de `bc28e6d`, de otra persona: `Stage` abstracta con seguimiento del suelo, `DynamicGameObject`, `PlayableCharacter`, `RV`, carretera y autocaravana. Allí `test.cpp` monta `TestStage` en código, así que `Scene`/`.scene` y el visor no corresponden a lo que hace el juego. Ese merge también volvió a versionar `.o` y binarios; el `test/test` de esa persona no arranca aquí (glibc 2.43, GLEW 2.3, Assimp 6). **Recompila siempre tras un pull.** El usuario trabaja ahora en la rama `scayuelas` (`41e98df`, sin `Stage`). Los cambios que había sin commit en `main` quedaron en un autostash.
 - 2026-10-04 (rama `scayuelas`): sistema de interfaz genérico (`UI*`, `Interactable`, `InteractionSystem`), `Satellite` y asset `assets/cube/` (con `generate_cube.py`). `GameObject` pasa a tener `Update`/`Draw` virtuales y `Controller` incluye `setEnabled` y el armado de Esc. Verificado de extremo a extremo en Xephyr con XTest: aparece el aviso, E abre el panel, los deslizadores giran el cubo (az 90 / cénit 45 → dirección (0.71, 0.71, 0)), se ve el estado "girando", Esc cierra solo el panel y el segundo Esc sale, y el botón X cierra. Pendiente decidir cómo llevar esto a `main` (que tiene `Stage`).
+
+- 2026-10-04 (`scayuelas`): cámara en **primera persona** (`camera 0 0.7` en `desert.scene`). Con distancia 0, `Camera::follow` ya coloca la cámara en los ojos, que gira sobre sí misma. El jugador se oculta con `Scene::setPlayerVisible` y el visor hace lo mismo en su vista "Jugador". Verificado en Xephyr (vista a la altura de los ojos, aviso y panel del satélite funcionando) y en el visor. En una ejecución en Xephyr la cámara apareció mirando al suelo y luego al cielo, pero no se reprodujo: sin entrada, al dar el foco o al pulsar teclas, la cámara no se mueve. Causa probable, según el usuario: él estaba usando el ratón a la vez. Xephyr es una ventana del escritorio y reenvía al juego el ratón real cuando pasa por encima. **Si una prueba interactiva da resultados raros, avisa al usuario y pídele el control del ratón y el teclado antes de repetirla.**
 
 ## Próximos pasos / ideas
 

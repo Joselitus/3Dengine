@@ -19,7 +19,8 @@
 // matrices to the shader. Note the shader computes
 // projection * model * view * world: here `view` is the translation to the
 // camera position and `model` is the camera rotation (pitch * yaw), applied
-// after it. With attachTo() the camera follows a GameObject from behind at a
+// after it. With attachTo() the camera follows a GameObject (from behind, or
+// from its eyes in first person when the distance is 0) at a
 // given distance and height (follow() must be called after it moves).
 class Camera {
 private:
@@ -36,10 +37,10 @@ private:
   glm::mat4 view;
   glm::mat4 model;
 
-  // Third-person follow target (nullptr = free camera)
+  // Followed object (nullptr = free camera), see attachTo()
   GameObject *target = nullptr;
-  float distance = 4.0f;
-  float height = 1.5f;
+  float distance = 4.0f; // behind the target; 0 = first person
+  float height = 1.5f;   // above the target's origin
 
 public:
   Camera(GLFWwindow *window, Shader *shader);
@@ -50,6 +51,8 @@ public:
   void update();
   // Attach the camera to a game object; follow() then keeps it orbiting the
   // object at `distance`, looking at a point `height` above its origin.
+  // Follow `target` from `distance` behind it (0: from its eyes, first
+  // person) and `height` above its origin
   void attachTo(GameObject *target, float distance, float height);
   void follow();
   glm::vec3 getPosition() { return position; }

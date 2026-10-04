@@ -73,6 +73,6 @@ void Scene::Draw(Shader *shader, vec3 cameraPosition, float time) {
   shader->setInt("unlit", 0);
   shader->setFloat("breathAmp", 0.0f);
 
-  if (player)
+  if (player && playerVisible)
     player->Draw(shader);
 }
