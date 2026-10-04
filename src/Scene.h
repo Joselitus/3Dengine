@@ -25,6 +25,7 @@ private:
   std::vector<Effect> effects; // effects[i] belongs to objects[i]
   std::shared_ptr<AnimatedModel> playerModel;
   std::unique_ptr<GameObject> player;
+  bool playerVisible = true;
 
   std::shared_ptr<Model> getModel(const std::string &path);
 
@@ -36,6 +37,8 @@ public:
   const SceneFile &info() const { return file; }
   // The controllable character, or nullptr if the scene has none.
   GameObject *getPlayer() { return player.get(); }
+  // Hide the player in first person, or the camera ends up inside its head
+  void setPlayerVisible(bool visible) { playerVisible = visible; }
 
   // Advances the player's animation to `seconds`.
   void Update(double seconds);

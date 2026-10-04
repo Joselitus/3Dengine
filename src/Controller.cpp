@@ -16,7 +16,27 @@ void Controller::attach(PlayableCharacter *character, float cameraDistance,
   character->attachCamera(camera, cameraDistance, cameraHeight);
 }
 
+void Controller::setEnabled(bool enable) {
+  if (enable == enabled)
+    return;
+  enabled = enable;
+  if (enable) {
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetCursorPos(window, savedX, savedY);
+    // The Esc that closed an interface must not also close the game
+    escapeArmed = false;
+  } else {
+    glfwGetCursorPos(window, &savedX, &savedY);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    // The character keeps the last input it got: let go of every key
+    if (character)
+      character->control(glm::vec2(0.0f), 0.0f, yaw);
+  }
+}
+
 void Controller::update() {
+  if (!enabled)
+    return;
   // The camera rotation is derived from the cursor position, relative to
   // where the pointer was when the controller was created.
   double xpos, ypos;
@@ -44,7 +64,10 @@ void Controller::update() {
     character->control(dir, up, yaw);
   }
 
-  if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+  bool escape = glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS;
+  if (!escape)
+    escapeArmed = true;
+  if (escape && escapeArmed) {
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     glfwSetWindowShouldClose(window, true);
   }

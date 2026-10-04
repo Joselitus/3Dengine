@@ -533,6 +533,9 @@ function frame() {
   if (animate) globals.time.value += dt;
   if (state && state.player && animate) state.player.mixer.update(dt);
   if (view === 'player') updatePlayerCamera(); else controls.update();
+  // In first person the game doesn't draw the player (see Scene::setPlayerVisible)
+  if (state && state.player)
+    state.player.group.visible = view !== 'player' || state.desc.cameraDistance > 0;
   if (state && state.sky) state.sky.position.copy(camera.position);
   if (selected) selected.box.update();
   updateHover();

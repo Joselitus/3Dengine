@@ -28,6 +28,8 @@ protected:
   glm::mat4 rotation = glm::mat4(1.0f);
   float scale = 1.0f;
   float breathAmp = 0.0f; // procedural breathing of the static meshes
+  bool visible = true;    // false: Draw() does nothing (e.g. a first-person
+                          // player, whose model would hide the view)
   double time = 0.0;      // seconds since the object was updated the first time
 
 public:
@@ -44,6 +46,8 @@ public:
   void setYaw(float radians);
   void setScale(float scale) { this->scale = scale; }
   void setBreathAmp(float amp) { breathAmp = amp; }
+  void setVisible(bool visible) { this->visible = visible; }
+  bool isVisible() const { return visible; }
   glm::vec3 getPosition() const { return position; }
   void translate(const glm::vec3 &delta) { position += delta; }
 

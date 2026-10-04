@@ -26,6 +26,8 @@ void GameObject::update(double dt) {
 }
 
 void GameObject::Draw(Shader *shader) {
+  if (!visible)
+    return;
   shader->setVector3("objposition", position.x, position.y, position.z);
   mat4 transform = glm::scale(rotation, vec3(scale));
   shader->setMatrix4("objrotation", value_ptr(transform));

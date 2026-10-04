@@ -10,13 +10,17 @@
 #include "Camera.h"
 #include "Controller.h"
 #include "GameObject.h"
+#include "InteractionSystem.h"
 #include "Light.h"
 #include "PlayableCharacter.h"
 #include "RV.h"
+#include "Satellite.h"
 #include "Model.h"
 #include "Shader.h"
 #include "Stage.h"
 #include "Skeleton.h"
+#include "UIManager.h"
+#include "Walker.h"
 #include "myopengl.h"
 
 using namespace std;
@@ -93,15 +97,24 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   return window;
 }
 
-// The desert: dunes with a road winding through them, cacti and rocks, and
-// the RV that the player drives.
+// The desert: dunes with a road winding through them, cacti and rocks, a
+// parked RV, a satellite the player can orient, and the player: a penguin
+// on foot, seen in first person.
 class TestStage : public Stage {
 private:
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
   std::shared_ptr<RV> rv;
+  std::shared_ptr<Walker> player;
+  std::vector<Interactable *> interactables; // owned by the stage
+
+  // Ground height at (x, z), or GROUND_Y where there is no floor
+  float groundAt(float x, float z) const {
+    float height;
+    return floorAt(x, z, height) ? height : GROUND_Y;
+  }
 
 protected:
-  // The RV stays on the dunes
+  // The RV and the player stay on the dunes
   void apply(DynamicGameObject &object, double dt) override {
     collideWithFloor(object);
   }
@@ -169,9 +182,28 @@ public:
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
     addDynamic(rv);
+
+    // The player: the penguin on foot, its feet on the floor. It is drawn
+    // centred on its position (AnimatedModel fits it to 1.8 units around the
+    // origin), which only shows if the camera is moved out of first person.
+    player = make_shared<Walker>(
+        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx"));
+    player->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
+    player->setGravity(25.0f);
+    addDynamic(player);
+
+    // A satellite next to the start, within reach (see Interactable)
+    auto satellite = make_shared<Satellite>(loadModel("../assets/cube/cube.obj"),
+                                            vec3(4.5f, groundAt(4.5f, 2.0f), 2.0f));
+    add(satellite);
+    add(satellite->getMount());
+    interactables.push_back(satellite.get());
   }
 
-  std::shared_ptr<PlayableCharacter> getPlayer() { return rv; }
+  std::shared_ptr<PlayableCharacter> getPlayer() { return player; }
+  const std::vector<Interactable *> &getInteractables() const {
+    return interactables;
+  }
 };
 
 // Shaders and assets are loaded with paths relative to src/. The binary is
@@ -227,8 +259,15 @@ int main(int argc, char **argv) {
 
   TestStage stage(floorMode);
 
-  // The controller steers the RV; the camera follows behind it
-  controller.attach(stage.getPlayer().get(), 12.0f, 3.5f);
+  // The controller moves the player; the camera is at its eyes (distance 0 =
+  // first person, 1.6 above its feet: the penguin is 1.8 tall)
+  controller.attach(stage.getPlayer().get(), 0.0f, 1.6f);
+
+  // 2D interface over the scene, and the system that opens it (key E)
+  UIManager ui(window);
+  InteractionSystem interaction(window, &ui, &controller);
+  for (Interactable *object : stage.getInteractables())
+    interaction.add(object);
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -239,6 +278,9 @@ int main(int argc, char **argv) {
     lastTime = now;
 
     camera.resize();
+    // The interface first: opening a panel pauses the controller this frame
+    interaction.update(stage.getPlayer()->getPosition());
+    ui.update();
     controller.update();
     stage.update(dt);
     stage.getPlayer()->followCamera();
@@ -248,6 +290,7 @@ int main(int argc, char **argv) {
     // Draw (the clear colour is the sky)
     shader.setFloat("time", (float)now);
     stage.Draw(&shader, now);
+    ui.draw(); // last, over everything
 
     // Swap buffers
     glfwSwapBuffers(window);
