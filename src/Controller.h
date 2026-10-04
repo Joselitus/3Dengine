@@ -20,11 +20,20 @@ private:
   float yaw = 0.0f;        // camera heading, radians
   float facing = 0.0f;     // character heading, radians
 
+  bool enabled = true;
+  double savedX = 0.0, savedY = 0.0; // cursor when it was disabled
+  bool escapeArmed = true; // Esc only quits once seen released
+
 public:
   Controller(GLFWwindow *window, Camera *camera);
   // Attach to a character: WASD moves it and the camera follows it
   void attach(GameObject *character, float cameraDistance, float cameraHeight);
   void update();
+  // While disabled (e.g. an interface is open) it ignores the input and the
+  // cursor is free; enabling it again puts the cursor back where it was, so
+  // the camera doesn't jump.
+  void setEnabled(bool enabled);
+  bool isEnabled() const { return enabled; }
 };
 
 #endif

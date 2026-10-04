@@ -42,11 +42,15 @@ docs/                esta documentación
 | `AnimatedMesh` | Como `Mesh`, pero con 12 pares (hueso, peso) por vértice. |
 | `AnimatedModel` | Carga un FBX con esqueleto: mallas, lista global de huesos, `Skeleton` y ajuste de escala (`computeFit`). Posee el `Assimp::Importer`. |
 | `Skeleton` | Evalúa la primera animación del fichero y calcula las matrices de hueso (`boneMats`, como máximo 100). |
-| `GameObject` | Instancia de un modelo (estático o animado) con posición y matriz de rotación/escala. No es dueño del modelo. |
+| `GameObject` | Instancia de un modelo (estático o animado) con posición y matriz de rotación/escala. No es dueño del modelo. `Update(dt)` y `Draw()` son virtuales para que las subclases añadan comportamiento. |
+| `Satellite` | `GameObject` + `Interactable`: cubo orientable en azimut y cénit sobre un poste. Ver [Satélite](#satélite). |
 | `SceneFile` | Parser de ficheros `.scene`. No depende de OpenGL. |
 | `Scene` | Construye la escena a partir de un `SceneFile`. Carga cada modelo una sola vez, crea los `GameObject` y los dibuja con su efecto. |
 | `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject` en tercera persona. |
-| `Controller` | Gestiona la entrada: el ratón mueve la cámara y WASD/Espacio/Shift mueven al personaje. |
+| `Controller` | Gestiona la entrada: el ratón mueve la cámara y WASD/Espacio/Shift mueven al personaje. Se puede pausar (`setEnabled(false)`) mientras hay una interfaz abierta. |
+| `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
+| `InteractionSystem` | Busca el `Interactable` más cercano al jugador, muestra el aviso y abre/cierra su panel con E/Esc, pausando el `Controller`. |
+| `UIManager`, `UIRenderer`, `UI*` | Sistema de interfaz 2D genérico. Ver [Interfaz de usuario](#interfaz-de-usuario-ui). |
 | `Light` | La única luz puntual del shader. |
 | `Animation` | Rango de frames con nombre. **Todavía no se usa.** |
 
@@ -58,6 +62,8 @@ docs/                esta documentación
 
 ```
 camera.resize()           viewport y proyección si cambia el framebuffer
+interaction.update(pos)   aviso "E: usar ..."; E/Esc abren o cierran el panel y pausan el Controller
+ui.update()               ratón → paneles (pulsar, arrastrar, soltar)
 controller.update()       ratón → rotación de la cámara; teclas → mueve al jugador; camera.follow()
 glClear(fogColor)
 scene.Update(t)           avanza la animación del jugador (Skeleton)
@@ -65,10 +71,12 @@ scene.Draw(shader, camPos, t)
   1. cielo: centrado en la cámara, sin depth test, unlit = 1
   2. objetos: unlit / breathAmp según su efecto
   3. jugador: skinned = 1, gBones, fitCenter/fitScale
+satellite.Update(dt) / Draw()
+ui.draw()                 interfaz 2D encima de todo
 glfwSwapBuffers / glfwPollEvents
 ```
 
-No hay delta time: el movimiento avanza una cantidad fija por frame (con vsync activo).
+`dt` (segundos desde el frame anterior) solo lo usan los objetos con `Update(dt)`, como el satélite. El movimiento del jugador sigue avanzando una cantidad fija por frame (con vsync activo).
 
 ## Sistema de coordenadas y transformaciones
 
@@ -98,6 +106,47 @@ El motor dibuja todo con **`animatedshader.vert` + `shader.frag`**. `shader.vert
 Atributos: 0 posición, 1 normal, 2 uv, 3–8 tres grupos `ivec4` de ids de hueso + `vec4` de pesos.
 
 **El visor web contiene una copia de estos shaders** (`tools/scene_viewer/viewer.js`). Si cambias la iluminación, la niebla, el cielo o la respiración, cambia también la copia.
+
+## Interfaz de usuario (UI)
+
+Es un sistema propio y orientado a objetos (sin dependencias externas), pensado para que cualquier objeto del juego ofrezca su propio panel.
+
+```
+UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
+├── UILabel                      texto fijo o generado cada frame (valores en vivo)
+├── UIButton                     acción al pulsar y soltar encima
+├── UISlider                     número en [min, max]; lee y escribe a través de funciones
+└── UIContainer (abstracta)      posee a sus hijos
+    ├── UIPanel                  ventana: título, botón de cerrar, arrastrable; hijos en vertical
+    └── UIRow                    hijos en horizontal, repartiendo el ancho
+
+UIManager    paneles abiertos, reparto del ratón, aviso inferior, dibujo
+UIRenderer   rectángulos y texto en píxeles de ventana, en un solo draw call
+Interactable contrato entre un objeto del juego y la interfaz
+```
+
+- **Coordenadas:** píxeles de ventana con (0, 0) arriba a la izquierda, las mismas que `glfwGetCursorPos`.
+- **Ratón:** `UIManager::update` busca el elemento bajo el cursor (`elementAt`, recursivo). Si es interactivo, recibe `onPress`, luego `onDrag` mientras se mantiene el botón y por último `onRelease`. Si no lo es (etiquetas, filas), el clic va a su panel, que se encarga del arrastre por el título y del botón de cerrar. El panel pulsado pasa al frente.
+- **Valores en vivo:** `UILabel` y `UISlider` no guardan el valor, lo leen cada frame con una `std::function`. Así siempre muestran el estado real del objeto, aunque cambie por otra vía (por ejemplo, mientras el satélite gira).
+- **Dibujo:** `UIRenderer` usa su propio shader (`ui.vert`/`ui.frag`) y, al terminar, **vuelve a activar el programa anterior**, porque los setters de `Shader` suponen que el shader del motor está activo. Desactiva el depth test y activa el blending solo mientras dibuja.
+- **Texto:** se dibuja con `stb_easy_font.h` (de dominio público y en `src/`). **Solo admite ASCII**, así que los textos de la interfaz van sin tildes ni símbolos como °.
+- **Estilo:** los colores y márgenes son comunes y están en `UITheme` (`UIElement.h`).
+
+**Hacer que un objeto se pueda usar:**
+1. Hereda de `Interactable` e implementa `getInteractionName()`, `getInteractionPoint()` y `buildInterface(UIPanel&)` (opcionalmente también `getInteractionRange()`, que por defecto es 3).
+2. En `buildInterface`, añade elementos con `panel.add(new UILabel(...))` y similares. Las lambdas pueden capturar `this`, siempre que el objeto viva más que el panel.
+3. Regístralo con `interaction.add(&objeto)` en `test.cpp`.
+
+## Satélite
+
+`Satellite` representa una montura altazimutal, como una antena o un telescopio: un cubo (la cabeza) sobre un poste. La cara +y del cubo es el *boresight*, la dirección a la que apunta, y está marcada con una diana naranja (`assets/cube/`, generado por `generate_cube.py`).
+
+- **Azimut:** de 0 a 360°, medido desde el norte (**−z**) en sentido horario hacia el este (**+x**).
+- **Cénit:** de 0 a 90°. A 0 apunta al cielo en vertical y a 90 al horizonte. La elevación es 90 − cénit.
+- **Dirección resultante:** `(sin c·sin a, cos c, −sin c·cos a)`. Se obtiene con la orientación `rotY(−a) · rotX(−c) · escala`.
+- **Cómo gira:** las órdenes fijan un objetivo (`pointAt`, `setTargetAzimuth`, `setTargetZenith`, `stop`). `Update(dt)` mueve los dos ejes a la vez, sin pasar de `slewRate` grados por segundo (entre 1 y 120). El azimut gira por el camino más corto.
+- **Panel:** muestra el azimut y el cénit actuales, la elevación, el vector de dirección y el estado (girando o apuntando). Tiene deslizadores para el azimut y el cénit objetivo y para la velocidad, y botones Cenit, Norte 45 y Parar.
+- **Ubicación:** se crea en `test.cpp`, en (−2, −1, −2), al alcance del jugador desde el punto de inicio. No está en el `.scene` y por eso el visor web no lo muestra.
 
 ## Animación esquelética
 
@@ -146,6 +195,7 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y termina. El visor 
 
 ## Limitaciones conocidas
 
+- La interfaz solo muestra texto ASCII (stb_easy_font) y no tiene entrada de teclado (campos de texto) ni rueda del ratón.
 - Solo se reproduce la primera animación del FBX y no hay mezcla entre animaciones (`Animation` está sin usar).
 - No hay delta time. Tampoco hay colisiones ni seguimiento del terreno: el jugador se mueve a altura fija salvo con Espacio/Shift.
 - Nunca se liberan los recursos GL (VAO/VBO/texturas). Las texturas no se comparten entre modelos distintos.

@@ -18,6 +18,7 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 - **Para ver la escena tras un cambio, usa `--shot` y lee el PNG**. No hace falta lanzar el juego: genera la imagen con Firefox headless en ~10 s.
 - Para comprobar el juego de verdad sin molestar mucho: lánzalo con `timeout 12 ../test/test --windowed &`, captura su ventana con `xwd -id $(wmctrl -l | grep "test bimbow" | awk '{print $1}')` y convierte el XWD con un script numpy (PIL no lee XWD).
 - Dependencias: GLFW3, GLEW, GL, Assimp, GLM; Vulkan está enlazado pero no se usa. `stb_image` va incluido.
+- **Para probar la interfaz sin molestar al usuario:** no lances el juego en su pantalla (puede estar usándola y se mezclan las entradas). Usa un X anidado, `Xephyr :57 -screen 760x660 -ac &`, con `DISPLAY=:57 LIBGL_ALWAYS_SOFTWARE=1`. Envía teclas y ratón con python-xlib (`Xlib.ext.xtest.fake_input`), captura con `xwd -display :57 -id <ventana>` y busca la ventana por su título con `query_tree` (allí no hay gestor de ventanas). Al terminar, cierra Xephyr. Si un script falla a mitad, suelta los botones que haya pulsado y mata el juego que haya dejado abierto.
 - No hay tests automáticos. `test.cpp` es el `main` del juego (el nombre es histórico). Para probar el parser de escenas sin GL, compila `SceneFile.cpp` con un `main` mínimo.
 
 ## Arquitectura (resumen)
@@ -28,6 +29,13 @@ python3 tools/scene_viewer/serve.py --shot /ruta/x.png --view player|top|orbit
 - Un solo shader: `animatedshader.vert` + `shader.frag`. `shader.vert` está en desuso.
 - **Trampa:** en el shader, `model` es la *rotación de la cámara*, no la matriz del objeto. El objeto usa `objposition` + `objrotation` (que incluye la escala).
 - Uniforms de control: `skinned`, `unlit` (0 iluminado, 1 cielo, 2 emisivo), `breathAmp`/`breathTime`, `fitCenter`/`fitScale`. Tabla completa en ARCHITECTURE.md.
+- **Interfaz 2D propia** (`UI*`):
+  - `UIElement` es la base y de ella derivan `UILabel`, `UIButton`, `UISlider` y `UIContainer` (de la que salen `UIPanel` y `UIRow`).
+  - `UIManager` gestiona los paneles y el ratón. `UIRenderer` usa su propio shader y deja activo de nuevo el del motor al terminar.
+  - El texto usa `stb_easy_font`, que **solo admite ASCII**, así que los textos van sin tildes.
+- **Objetos usables:** heredan de `Interactable` y rellenan su panel en `buildInterface`. `InteractionSystem` muestra el aviso "E: usar …" y abre o cierra el panel (E/Esc), pausando el `Controller` con `setEnabled`.
+- `Satellite`: un `GameObject` con forma de cubo sobre un poste, que también es `Interactable`. Azimut desde −z en sentido horario hacia +x; cénit 0 = vertical. Gira hacia el objetivo a `slewRate` °/s. Se crea en `test.cpp`, no en el `.scene`.
+- `GameObject::Update(dt)` y `Draw()` son virtuales.
 
 ## Puntos que deben estar sincronizados
 
@@ -65,7 +73,11 @@ Añadir una línea por sesión o cambio importante (AAAA-MM-DD).
 
 - 2026-10-04: `.gitignore` creado y artefactos de compilación fuera del índice. Arreglado el error `must write to gl_Position`: salía al lanzar el juego fuera de `src/`, porque no se encontraban los shaders y se compilaba una fuente vacía. Ahora `main` hace `chdir` a `src/` y `fileToString` falla con un mensaje claro. Otras mejoras: rutas de textura con `std::string` (antes había un buffer de 120 bytes), makefile con `-std=c++11 -Wall` en todos los .o y `mkdir -p ../test`, eliminado el constructor roto `Mesh(indices, textures)`, comprobación correcta de `mMaterialIndex`, `Model::scene` ya no queda colgando, sin avisos de compilación.
 
+- 2026-10-04: **ramas.** `main` (= `origin/main`, `4b7d902`) incluye el merge de `bc28e6d`, de otra persona: `Stage` abstracta con seguimiento del suelo, `DynamicGameObject`, `PlayableCharacter`, `RV`, carretera y autocaravana. Allí `test.cpp` monta `TestStage` en código, así que `Scene`/`.scene` y el visor no corresponden a lo que hace el juego. Ese merge también volvió a versionar `.o` y binarios; el `test/test` de esa persona no arranca aquí (glibc 2.43, GLEW 2.3, Assimp 6). **Recompila siempre tras un pull.** El usuario trabaja ahora en la rama `scayuelas` (`41e98df`, sin `Stage`). Los cambios que había sin commit en `main` quedaron en un autostash.
+- 2026-10-04 (rama `scayuelas`): sistema de interfaz genérico (`UI*`, `Interactable`, `InteractionSystem`), `Satellite` y asset `assets/cube/` (con `generate_cube.py`). `GameObject` pasa a tener `Update`/`Draw` virtuales y `Controller` incluye `setEnabled` y el armado de Esc. Verificado de extremo a extremo en Xephyr con XTest: aparece el aviso, E abre el panel, los deslizadores giran el cubo (az 90 / cénit 45 → dirección (0.71, 0.71, 0)), se ve el estado "girando", Esc cierra solo el panel y el segundo Esc sale, y el botón X cierra. Pendiente decidir cómo llevar esto a `main` (que tiene `Stage`).
+
 ## Próximos pasos / ideas
 
 (Rellenar según lo que se decida con el usuario.)
-- Posibles: delta time, que el jugador siga la altura del terreno, varias animaciones (andar/parado) usando `Animation`, una clase Renderer.
+- Integrar el satélite y la UI con `Stage` de `main` (`Satellite` como objeto del stage).
+- Posibles: rueda del ratón o teclado en la UI, satélite en el `.scene` y en el visor, delta time, que el jugador siga la altura del terreno, varias animaciones (andar/parado) usando `Animation`, una clase Renderer.

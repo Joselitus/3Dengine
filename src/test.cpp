@@ -10,11 +10,14 @@
 #include "Camera.h"
 #include "Controller.h"
 #include "GameObject.h"
+#include "InteractionSystem.h"
 #include "Light.h"
 #include "Model.h"
+#include "Satellite.h"
 #include "Scene.h"
 #include "Shader.h"
 #include "Skeleton.h"
+#include "UIManager.h"
 #include "myopengl.h"
 
 using namespace std;
@@ -159,17 +162,38 @@ int main(int argc, char **argv) {
     controller.attach(scene.getPlayer(), info.cameraDistance,
                       info.cameraHeight);
 
+  // A satellite the player can orient through its interface, in range from
+  // the start position (the clearing is flat, the ground is at y = -1)
+  Model cube("../assets/cube/cube.obj");
+  Satellite satellite(&cube, vec3(-2.0f, -1.0f, -2.0f));
+
+  // 2D interface over the scene, and the system that opens it (key E)
+  UIManager ui(window);
+  InteractionSystem interaction(window, &ui, &controller);
+  interaction.add(&satellite);
+
   // Main loop
+  double lastTime = glfwGetTime();
   while (!glfwWindowShouldClose(window)) {
+    double now = glfwGetTime();
+    float dt = (float)(now - lastTime);
+    lastTime = now;
+
     camera.resize();
+    // The interface first: opening a panel pauses the controller this frame
+    GameObject *player = scene.getPlayer();
+    interaction.update(player ? player->getPosition() : vec3(1e9f));
+    ui.update();
     controller.update();
     // Clear to the horizon colour, so any gap blends with the sky and fog
     glClearColor(info.fogColor.r, info.fogColor.g, info.fogColor.b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    double now = glfwGetTime();
     scene.Update(now);
     scene.Draw(&shader, camera.getPosition(), (float)now);
+    satellite.Update(dt);
+    satellite.Draw(&shader);
+    ui.draw(); // last, over everything
 
     // Swap buffers
     glfwSwapBuffers(window);

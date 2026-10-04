@@ -15,7 +15,7 @@ make
 
 It can be launched from any directory: at startup it moves to `src/` (found next to the binary), where the shader and asset paths are relative to.
 
-Controls: mouse looks around, WASD walks, Space/Shift move up/down, Esc quits.
+Controls: mouse looks around, WASD walks, Space/Shift move up/down, E uses the object in front (e.g. the satellite: its panel sets azimuth and zenith), Esc closes a panel or quits.
 
 ## View a scene without running the game
 
