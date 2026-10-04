@@ -63,7 +63,7 @@ void Controller::update() {
 
   if (character) {
     glm::vec2 dir(0.0f);
-    float up = 0.0f;
+    float up = 0.0f; // no key for it (everything walks under gravity now)
     auto held = [this](Action action) {
       return glfwGetKey(window, controls.key(action)) == GLFW_PRESS;
     };
@@ -71,8 +71,6 @@ void Controller::update() {
     if (held(Action::MoveForward)) dir.y -= 1.0f;
     if (held(Action::MoveLeft)) dir.x -= 1.0f;
     if (held(Action::MoveRight)) dir.x += 1.0f;
-    if (held(Action::MoveDown)) up -= 1.0f;
-    if (held(Action::MoveUp)) up += 1.0f;
 
     character->control(dir, up, yaw);
   }

@@ -27,7 +27,7 @@
 #include "Satellite.h"
 #include "Model.h"
 #include "Npc.h"
-#include "OptionsMenu.h"
+#include "CameraMenu.h"
 #include "PauseMenu.h"
 #include "SceneStage.h"
 #include "Settings.h"
@@ -305,10 +305,12 @@ int main(int argc, char **argv) {
   // The player's options from previous sessions (FOV, sensitivity...)
   Settings settings;
   settings.load();
-  OptionsMenu::applySettings(settings, camera);
+  CameraMenu::applySettings(settings, camera);
 
-  // Which key does what, read by everything that handles input
+  // Which key does what, read by everything that handles input; the player
+  // may have rebound some (ControlsMenu)
   Controls controls;
+  controls.readFrom(settings);
   Controller controller(window, &camera, controls);
 
   // Audio: the output, and the text-to-speech the NPCs talk with
@@ -378,9 +380,8 @@ int main(int argc, char **argv) {
   std::vector<std::string> mapNames;
   for (const Map &map : maps)
     mapNames.push_back(map.name);
-  int mapsKey = controls.key(Action::Maps);
-  ui.bindKey(mapsKey, [&, mapsKey]() {
-    ui.open(new MapSelector(mapNames, currentMap, mapsKey,
+  ui.bindKey([&controls]() { return controls.key(Action::Maps); }, [&]() {
+    ui.open(new MapSelector(mapNames, currentMap, controls.key(Action::Maps),
                             [&](int index) { requestedMap = index; }));
   });
 

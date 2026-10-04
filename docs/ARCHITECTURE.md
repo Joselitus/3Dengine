@@ -62,7 +62,7 @@ docs/                esta documentación
 | `MapSelector` | Menú de depuración (tecla Z) para cambiar de mapa (subclase de `UIPanel`). Ver [Mapas](#mapas-y-selector-de-depuración). |
 | `Camera` | Calcula las matrices de proyección y vista y sigue a un `GameObject`: en primera persona (distancia 0, a la altura de los ojos) o en tercera, desde detrás. El FOV (`setFov`) y la sensibilidad (`setSensitivity`) se pueden cambiar en marcha. |
 | `Controller` | Gestiona la entrada: el desplazamiento del ratón en cada frame × la sensibilidad gira la cámara, y WASD/Espacio/Shift llegan al `PlayableCharacter`. Se puede pausar (`setEnabled(false)`), y entonces el personaje recibe una entrada nula. **No lee Esc.** |
-| `PauseMenu`, `OptionsMenu`, `ControlsMenu` | Menús del juego (subclases de `UIPanel`) que reciben un `MenuContext`. Ver [Menús](#menús-pausa-y-opciones). |
+| `PauseMenu`, `OptionsMenu`, `SettingsMenu`, `CameraMenu`, `ControlsMenu` | Menús del juego (subclases de `UIPanel`) que reciben un `MenuContext`. `SettingsMenu` es la base de las pantallas de ajustes (Guardar/Salir con aviso). Ver [Menús](#menús-pausa-y-opciones). |
 | `Controls` | Registro de teclas: qué tecla hace cada `Action`. Todo lo que lee teclado lo consulta aquí. Ver [Controles](#controles-y-teclas). |
 | `Interactable` | Interfaz (clase abstracta) de los objetos que el jugador puede usar: nombre, punto, alcance y `buildInterface(UIPanel&)`. |
 | `InteractionSystem` | Busca el `Interactable` más cercano al jugador, muestra el aviso y abre o cierra su panel con E. Solo abre si no hay otro panel abierto. Esc lo cierra `UIManager`. |
@@ -137,13 +137,14 @@ UIElement (abstracta)            colocación (layout), dibujo (draw) y ratón
 ├── UILabel                      texto fijo o generado cada frame (valores en vivo)
 ├── UIButton                     acción al pulsar y soltar encima (texto fijo o leído cada frame)
 ├── UISlider                     número en [min, max]; lee y escribe a través de funciones
-├── UIInfoRow                    texto a la izquierda y valor a la derecha (p. ej. acción y tecla)
+├── UIInfoRow                    texto a la izquierda y valor a la derecha (p. ej. acción y tecla); clicable si tiene acción
 ├── UITextBlock                  párrafo con ajuste de línea; puede mostrar solo una fracción (subtítulos)
 └── UIContainer (abstracta)      posee a sus hijos
     ├── UIPanel                  ventana: título, botón de cerrar, arrastrable; hijos en vertical
     └── UIRow                    hijos en horizontal, repartiendo el ancho
 
-UIManager    paneles abiertos, reparto del ratón y del teclado, Esc, aviso inferior, dibujo
+UIManager    paneles abiertos, reparto del ratón y del teclado, Esc, atajos, aviso inferior, dibujo
+ConfirmDialog (UIPanel) pregunta con varios botones ("¿Guardar y salir?"); se abre encima del panel que pregunta
 UIRenderer   rectángulos y texto en píxeles de ventana, en un solo draw call
 Interactable contrato entre un objeto del juego y la interfaz
 ```
@@ -166,7 +167,7 @@ Interactable contrato entre un objeto del juego y la interfaz
 
 ### Crear una ventana nueva (guía)
 
-Para un menú o ventana reutilizable, **hereda de `UIPanel`**, como `PauseMenu` y `OptionsMenu`:
+Para un menú o ventana reutilizable, **hereda de `UIPanel`**, como `PauseMenu` y `OptionsMenu` (o de `SettingsMenu` si es una pantalla de ajustes que se guarda):
 
 ```cpp
 class MiMenu : public UIPanel {
@@ -199,16 +200,27 @@ Reglas para no romper nada:
 
 - **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `test.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones** y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
 - Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
-- **`OptionsMenu`** ("Opciones") tiene la **sensibilidad** (0.2x–3x, múltiplos de `SENSIVILITY` = 0.005 rad/píxel) y el **FOV** vertical (40–110°, por defecto `DEFAULT_FOV` = 45). Los cambios se aplican al momento sobre la `Camera`. "Restablecer" vuelve a los valores por defecto, y "Volver" o Esc vuelven a la pausa.
-- **`ControlsMenu`** ("Controles", desde Opciones) muestra por grupos todas las acciones con su tecla, además de las entradas fijas (ratón, Esc, clic). Por ahora es solo informativo. "Volver" o Esc regresan a Opciones.
+- **`OptionsMenu`** ("Opciones") es solo una lista de pantallas de ajustes: **Cámara**, **Controles** y **Volver** (o Esc, que vuelve a la pausa).
+- **`SettingsMenu`** (abstracta) es la base de esas pantallas. Una subclase añade sus controles y termina su constructor con `addFooter()`, que añade un texto de estado y los botones:
+  - **Por defecto** llama a `resetToDefaults()` (hay que guardar después);
+  - **Guardar** llama a `apply()`, que hace definitivos los cambios y escribe `Settings`;
+  - **Volver** (o Esc) vuelve a Opciones. Si `hasUnsavedChanges()`, antes abre un `ConfirmDialog` con "Guardar y salir" y "Salir", que llama a `discard()`. Esc sobre el aviso vuelve a la pantalla.
+
+  La subclase implementa esos cuatro métodos y, si quiere, `hint()`.
+- **`CameraMenu`** ("Cámara") tiene la **sensibilidad** (0.2x–3x, múltiplos de `SENSIVILITY` = 0.005 rad/píxel) y el **FOV** vertical (40–110°, por defecto `DEFAULT_FOV` = 45).
+  - Los sliders cambian la `Camera` al momento, así que el efecto se ve.
+  - Recuerda los valores que tenía la cámara al abrirse: `discard()` los repone, y hay cambios sin guardar si la cámara ya no coincide con ellos.
+  - Tiene las claves y `applySettings`/`storeSettings`. `main` llama a `CameraMenu::applySettings` al arrancar.
+- **`ControlsMenu`** ("Controles") muestra por grupos todas las acciones con su tecla, además de las entradas fijas (ratón, Esc, clic), y **permite cambiar las teclas** sobre una copia. Ver [Controles y teclas](#controles-y-teclas).
 - Los menús oscurecen el juego y no tienen botón de cerrar.
 - **El mundo no se detiene** con el menú abierto: `stage.update` sigue corriendo (el satélite termina de girar, por ejemplo). Solo se pausan los controles del jugador.
-- **Las opciones se guardan entre sesiones** (ver [Configuración guardada](#configuración-guardada)). `OptionsMenu` las escribe en su destructor, es decir, cuando se cierra, salga uno como salga (Volver, Esc o Controles). Al arrancar, `main` las carga y llama a `OptionsMenu::applySettings`.
-- **Para añadir una opción:**
+- **Los ajustes solo se guardan con "Guardar"** (o "Guardar y salir"), entre sesiones (ver [Configuración guardada](#configuración-guardada)).
+- **Para añadir una opción a Cámara:**
   1. Si el valor no está en una clase, dale un getter y un setter que la apliquen al momento (como `Camera::setFov`).
-  2. Añade un `UISlider` (o un `UIButton`) en el constructor de `OptionsMenu`, con sus límites como constantes de la clase.
-  3. Inclúyela en "Restablecer".
+  2. Añade un `UISlider` (o un `UIButton`) en el constructor de `CameraMenu`, con sus límites como constantes de la clase.
+  3. Añádela al valor recordado al abrir, y a `hasUnsavedChanges`, `discard` y `resetToDefaults`.
   4. Dale una clave (`..._KEY`) y añádela a `applySettings` (con su valor por defecto y limitada a su rango) y a `storeSettings`.
+- **Para una pantalla de ajustes nueva** (por ejemplo, Audio): hereda de `SettingsMenu`, implementa `hasUnsavedChanges`/`apply`/`discard`/`resetToDefaults`, termina el constructor con `addFooter()` y añade su botón en `OptionsMenu`.
 
 ## Configuración guardada
 
@@ -216,8 +228,8 @@ Reglas para no romper nada:
 - `load()`: si el fichero no existe, se usan los valores por defecto (primera vez); las líneas inválidas se saltan con un aviso. `save()` crea la carpeta, escribe un `.tmp` y lo renombra, así que un fallo nunca deja el fichero a medias.
 - Las claves desconocidas se conservan al guardar: una versión antigua del juego no borra lo que guardó una más nueva.
 - Valores: `getFloat`/`setFloat` y `getString`/`setString`. Un valor que no es un número devuelve el valor por defecto.
-- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados). Las define `OptionsMenu`.
-- **Para guardar algo nuevo** (por ejemplo, las teclas cuando se puedan reasignar): elige una clave con prefijo (`controls.use = 69`), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
+- **Claves actuales:** `camera.sensitivity` (multiplicador, 1 = `SENSIVILITY`) y `camera.fov` (grados), definidas por `CameraMenu`, que se guardan con su botón "Guardar". También `controls.<id>` (código de tecla GLFW), definidas por `Controls`, que se guardan con el botón "Guardar" de `ControlsMenu`.
+- **Para guardar algo nuevo:** elige una clave con prefijo (`audio.volume`), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
 - **En las pruebas**, lanza el juego con `XDG_CONFIG_HOME=<carpeta temporal>` para no sobrescribir la configuración real del usuario.
 
 ## Controles y teclas
@@ -227,26 +239,30 @@ Reglas para no romper nada:
 - `InteractionSystem`: Usar, y también el texto del aviso;
 - `PauseMenu`: Salir;
 - el atajo del selector de mapas (en `test.cpp`);
-- `ControlsMenu`, que lo lista.
+- `ControlsMenu`, que lo lista y lo cambia.
 
 | Acción | Tecla por defecto | Dónde se lee |
 |---|---|---|
 | `MoveForward/Back/Left/Right` | W / S / A / D | `Controller::update` (cada frame) |
-| `MoveUp/MoveDown` | Espacio / Mayús izq. | `Controller` (solo sin gravedad) |
 | `Use` | E | `InteractionSystem::update` |
 | `Quit` | X | `PauseMenu::onKey` y el texto de su botón |
-| `Maps` | Z | atajo `ui.bindKey` en `test.cpp` y `MapSelector` (que se cierra con su misma tecla) |
+| `Maps` | Z | atajo `ui.bindKey` en `test.cpp` (con la tecla leída en cada pulsación) y `MapSelector` (que se cierra con su misma tecla) |
+
+Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gravedad. `PlayableCharacter::control` (de `main`) mantiene su parámetro `up`, y `Controller` le pasa 0.
 
 **Fijas (no son `Action`):** Esc es la tecla genérica de "atrás" de la interfaz (`UIManager`): cierra el panel de arriba y abre la pausa. El ratón mira, y el clic izquierdo usa los paneles. Aparecen en `Controls::fixedControls()` para la pantalla de ayuda.
 
-**Regla: no escribas `GLFW_KEY_...` para una función del juego.** Añade una `Action`, con su tecla en el constructor de `Controls`, su texto en `describe` y su grupo en `group`, y léela con `controls.key(Action::...)`. Así aparece sola en la pantalla de controles y se podrá reasignar.
+**Regla: no escribas `GLFW_KEY_...` para una función del juego.** Añade una `Action`, con su tecla en el constructor de `Controls`, su texto en `describe`, su grupo en `group` y su **`id`** (el nombre en el fichero, que no hay que cambiar después), y léela con `controls.key(Action::...)`. Así aparece en la pantalla de controles, se puede reasignar y se guarda.
+- Para un atajo sin panel abierto, usa la versión de `ui.bindKey` que recibe una función: `ui.bindKey([&]{ return controls.key(Action::X); }, acción)`. La tecla se consulta en cada pulsación, así que sigue a los cambios.
+- `bindKey(int)` es para teclas fijas, como Esc.
 
-**Para permitir reasignar teclas en el futuro:**
-1. Haz una pantalla (por ejemplo a partir de `ControlsMenu`) que, al pulsar una fila, espere la siguiente tecla en `onKey` y llame a `controls.bind(acción, tecla)`.
-2. `Controller`, `InteractionSystem` y los menús leen `Controls` cada vez, así que el cambio se aplica al momento.
-3. **Excepción: los atajos de `UIManager` se registran por tecla** (`bindKey`). Al reasignar `Maps`, hay que quitar el atajo de la tecla vieja (hoy falta un `unbindKey`) y registrar el de la nueva.
-4. Evita los conflictos: comprueba que la tecla no esté ya usada por otra acción ni sea Esc.
-5. Guardarlas en disco necesitaría un fichero de configuración, que todavía no existe.
+**Reasignar teclas (`ControlsMenu`):**
+- Al hacer clic en una acción (una `UIInfoRow` clicable), la fila muestra "Pulsa una tecla..." y la siguiente tecla (`onKey`) se le asigna. Esc cancela la captura (`Controls::isBindable` excluye Esc).
+- **Sin duplicados:** si la tecla ya era de otra acción, se intercambian (`assign`), y un mensaje lo indica.
+- **Los cambios se hacen en una copia** (`edited`). **Guardar** la copia a `context.controls` (el juego la usa al momento, porque todo lee `Controls` cada vez), `writeTo(settings)` y `settings.save()`. **Por defecto** pone las teclas de fábrica en la copia; hay que guardar después.
+- **Volver** (o Esc) vuelve a Opciones. Si `hasUnsavedChanges()` (la copia es distinta de los controles en uso), abre antes un `ConfirmDialog` con "Guardar y salir" y "Salir" (descarta los cambios). Esc sobre el aviso lo cierra y vuelve a los controles.
+
+**Guardado:** en `Settings`, como `controls.<id> = <código GLFW>`; por ejemplo, `controls.move_forward = 87` es la W. `main` lo lee al arrancar con `controls.readFrom(settings)`, que valida el conjunto entero: admite teclas intercambiadas, ignora las inválidas, Esc y las repetidas (por un fichero editado a mano), y en esos casos esas acciones conservan su tecla por defecto.
 
 ## Mapas y selector de depuración
 

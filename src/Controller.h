@@ -7,8 +7,8 @@
 
 // Player input. Mouse movement turns the camera (yaw/pitch, scaled by the
 // camera's sensitivity); the yaw is handed to the attached character together
-// with the movement keys (Controls: WASD, Space/Left Shift by default): what
-// they do is up to the
+// with the movement keys (Controls: WASD by default): what they do is up to
+// the
 // PlayableCharacter (see Walker, RV). Esc is not handled here: it opens the
 // pause menu (UIManager). Call update() once per frame.
 class Controller {

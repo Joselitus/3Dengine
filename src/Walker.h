@@ -7,7 +7,8 @@ class Camera;
 
 // A character on foot. WASD walks relative to where the camera looks (W
 // forward, A/D sideways) and it turns to face where it walks. Under gravity
-// the stage keeps it on the floor; without it, Space/Left Shift fly up/down.
+// the stage keeps it on the floor; without it, the `up` input of control()
+// flies it up/down (no key is bound to that at the moment).
 //
 // With a camera distance of 0 the view is first person: the camera sits at
 // the given height above the walker's position (its eyes) and the walker

@@ -2,7 +2,6 @@
 #define UI_MANAGER
 
 #include <functional>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -30,7 +29,13 @@ private:
   UIRenderer renderer;
   std::vector<std::unique_ptr<UIPanel>> panels; // last = on top
   std::string hint;
-  std::map<int, std::function<void()>> bindings; // keys with no panel open
+  // Keys with no panel open: which key (read when a key is pressed, so it
+  // can be rebound) and what it does
+  struct Binding {
+    std::function<int()> key;
+    std::function<void()> action;
+  };
+  std::vector<Binding> bindings;
   std::vector<int> pressedKeys; // since the last update, from the callback
 
   UIState state;              // what elements see when drawn
@@ -59,9 +64,14 @@ public:
   bool hasPanels() const { return !panels.empty(); }
 
   // Runs `action` when `key` (GLFW_KEY_*) is pressed and no panel is open,
-  // e.g. opening a menu. Replaces any previous binding of that key.
+  // e.g. opening a menu
   void bindKey(int key, std::function<void()> action) {
-    bindings[key] = action;
+    bindKey([key]() { return key; }, action);
+  }
+  // Same, with a key that can change (e.g. one of the Controls, which the
+  // player can rebind): `key` is asked every time a key is pressed
+  void bindKey(std::function<int()> key, std::function<void()> action) {
+    bindings.push_back({key, action});
   }
 
   void setHint(const std::string &text) { hint = text; }

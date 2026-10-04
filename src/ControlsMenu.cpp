@@ -2,9 +2,7 @@
 
 #include <cstring>
 
-#include "Controls.h"
-#include "OptionsMenu.h"
-#include "UIButton.h"
+#include "Settings.h"
 #include "UIInfoRow.h"
 #include "UILabel.h"
 #include "UIManager.h"
@@ -16,36 +14,73 @@ static const char *const GROUPS[] = {"Movimiento", "Camara", "Acciones",
                                      "Menus"};
 
 ControlsMenu::ControlsMenu(const MenuContext &context)
-    : UIPanel("Controles", 500.0f, false), context(context) {
-  const Controls &controls = context.controls;
+    : SettingsMenu("Controles", 500.0f, context), edited(context.controls) {
   for (const char *group : GROUPS) {
     add(new UILabel(group, UITheme::MUTED));
     for (int i = 0; i < (int)Action::Count; i++) {
       Action action = (Action)i;
       if (strcmp(Controls::group(action), group) != 0)
         continue;
-      // The key is read every frame: a rebinding would show at once
-      add(new UIInfoRow(Controls::describe(action), [&controls, action]() {
-        return controls.keyName(action);
-      }));
+      add(new UIInfoRow(
+          Controls::describe(action),
+          [this, i]() {
+            return capturing == i ? string("Pulsa una tecla...")
+                                  : edited.keyName((Action)i);
+          },
+          [this, action]() { startCapture(action); }));
     }
     for (const Controls::Fixed &fixed : Controls::fixedControls())
       if (strcmp(fixed.group, group) == 0)
         add(new UIInfoRow(fixed.description, fixed.input));
   }
-  add(new UILabel("Solo informativo: aun no se pueden cambiar",
-                  UITheme::MUTED));
-  add(new UIButton("Volver", [this]() { back(); }));
+
+  addFooter();
 }
 
-void ControlsMenu::back() {
-  context.ui.open(new OptionsMenu(context));
-  requestClose();
+void ControlsMenu::startCapture(Action action) {
+  capturing = (int)action;
+  status = string("Pulsa la nueva tecla para '") + Controls::describe(action) +
+           "' (Esc: cancelar).";
+}
+
+void ControlsMenu::assign(Action action, int key) {
+  int old = edited.key(action);
+  Action other = edited.actionFor(key);
+  edited.bind(action, key);
+  if (other != Action::Count && other != action) {
+    // No two actions on one key: the other one gets the old key
+    edited.bind(other, old);
+    status = Controls::keyName(key) + " estaba en '" +
+             Controls::describe(other) + "': se han intercambiado.";
+  } else {
+    status = string("'") + Controls::describe(action) + "': " +
+             Controls::keyName(key) + ".";
+  }
+}
+
+bool ControlsMenu::apply() {
+  context.controls = edited;
+  context.controls.writeTo(context.settings);
+  return context.settings.save();
+}
+
+void ControlsMenu::resetToDefaults() {
+  edited = Controls();
+  capturing = -1;
+}
+
+string ControlsMenu::hint() const {
+  return "Haz clic en una acción para cambiar su tecla.";
 }
 
 bool ControlsMenu::onKey(int key) {
-  if (key != GLFW_KEY_ESCAPE)
-    return false;
-  back();
-  return true;
+  if (capturing >= 0) {
+    if (key == GLFW_KEY_ESCAPE)
+      status = "Cancelado.";
+    else if (Controls::isBindable(key))
+      assign((Action)capturing, key);
+    capturing = -1;
+    return true;
+  }
+  return SettingsMenu::onKey(key);
 }
