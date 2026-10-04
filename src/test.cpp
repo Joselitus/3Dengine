@@ -8,8 +8,11 @@
 #include "Controller.h"
 #include "GameObject.h"
 #include "Light.h"
+#include "PlayableCharacter.h"
+#include "RV.h"
 #include "Model.h"
 #include "Shader.h"
+#include "Stage.h"
 #include "Skeleton.h"
 #include "myopengl.h"
 
@@ -87,10 +90,94 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   return window;
 }
 
+// The desert: dunes with a road winding through them, cacti and rocks, and
+// the RV that the player drives.
+class TestStage : public Stage {
+private:
+  static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
+  std::shared_ptr<RV> rv;
+
+protected:
+  // The RV stays on the dunes
+  void apply(DynamicGameObject &object, double dt) override {
+    collideWithFloor(object);
+  }
+
+public:
+  TestStage(FloorMode mode) : Stage(mode) {
+    // Desert scenery
+    auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes.obj"));
+    ground->setPosition(0.0f, GROUND_Y, 0.0f);
+    add(ground);
+    // The dunes are a regular grid of heights, so they are the height map
+    setFloor(loadModel("../assets/desert/dunes.obj"), vec3(0.0f, GROUND_Y, 0.0f));
+    auto road = make_shared<GameObject>(loadModel("../assets/desert/road.obj")); // winds through the dunes
+    road->setPosition(0.0f, GROUND_Y, 0.0f);
+    add(road);
+
+    // model, x, z, terrain height at (x, z) (see terrain_height in
+    // generate_assets.py), rotation around y, uniform scale
+    struct Prop {
+      const char *model;
+      float x, z, height, yaw, scale;
+    };
+    const char *cactusA = "../assets/desert/cactus_a.obj";
+    const char *cactusB = "../assets/desert/cactus_b.obj";
+    const char *rockA = "../assets/desert/rock_a.obj";
+    const char *rockB = "../assets/desert/rock_b.obj";
+    const Prop propList[] = {
+        {cactusA, -4.5f, -8, 0.18f, 0.5f, 1.0f},
+        {cactusA, 8, -16, 1.45f, 2.0f, 1.3f},
+        {cactusA, -16, -24, 4.61f, 4.0f, 1.6f},
+        {cactusA, 18, -30, 1.17f, 1.0f, 1.2f},
+        {cactusB, 5.5f, -10, 0.72f, 3.0f, 1.1f},
+        {cactusB, -9, -14, 1.61f, 5.5f, 1.2f},
+        {cactusB, 14, -22, 1.62f, 0.8f, 1.5f},
+        {rockA, -4, -6, 0.03f, 0.3f, 1.0f},
+        {rockA, 11, -9, 2.23f, 2.5f, 1.8f},
+        {rockA, -20, -12, 1.90f, 4.5f, 2.5f},
+        {rockB, 3.5f, -4.5f, 0.01f, 1.2f, 1.0f},
+        {rockB, -8, -11, 1.03f, 3.3f, 1.4f},
+        {rockB, 7, -18, 1.11f, 5.0f, 1.7f},
+        {rockB, -3, -14, 0.73f, 0.1f, 1.1f},
+    };
+    for (const Prop &p : propList) {
+      auto o = make_shared<GameObject>(loadModel(p.model));
+      // sink the base a little so nothing floats on the slopes
+      o->setPosition(p.x, GROUND_Y + p.height - 0.05f, p.z);
+      o->setYaw(p.yaw);
+      o->setScale(p.scale);
+      add(o);
+    }
+
+    // The creature, standing in the distance and facing the camera (disabled)
+    // auto creature = make_shared<DynamicGameObject>(
+    //     loadModel("../assets/creature/creature.obj"));
+    // creature->addPart(loadModel("../assets/creature/creature_eyes.obj"),
+    //                   2); // the eyes glow
+    // creature->setPosition(1.5f, GROUND_Y + 0.91f, -13.0f); // see terrain_height()
+    // creature->setYaw(0.25f);
+    // creature->setBreathAmp(2.0f); // the creature breathes
+    // addDynamic(creature);
+
+    // The RV (front toward +z, wheels on y = 0)
+    rv = make_shared<RV>(loadModel("../assets/rv/rv.obj"));
+    rv->setPosition(0.0f, GROUND_Y, 0.0f);
+    rv->setMaxSpeed(20.0f);
+    rv->setGravity(25.0f);
+    addDynamic(rv);
+  }
+
+  std::shared_ptr<PlayableCharacter> getPlayer() { return rv; }
+};
+
 int main(int argc, char **argv) {
+  FloorMode floorMode = FloorMode::HeightField; // pass --ray for DownwardRay
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
+    else if (std::string(argv[i]) == "--ray")
+      floorMode = FloorMode::DownwardRay;
 
 
   // Creation of window and it's context
@@ -109,115 +196,41 @@ int main(int argc, char **argv) {
   camera.reposition(0.0, 0.0, 3.0);
   Controller controller(window, &camera);
 
-  // Night sky. moonDir must match MOON_DIR in assets/sky/generate_sky.py
-  const vec3 moonDir = normalize(vec3(-0.32f, 0.26f, -0.91f));
-  const vec3 horizon = vec3(0.035f, 0.055f, 0.110f);
+  // Daylight: plain blue sky (the clear colour), distant geometry fades into it
+  const vec3 sunDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
+  const vec3 horizon = vec3(0.45f, 0.68f, 0.92f);
 
   // Creation of light
-  Light light(0.28f, 0.34f, 0.62f, &shader); // cool, dim moonlight
-  light.moveTo(moonDir.x * 100, moonDir.y * 100, moonDir.z * 100); // moon
+  Light light(0.85f, 0.83f, 0.78f, &shader); // warm white sunlight
+  light.moveTo(sunDir.x * 100, sunDir.y * 100, sunDir.z * 100); // sun
 
-  Model skydome("../assets/sky/skydome.obj");
-  GameObject sky(&skydome);
-  shader.setVector3("moonDir", moonDir.x, moonDir.y, moonDir.z);
+  shader.setVector3("moonDir", sunDir.x, sunDir.y, sunDir.z);
   shader.setVector3("fogColor", horizon.x, horizon.y, horizon.z);
   shader.setInt("unlit", 0);
 
-  // Desert scene
-  const float GROUND_Y = -1.0f; // the penguin's feet are at about -0.9
-  Model dunes("../assets/desert/dunes.obj");
-  Model cactusA("../assets/desert/cactus_a.obj");
-  Model cactusB("../assets/desert/cactus_b.obj");
-  Model rockA("../assets/desert/rock_a.obj");
-  Model rockB("../assets/desert/rock_b.obj");
+  TestStage stage(floorMode);
 
-  // x, z, terrain height at (x, z) (see dune_height in generate_assets.py),
-  // rotation around y, uniform scale
-  struct Prop {
-    Model *model;
-    float x, z, height, yaw, scale;
-  };
-  const Prop propList[] = {
-      {&cactusA, -4.5f, -8, 0.35f, 0.5f, 1.0f},
-      {&cactusA, 8, -16, 1.60f, 2.0f, 1.3f},
-      {&cactusA, -16, -24, 4.61f, 4.0f, 1.6f},
-      {&cactusA, 18, -30, 1.17f, 1.0f, 1.2f},
-      {&cactusB, 5.5f, -10, 0.97f, 3.0f, 1.1f},
-      {&cactusB, -9, -14, 1.61f, 5.5f, 1.2f},
-      {&cactusB, 14, -22, 1.62f, 0.8f, 1.5f},
-      {&rockA, -4, -6, 0.11f, 0.3f, 1.0f},
-      {&rockA, 11, -9, 2.23f, 2.5f, 1.8f},
-      {&rockA, -20, -12, 1.90f, 4.5f, 2.5f},
-      {&rockB, 3.5f, -4.5f, 0.02f, 1.2f, 1.0f},
-      {&rockB, -8, -11, 1.03f, 3.3f, 1.4f},
-      {&rockB, 7, -18, 1.52f, 5.0f, 1.7f},
-      {&rockB, -3, -14, 1.23f, 0.1f, 1.1f},
-  };
-  // The creature, standing in the distance and facing the camera
-  Model creatureBody("../assets/creature/creature.obj");
-  Model creatureEyes("../assets/creature/creature_eyes.obj");
-  GameObject creature(&creatureBody);
-  GameObject creatureEyesObj(&creatureEyes);
-  {
-    const float x = 1.5f, z = -13.0f, height = 0.91f; // see dune_height()
-    mat4 turn = glm::rotate(mat4(1.0), 0.25f, vec3(0, 1, 0));
-    for (GameObject *o : {&creature, &creatureEyesObj}) {
-      o->setPosition(x, GROUND_Y + height, z);
-      o->setRotation(turn);
-    }
-  }
-
-  GameObject ground(&dunes);
-  ground.setPosition(0.0f, GROUND_Y, 0.0f);
-  std::vector<GameObject> props;
-  for (const Prop &p : propList) {
-    GameObject o(p.model);
-    // sink the base a little so nothing floats on the slopes
-    o.setPosition(p.x, GROUND_Y + p.height - 0.05f, p.z);
-    o.setRotation(glm::scale(glm::rotate(mat4(1.0), p.yaw, vec3(0, 1, 0)),
-                             vec3(p.scale)));
-    props.push_back(o);
-  }
-
-  AnimatedModel model("../assets/ping/PenguinoAnimado.fbx");
-  GameObject ping(&model);
-
-  // The controller drives the penguin; the camera follows behind it
-  controller.attach(&ping, 4.0f, 0.8f);
+  // The controller steers the RV; the camera follows behind it
+  controller.attach(stage.getPlayer().get(), 12.0f, 3.5f);
 
   // Main loop
+  double lastTime = glfwGetTime();
   while (!glfwWindowShouldClose(window)) {
     // Clear the screen. It can cause flickering, so it's there nonetheless.
+    double now = glfwGetTime();
+    double dt = now - lastTime;
+    lastTime = now;
+
     camera.resize();
     controller.update();
+    stage.update(dt);
+    stage.getPlayer()->followCamera();
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Update animation
-    model.Update(glfwGetTime());
-
-    // Draw
-    // The sky is centred on the camera and drawn first, without depth
-    glDisable(GL_DEPTH_TEST);
-    shader.setInt("unlit", 1);
-    shader.setFloat("time", (float)glfwGetTime());
-    vec3 cam = camera.getPosition();
-    sky.setPosition(cam.x, cam.y, cam.z);
-    sky.Draw(&shader);
-    shader.setInt("unlit", 0);
-    glEnable(GL_DEPTH_TEST);
-
-    ground.Draw(&shader);
-    for (GameObject &o : props)
-      o.Draw(&shader);
-    shader.setFloat("breathTime", (float)glfwGetTime());
-    shader.setFloat("breathAmp", 2.0f); // the creature breathes
-    creature.Draw(&shader);
-    shader.setInt("unlit", 2); // the eyes glow
-    creatureEyesObj.Draw(&shader);
-    shader.setInt("unlit", 0);
-    shader.setFloat("breathAmp", 0.0f);
-    ping.Draw(&shader);
+    // Draw (the clear colour is the sky)
+    shader.setFloat("time", (float)now);
+    stage.Draw(&shader, now);
 
     // Swap buffers
     glfwSwapBuffers(window);

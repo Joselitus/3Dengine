@@ -1,0 +1,266 @@
+#include "Stage.h"
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <limits>
+using namespace std;
+using namespace glm;
+
+// Distance below which the floor still holds an object that is going down
+// (so it follows slopes instead of hopping), and how much it may step up
+#define SNAP_DISTANCE 0.3f
+#define STEP_HEIGHT 0.6f
+
+shared_ptr<Model> Stage::loadModel(const string &path) {
+  shared_ptr<Model> &model = models[path];
+  if (!model)
+    model = make_shared<Model>(path.c_str());
+  return model;
+}
+
+shared_ptr<GameObject> Stage::add(shared_ptr<GameObject> object) {
+  objects.push_back(object);
+  return object;
+}
+
+shared_ptr<DynamicGameObject>
+Stage::addDynamic(shared_ptr<DynamicGameObject> object) {
+  dynamicObjects.push_back(object);
+  return object;
+}
+
+void Stage::update(double dt) {
+  for (auto &object : objects)
+    object->update(dt);
+  for (auto &object : dynamicObjects) {
+    object->update(dt);
+    apply(*object, dt);
+  }
+}
+
+void Stage::Draw(Shader *shader, double time) {
+  shader->setFloat("breathTime", (float)time);
+  for (auto &object : objects)
+    object->Draw(shader);
+  for (auto &object : dynamicObjects)
+    object->Draw(shader);
+}
+
+// ------------------------------------------------------------------- floor
+static vec3 triangleNormal(const vec3 &a, const vec3 &b, const vec3 &c) {
+  vec3 n = cross(b - a, c - a);
+  float len = length(n);
+  if (len == 0.0f)
+    return vec3(0.0f, 1.0f, 0.0f);
+  n /= len;
+  return n.y < 0.0f ? -n : n;
+}
+
+bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position) {
+  if (floor_mesh) {
+    cerr << "Stage: the floor can only be set once" << endl;
+    return false;
+  }
+  vector<vec3> verts;
+  vector<unsigned int> indices;
+  for (const Mesh &m : mesh->meshes) {
+    unsigned int base = verts.size();
+    for (const Vertex &v : m.getVertices())
+      verts.push_back(v.Position + position);
+    for (unsigned int i : m.getIndices())
+      indices.push_back(base + i);
+  }
+  if (verts.empty() || indices.size() < 3) {
+    cerr << "Stage: the floor mesh is empty" << endl;
+    return false;
+  }
+
+  minX = minZ = numeric_limits<float>::max();
+  maxX = maxZ = -numeric_limits<float>::max();
+  for (const vec3 &v : verts) {
+    minX = std::min(minX, v.x);
+    maxX = std::max(maxX, v.x);
+    minZ = std::min(minZ, v.z);
+    maxZ = std::max(maxZ, v.z);
+  }
+
+  if (floorMode == FloorMode::HeightField) {
+    if (!buildHeightField(verts))
+      return false;
+  } else {
+    triVerts.clear();
+    for (unsigned int i : indices)
+      triVerts.push_back(verts[i]);
+    buildTriangleGrid();
+  }
+  floor_mesh = mesh;
+  return true;
+}
+
+// The grid is read off the vertices: every distinct x and z is a grid line
+bool Stage::buildHeightField(const vector<vec3> &verts) {
+  const float eps = 1e-3f;
+  vector<float> xs, zs;
+  for (const vec3 &v : verts) {
+    xs.push_back(v.x);
+    zs.push_back(v.z);
+  }
+  for (vector<float> *a : {&xs, &zs}) {
+    sort(a->begin(), a->end());
+    a->erase(unique(a->begin(), a->end(),
+                    [&](float p, float q) { return q - p < eps; }),
+             a->end());
+  }
+  nx = xs.size();
+  nz = zs.size();
+  if (nx < 2 || nz < 2) {
+    cerr << "Stage: the floor is not a grid (HeightField)" << endl;
+    return false;
+  }
+  x0 = xs.front();
+  z0 = zs.front();
+  dx = (xs.back() - x0) / (nx - 1);
+  dz = (zs.back() - z0) / (nz - 1);
+  for (int i = 0; i < nx; i++)
+    if (fabs(xs[i] - (x0 + i * dx)) > 0.01f * dx) {
+      cerr << "Stage: the floor is not a regular grid in x (HeightField)"
+           << endl;
+      return false;
+    }
+  for (int i = 0; i < nz; i++)
+    if (fabs(zs[i] - (z0 + i * dz)) > 0.01f * dz) {
+      cerr << "Stage: the floor is not a regular grid in z (HeightField)"
+           << endl;
+      return false;
+    }
+
+  heights.assign((size_t)nx * nz, numeric_limits<float>::quiet_NaN());
+  for (const vec3 &v : verts) {
+    int ix = (int)lround((v.x - x0) / dx);
+    int iz = (int)lround((v.z - z0) / dz);
+    heights[(size_t)iz * nx + ix] = v.y;
+  }
+  for (float h : heights)
+    if (std::isnan(h)) {
+      cerr << "Stage: the floor grid has holes (HeightField)" << endl;
+      return false;
+    }
+  return true;
+}
+
+void Stage::buildTriangleGrid() {
+  size_t tris = triVerts.size() / 3;
+  // about two triangles per cell
+  float area = std::max((maxX - minX) * (maxZ - minZ), 1e-3f);
+  cellSize = std::max(2.0f * sqrt(area / tris), 1e-3f);
+  cellsX = (int)ceil((maxX - minX) / cellSize) + 1;
+  cellsZ = (int)ceil((maxZ - minZ) / cellSize) + 1;
+  cells.assign((size_t)cellsX * cellsZ, vector<unsigned int>());
+  for (size_t t = 0; t < tris; t++) {
+    const vec3 *p = &triVerts[3 * t];
+    float lx = std::min(p[0].x, std::min(p[1].x, p[2].x));
+    float hx = std::max(p[0].x, std::max(p[1].x, p[2].x));
+    float lz = std::min(p[0].z, std::min(p[1].z, p[2].z));
+    float hz = std::max(p[0].z, std::max(p[1].z, p[2].z));
+    int cx0 = (int)floor((lx - minX) / cellSize);
+    int cx1 = (int)floor((hx - minX) / cellSize);
+    int cz0 = (int)floor((lz - minZ) / cellSize);
+    int cz1 = (int)floor((hz - minZ) / cellSize);
+    for (int cz = cz0; cz <= cz1; cz++)
+      for (int cx = cx0; cx <= cx1; cx++)
+        cells[(size_t)cz * cellsX + cx].push_back(t);
+  }
+}
+
+// Same diagonal as the terrain generator: from (i+1, j) to (i, j+1)
+bool Stage::heightFieldAt(float x, float z, float &height, vec3 *normal) const {
+  float gx = (x - x0) / dx, gz = (z - z0) / dz;
+  if (gx < 0 || gz < 0 || gx > nx - 1 || gz > nz - 1)
+    return false;
+  int ix = std::min((int)gx, nx - 2), iz = std::min((int)gz, nz - 2);
+  float fx = gx - ix, fz = gz - iz;
+  float ha = heights[(size_t)iz * nx + ix];
+  float hb = heights[(size_t)iz * nx + ix + 1];
+  float hc = heights[(size_t)(iz + 1) * nx + ix];
+  float hd = heights[(size_t)(iz + 1) * nx + ix + 1];
+  vec3 a(0, ha, 0), b(dx, hb, 0), c(0, hc, dz), d(dx, hd, dz);
+  if (fx + fz <= 1.0f) {
+    height = ha + fx * (hb - ha) + fz * (hc - ha);
+    if (normal)
+      *normal = triangleNormal(a, c, b);
+  } else {
+    height = hd + (1 - fx) * (hc - hd) + (1 - fz) * (hb - hd);
+    if (normal)
+      *normal = triangleNormal(b, c, d);
+  }
+  return true;
+}
+
+// Vertical ray: a triangle is hit if (x, z) is inside its x/z footprint
+bool Stage::rayAt(float x, float z, float maxY, float &height,
+                  vec3 *normal) const {
+  int cx = (int)floor((x - minX) / cellSize);
+  int cz = (int)floor((z - minZ) / cellSize);
+  if (x < minX || x > maxX || z < minZ || z > maxZ || cx < 0 || cz < 0 ||
+      cx >= cellsX || cz >= cellsZ)
+    return false;
+  bool hit = false;
+  const float eps = -1e-5f;
+  for (unsigned int t : cells[(size_t)cz * cellsX + cx]) {
+    const vec3 &a = triVerts[3 * t], &b = triVerts[3 * t + 1],
+               &c = triVerts[3 * t + 2];
+    float det = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+    if (fabs(det) < 1e-9f)
+      continue; // vertical triangle
+    float l1 = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / det;
+    float l2 = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / det;
+    float l3 = 1.0f - l1 - l2;
+    if (l1 < eps || l2 < eps || l3 < eps)
+      continue;
+    float y = l1 * a.y + l2 * b.y + l3 * c.y;
+    if (y > maxY || (hit && y <= height))
+      continue;
+    hit = true;
+    height = y;
+    if (normal)
+      *normal = triangleNormal(a, b, c);
+  }
+  return hit;
+}
+
+bool Stage::floorAt(float x, float z, float &height, vec3 *normal,
+                    float maxY) const {
+  if (!floor_mesh)
+    return false;
+  if (floorMode == FloorMode::HeightField)
+    return heightFieldAt(x, z, height, normal); // grid is in world space
+  return rayAt(x, z, maxY, height, normal);
+}
+
+void Stage::collideWithFloor(DynamicGameObject &object) const {
+  if (!floor_mesh)
+    return;
+  vec3 p = object.getPosition();
+  vec3 v = object.getVelocity();
+  // Stay inside the floor
+  float cx = std::clamp(p.x, minX, maxX), cz = std::clamp(p.z, minZ, maxZ);
+  if (cx != p.x) v.x = 0.0f;
+  if (cz != p.z) v.z = 0.0f;
+  p.x = cx;
+  p.z = cz;
+
+  float h;
+  bool onFloor = false;
+  if (floorAt(p.x, p.z, h, nullptr, p.y + STEP_HEIGHT)) {
+    // below the floor, or going down and close enough to be held by it
+    if (p.y <= h || (object.isGrounded() && v.y <= 0.0f && p.y - h < SNAP_DISTANCE)) {
+      p.y = h;
+      if (v.y < 0.0f)
+        v.y = 0.0f;
+      onFloor = true;
+    }
+  }
+  object.setPosition(p.x, p.y, p.z);
+  object.setVelocity(v);
+  object.setGrounded(onFloor);
+}

@@ -29,6 +29,9 @@ private:
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
   std::vector<Texture> textures;
+  // Flat material colour, used when the material has no diffuse texture
+  bool hasColor = false;
+  glm::vec3 color = glm::vec3(1.0f);
 
   //  render data
   unsigned int VAO, VBO, EBO;
@@ -39,6 +42,9 @@ public:
        std::vector<Texture> textures);
   Mesh(std::vector<unsigned int> indices, std::vector<Texture> textures);
   virtual ~Mesh() = default;
+  const std::vector<Vertex> &getVertices() const { return vertices; }
+  const std::vector<unsigned int> &getIndices() const { return indices; }
+  void setColor(const glm::vec3 &c) { color = c; hasColor = true; }
   void Draw(Shader *shader);
 };
 

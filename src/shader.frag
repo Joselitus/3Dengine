@@ -17,6 +17,10 @@ uniform vec3 moonDir;
 // Distant geometry fades into this colour (matches the sky at the horizon)
 uniform vec3 fogColor;
 
+// 1 = use diffuseColor instead of texture_diffuse1 (untextured materials)
+uniform int useColor;
+uniform vec3 diffuseColor;
+
 uniform sampler2D texture_diffuse1;
 uniform sampler2D texture_diffuse2;
 uniform sampler2D texture_diffuse3;
@@ -55,7 +59,8 @@ void main() {
 	float diff = max(dot(norm, lightdir), 0.0);
 	vec3 diffuse = diff * lightColor;
 	vec3 ambient = ambientStrength*lightColor;
-	vec3 lit = texture(texture_diffuse1, TexCoord).rgb*(ambient+diffuse+specular);
-	float fog = smoothstep(30.0, 70.0, distance(frag_p, viewPosition));
+	vec3 base = useColor == 1 ? diffuseColor : texture(texture_diffuse1, TexCoord).rgb;
+	vec3 lit = base*(ambient+diffuse+specular);
+	float fog = smoothstep(80.0, 140.0, distance(frag_p, viewPosition));
 	FragColor = vec4(mix(lit, fogColor, fog), 1.0);
 }

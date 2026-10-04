@@ -60,6 +60,9 @@ void Mesh::Draw(Shader * shader) {
         glBindTexture(GL_TEXTURE_2D, textures[i].id);
     }
     glActiveTexture(GL_TEXTURE0);
+    shader->setInt("useColor", hasColor ? 1 : 0);
+    if (hasColor)
+        shader->setVector3("diffuseColor", color.x, color.y, color.z);
 
     // draw mesh
     glBindVertexArray(VAO);

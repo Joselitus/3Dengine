@@ -1,12 +1,7 @@
 #include "Controller.h"
 
-#include <cmath>
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/rotate_vector.hpp>
 
-// Added to the heading so the model's front faces the direction of travel
-#define MODEL_FORWARD_OFFSET 0.0f
 // Mouse pitch limit in pixels (SENSIVILITY radians each)
 #define MAX_PITCH_PIXELS 250.0
 
@@ -15,10 +10,10 @@ Controller::Controller(GLFWwindow *window, Camera *camera)
   glfwGetCursorPos(window, &originX, &originY);
 }
 
-void Controller::attach(GameObject *character, float cameraDistance,
+void Controller::attach(PlayableCharacter *character, float cameraDistance,
                         float cameraHeight) {
   this->character = character;
-  camera->attachTo(character, cameraDistance, cameraHeight);
+  character->attachCamera(camera, cameraDistance, cameraHeight);
 }
 
 void Controller::update() {
@@ -46,16 +41,7 @@ void Controller::update() {
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) up -= 1.0f;
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) up += 1.0f;
 
-    if (dir != glm::vec2(0.0f)) {
-      // Relative to the camera heading (same convention as Camera::move)
-      glm::vec2 world = glm::rotate(glm::normalize(dir), yaw);
-      character->translate(SPEED * glm::vec3(world.x, 0.0f, world.y));
-      facing = std::atan2(world.x, world.y) + MODEL_FORWARD_OFFSET;
-      character->setRotation(
-          glm::rotate(glm::mat4(1.0f), facing, glm::vec3(0.0f, 1.0f, 0.0f)));
-    }
-    character->translate(glm::vec3(0.0f, SPEED * up, 0.0f));
-    camera->follow();
+    character->control(dir, up, yaw);
   }
 
   if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {

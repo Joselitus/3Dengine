@@ -27,7 +27,7 @@ void Camera::resize() {
 		float fwidth = (float)width;
 		float fheight = (float)height;
 		glViewport(0, 0, width, height);
-		this->projection = perspective(radians(45.0f), fwidth/fheight, 0.1f, 100.0f);
+		this->projection = perspective(radians(45.0f), fwidth/fheight, 0.1f, 300.0f);
 		this->screenHeight = height;
 		this->screenWidth = width;
 	}

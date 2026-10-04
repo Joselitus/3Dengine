@@ -70,6 +70,7 @@ void AnimatedMesh::Draw(Shader *shader) {
     glBindTexture(GL_TEXTURE_2D, textures[i].id);
   }
   glActiveTexture(GL_TEXTURE0);
+  shader->setInt("useColor", 0);
 
   // draw mesh
   glBindVertexArray(VAO);

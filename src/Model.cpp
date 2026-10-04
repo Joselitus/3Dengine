@@ -67,6 +67,8 @@ Mesh Model::processMesh(aiMesh * mesh, const aiScene * scene) {
 	vector<Vertex> vertices;
     vector<unsigned int> indices;
     vector<Texture> textures;
+    aiColor3D color(1.0f, 1.0f, 1.0f);
+    bool hasColor = false;
 
     for(unsigned int i = 0; i < mesh->mNumVertices; i++) {
         Vertex vertex;
@@ -100,9 +102,14 @@ Mesh Model::processMesh(aiMesh * mesh, const aiScene * scene) {
 	    vector<Texture> specularMaps = loadMaterialTextures(material, 
 	                                        aiTextureType_SPECULAR, "texture_specular");
 	    textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
+	    if (diffuseMaps.empty())
+	        material->Get(AI_MATKEY_COLOR_DIFFUSE, color), hasColor = true;
 	}  
 
-    return Mesh(vertices, indices, textures);
+    Mesh result(vertices, indices, textures);
+    if (hasColor)
+        result.setColor(vec3(color.r, color.g, color.b));
+    return result;
 }
 
 void Model::Draw(Shader * shader) {

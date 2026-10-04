@@ -2,31 +2,43 @@
 using namespace std;
 using namespace glm;
 
-GameObject::GameObject(Model *model) {
-  this->model = model;
-  this->aniModel = nullptr;
-  this->anim = false;
+GameObject::GameObject(shared_ptr<Model> model) { addPart(model); }
+
+GameObject::GameObject(const char *modelPath) {
+  addPart(make_shared<Model>(modelPath));
 }
 
-GameObject::GameObject(AnimatedModel *model) {
+GameObject::GameObject(shared_ptr<AnimatedModel> model) : aniModel(model) {}
 
-  this->aniModel = model;
-  this->model = nullptr;
-  this->anim = true;
+void GameObject::addPart(shared_ptr<Model> model, int unlit) {
+  Part part = {model, unlit};
+  parts.push_back(part);
 }
 
-GameObject::GameObject(Model *model, float x, float y, float z)
-    : GameObject(model) {
-  this->position = vec3(x, y, z);
+void GameObject::setYaw(float radians) {
+  rotation = glm::rotate(mat4(1.0f), radians, vec3(0.0f, 1.0f, 0.0f));
+}
+
+void GameObject::update(double dt) {
+  time += dt;
+  if (aniModel)
+    aniModel->Update(time);
 }
 
 void GameObject::Draw(Shader *shader) {
   shader->setVector3("objposition", position.x, position.y, position.z);
-  shader->setMatrix4("objrotation", value_ptr(this->rotation));
-  if (!this->anim) {
-    shader->setInt("skinned", 0);
-    this->model->Draw(shader);
+  mat4 transform = glm::scale(rotation, vec3(scale));
+  shader->setMatrix4("objrotation", value_ptr(transform));
+  shader->setFloat("breathAmp", breathAmp);
+
+  if (aniModel)
+    aniModel->Draw(shader);
+
+  shader->setInt("skinned", 0);
+  for (const Part &part : parts) {
+    shader->setInt("unlit", part.unlit);
+    part.model->Draw(shader);
   }
-  else
-    this->aniModel->Draw(shader);
+  shader->setInt("unlit", 0);
+  shader->setFloat("breathAmp", 0.0f);
 }
