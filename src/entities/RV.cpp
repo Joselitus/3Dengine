@@ -87,6 +87,12 @@ static const float SPEED_ANGLES[2] = {135.0f, -135.0f};
 static const float FUEL_ANGLES[2] = {60.0f, -60.0f};
 static const float SPEEDOMETER_MAX = 25.0f;
 static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the driver
+// Fuel (0..1 of the tank) used per metre driven: the consumption is proportional to the
+// speed (the distance covered in a frame is speed * dt). A full tank is ~1.5 km.
+static const float FUEL_PER_METER = 1.0f / 1500.0f;
+// With no fuel, the handbrake holds it once it is slower than this (m/s), so that it does
+// not creep on a slope
+static const float EMPTY_HOLD_SPEED = 2.0f;
 // How fast the needles and the key follow (1/s)
 static const float NEEDLE_RATE = 6.0f, KEY_RATE = 8.0f;
 
@@ -253,20 +259,37 @@ void RV::setWheelModels(std::shared_ptr<Model> negativeX,
 void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
   glowPart = addPart(model, 2); // emissive
   hasGlow = true;
-  setPartVisible(glowPart, headlightsOn);
+  setPartVisible(glowPart, lampsLit());
+}
+
+// The light switch keeps what the player chose: switching the engine off puts the lights out
+// (lightsActive) but not the switch, so starting the engine again turns them back on
+void RV::setEngine(bool on) {
+  engineOn = on;
+  flickerTime = 0.0f; // a fault does not outlast a change of engine
+  lampLevel = 1.0f;
+  updateLights();
 }
 
 void RV::setHeadlights(bool on) {
+  if (on && !engineOn)
+    return; // no electricity to switch them on without the engine
   headlightsOn = on;
+  if (!on)
+    parkedLights = false;
   flickerTime = 0.0f; // switching them ends any fault
   lampLevel = 1.0f;
+  updateLights();
+}
+
+void RV::updateLights() {
   if (hasGlow)
-    setPartVisible(glowPart, on);
+    setPartVisible(glowPart, lampsLit());
   updateDashboardLights();
 }
 
 void RV::startLightFault() {
-  if (!headlightsOn || flickerTime > 0.0f)
+  if (!lightsActive() || flickerTime > 0.0f)
     return;
   flickerTime = uniform(FLICKER_MIN, FLICKER_MAX);
   flickerChange = 0.0f;
@@ -276,7 +299,7 @@ void RV::startLightFault() {
 // A fault starts by chance; while it lasts, the lamps jump between off, dim
 // and bright at random short intervals, and at its end they come back or go out
 void RV::updateHeadlights(double dt) {
-  if (!headlightsOn)
+  if (!lightsActive())
     return;
   if (flickerTime <= 0.0f) {
     // The chance per minute, as a chance for this frame (the same at any FPS)
@@ -310,7 +333,7 @@ void RV::updateHeadlights(double dt) {
 }
 
 void RV::getHeadlights(std::vector<SpotLight> &lights) const {
-  if (!headlightsOn || lampLevel <= 0.0f)
+  if (!lightsActive() || lampLevel <= 0.0f)
     return;
   vec3 aim = normalize(vec3(rotation * vec4(0.0f, HEADLIGHT_PITCH, 1.0f, 0.0f)));
   for (float side : {-1.0f, 1.0f}) {
@@ -324,7 +347,7 @@ void RV::getHeadlights(std::vector<SpotLight> &lights) const {
 }
 
 void RV::getDashboardLights(std::vector<SpotLight> &lights) const {
-  if (!headlightsOn || lampLevel <= 0.0f || !hasCockpit)
+  if (!lightsActive() || lampLevel <= 0.0f || !hasCockpit)
     return;
   for (const DashLight &light : DASH_LIGHTS)
     lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(light.position, 0.0f)),
@@ -397,10 +420,11 @@ void RV::updateCockpit(double dt) {
   float follow = 1.0f;
   if (dt > 0.0)
     follow = glm::min(1.0f, (float)dt * NEEDLE_RATE);
-  float speed = body ? std::fabs(body->getForwardSpeed()) : 0.0f;
+  // With the engine off the needles fall to empty, whatever the real speed and fuel
+  float speed = body && engineOn ? std::fabs(body->getForwardSpeed()) : 0.0f;
   speedShown += (glm::clamp(speed / SPEEDOMETER_MAX, 0.0f, 1.0f) - speedShown) * follow;
-  fuelShown += ((occupied ? fuel : 0.0f) - fuelShown) * follow;
-  keyTurn += ((occupied ? 1.0f : 0.0f) - keyTurn) *
+  fuelShown += ((engineOn ? fuel : 0.0f) - fuelShown) * follow;
+  keyTurn += ((engineOn ? 1.0f : 0.0f) - keyTurn) *
              (dt > 0.0 ? glm::min(1.0f, (float)dt * KEY_RATE) : 1.0f);
 
   setPartTransform(keyPart, panelFrame(KEY_ORIGIN, KEY_ON_ANGLE * keyTurn));
@@ -545,12 +569,20 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   body->setSurfaceQuery([&stage](float x, float z) {
     return surfaceOf(stage.materialAt(x, z));
   });
-  body->setHandbrake(!occupied); // an empty RV stays where it is
-  body->setInput(throttle, -steering);
+  // No fuel: the engine does not push (it can steer and coast, and the brake holds it
+  // when it is nearly stopped)
+  bool noEngine = fuel <= 0.0f || !engineOn; // no fuel, or the engine is switched off
+  float speedNow = body->getForwardSpeed();
+  body->setHandbrake(!occupied || (noEngine && std::fabs(speedNow) < EMPTY_HOLD_SPEED));
+  body->setInput(noEngine ? 0.0f : throttle, -steering);
   body->step(dt, [&stage](float x, float z, float maxY, float &height,
                           vec3 &normal) {
     return stage.floorAt(x, z, height, &normal, maxY);
   });
+
+  // Driving burns fuel in proportion to the speed (only while somebody drives it)
+  if (occupied && engineOn && fuel > 0.0f)
+    setFuel(fuel - FUEL_PER_METER * std::fabs(body->getForwardSpeed()) * (float)dt);
 
   // The timer of a frontal collision follows the speed (after the physics of this frame)
   impact.update((float)dt, body->getForwardSpeed());
@@ -584,9 +616,9 @@ void RV::describe(std::vector<std::string> &lines) const {
                     (impact.timerRunning() ? "  (cronometro de choque en marcha)" : ""));
   if (hasCockpit)
     lines.push_back(textFormat("Combustible: %.0f %%  Llave: %s", fuel * 100.0f,
-                               occupied ? "puesta, en marcha" : "puesta, apagado"));
+                               engineOn ? "puesta, motor en marcha" : "puesta, motor apagado"));
   lines.push_back(textFormat("Faros: %s  Averia: %.1f %%/min, se apagan el %.0f %%",
-                             !headlightsOn ? "apagados"
+                             !lightsActive() ? "apagados"
                              : flickerTime > 0.0f ? "parpadeando"
                                                   : "encendidos",
                              lightFaultChance, lightOutChance));
@@ -638,6 +670,9 @@ void RV::getProperties(std::vector<Property> &properties) {
       "Combustible", 0.0f, 100.0f, 1.0f, [this]() { return fuel * 100.0f; },
       [this](float percent) { setFuel(percent / 100.0f); }, "%"));
   properties.push_back(Property::toggle(
+      "Motor encendido", [this]() { return engineOn; },
+      [this](bool on) { setEngine(on); }));
+  properties.push_back(Property::toggle(
       "Faros encendidos", [this]() { return headlightsOn; },
       [this](bool on) { setHeadlights(on); }));
   properties.push_back(Property::number(
@@ -649,7 +684,7 @@ void RV::getProperties(std::vector<Property> &properties) {
       [this]() { return lightOutChance; },
       [this](float v) { setLightOutChance(v); }, "%"));
   properties.push_back(Property::info("Estado de los faros", [this]() {
-    if (!headlightsOn)
+    if (!lightsActive())
       return std::string("apagados");
     if (flickerTime > 0.0f)
       return std::string(faultGoesOut ? "parpadean (se apagaran)"

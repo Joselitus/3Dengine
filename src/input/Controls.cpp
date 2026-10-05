@@ -16,6 +16,7 @@ Controls::Controls() {
   bind(Action::LeaveVehicle, GLFW_KEY_LEFT_SHIFT);
   bind(Action::Headlights, GLFW_KEY_F);
   bind(Action::VehicleCamera, GLFW_KEY_C);
+  bind(Action::Engine, GLFW_KEY_R);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
   bind(Action::DebugSelect, GLFW_KEY_1);
@@ -34,6 +35,7 @@ const char *Controls::describe(Action action) {
   case Action::LeaveVehicle: return "Bajar del vehiculo";
   case Action::Headlights: return "Luces del vehiculo (conduciendo)";
   case Action::VehicleCamera: return "Camara del vehiculo (conduciendo)";
+  case Action::Engine: return "Motor del vehiculo (conduciendo)";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::DebugSelect: return "Modo seleccion de objetos (debug)";
@@ -55,6 +57,7 @@ const char *Controls::id(Action action) {
   case Action::LeaveVehicle: return "leave_vehicle";
   case Action::Headlights: return "headlights";
   case Action::VehicleCamera: return "vehicle_camera";
+  case Action::Engine: return "engine";
   case Action::Quit: return "quit";
   case Action::Maps: return "maps";
   case Action::DebugSelect: return "debug_select";
@@ -123,7 +126,8 @@ const char *Controls::group(Action action) {
   case Action::Use:
   case Action::LeaveVehicle:
   case Action::Headlights:
-  case Action::VehicleCamera: return "Acciones";
+  case Action::VehicleCamera:
+  case Action::Engine: return "Acciones";
   case Action::Quit:
   case Action::Maps:
   case Action::DebugSelect:
@@ -162,7 +166,6 @@ string Controls::keyName(int key) {
 
 const vector<Controls::Fixed> &Controls::fixedControls() {
   static const vector<Fixed> fixed = {
-      {"Movimiento", "Mirar alrededor", "Raton"},
       {"Menus", "Menu de pausa / atras / cerrar panel", "Esc"},
   };
   return fixed;
