@@ -72,7 +72,7 @@ void Stage::setTimeOfDay(float hours) {
 
 void Stage::update(double dt) {
   if (dayDuration > 0.0f) {
-    setTimeOfDay(timeOfDay + (float)dt * 24.0f / dayDuration);
+    setTimeOfDay(timeOfDay + (float)dt * timeScale * 24.0f / dayDuration);
   }
   for (auto &object : objects)
     object->update(dt);
@@ -559,4 +559,20 @@ void Stage::collideShapeWithFloor(DynamicGameObject &object) const {
     return;
   float falling = std::min(object.getVelocity().y, 0.0f);
   object.applyCollision(vec3(0.0f, lift, 0.0f), vec3(0.0f, -falling, 0.0f));
+}
+
+void Stage::getProperties(std::vector<Property> &properties) {
+  properties.push_back(Property::number(
+      "Hora", 0.0f, 24.0f, 0.25f, [this]() { return timeOfDay; },
+      [this](float hours) { setTimeOfDay(hours); }, "h"));
+  properties.push_back(Property::number(
+      "Velocidad del tiempo", 0.0f, 20.0f, 0.1f, [this]() { return timeScale; },
+      [this](float scale) { setTimeScale(scale); }, "x"));
+  properties.push_back(Property::info("Un dia dura", [this]() {
+    if (dayDuration <= 0.0f || timeScale <= 0.0f)
+      return std::string("(el tiempo esta parado)");
+    char text[64];
+    snprintf(text, sizeof(text), "%.0f s reales", dayDuration / timeScale);
+    return std::string(text);
+  }));
 }

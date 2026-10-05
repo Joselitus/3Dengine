@@ -15,6 +15,7 @@
 #include "ParticleEmitter.h"
 #include "GameObject.h"
 #include "MaterialMap.h"
+#include "Property.h"
 
 // How the stage finds the height of its floor. Chosen when the stage is
 // created and fixed for its whole life.
@@ -112,6 +113,7 @@ private:
 
   float timeOfDay = 12.0f;    // hours, 0 <= t < 24
   float dayDuration = 0.0f;   // real seconds a whole day lasts, 0 = time stands still
+  float timeScale = 1.0f;     // each real second counts as this many for the clock
 
 protected:
   // cellSize: side of the cells of the collision grid, in world units (a few
@@ -256,6 +258,14 @@ public:
   void setTimeOfDay(float hours);
   float getDayDuration() const { return dayDuration; }
   void setDayDuration(float seconds) { dayDuration = seconds > 0.0f ? seconds : 0.0f; }
+  // How fast the clock runs: each real second advances it as `scale` seconds
+  // would (1 = normal, 2 = twice as fast, 0 = stopped). Only the clock: the
+  // physics and everything else keep the real time.
+  float getTimeScale() const { return timeScale; }
+  void setTimeScale(float scale) { timeScale = scale > 0.0f ? scale : 0.0f; }
+  // The stage's own values for the debug inspector (DebugSelector, pointing
+  // at no object): the time of day and how fast it runs
+  virtual void getProperties(std::vector<Property> &properties);
   // time feeds the shader's procedural animations (breathing)
   void Draw(Shader *shader, double time);
 };

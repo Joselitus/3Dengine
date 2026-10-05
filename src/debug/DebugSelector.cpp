@@ -184,15 +184,23 @@ string DebugSelector::labelOf(const GameStage &stage, const GameObject &object) 
 void DebugSelector::edit(const GameStage &stage, shared_ptr<GameObject> object) {
   if (!object)
     return;
-  UIPanel *panel = ui.open(new PropertyPanel(labelOf(stage, *object), object));
-  // At the right, leaving the object in the middle of the view in sight
+  placeAtRight(ui.open(new PropertyPanel(labelOf(stage, *object), object)));
+}
+
+void DebugSelector::editWorld(GameStage &stage) {
+  vector<Property> properties;
+  stage.getProperties(properties);
+  placeAtRight(ui.open(new PropertyPanel("Mundo", properties)));
+}
+
+void DebugSelector::placeAtRight(UIPanel *panel) {
   int width, height;
   glfwGetWindowSize(window, &width, &height);
   panel->moveTo(width - panel->getWidth() - BOX_MARGIN,
                 std::max(BOX_MARGIN, (height - panel->preferredHeight()) / 2));
 }
 
-void DebugSelector::refresh(const GameStage &stage, Camera &camera) {
+void DebugSelector::refresh(GameStage &stage, Camera &camera) {
   info.clear();
   shared_ptr<GameObject> object = selected.lock();
   if (!object && mode != Mode::Inspect) {
@@ -215,12 +223,11 @@ void DebugSelector::refresh(const GameStage &stage, Camera &camera) {
   }
   if (mode == Mode::Inspect) {
     shared_ptr<GameObject> under = hovered.lock();
-    if (!under) {
-      info.push_back("Apunta a un objeto");
-      return;
-    }
     vector<Property> properties;
-    under->getProperties(properties);
+    if (under)
+      under->getProperties(properties);
+    else
+      stage.getProperties(properties); // no object: the world
     for (const Property &p : properties)
       if (p.kind != Property::Kind::Action)
         info.push_back(p.name + ": " + p.valueText());
@@ -258,9 +265,11 @@ void DebugSelector::update(GameStage &stage, Camera &camera, bool canPick) {
     if (canPick) {
       shared_ptr<GameObject> under = pick(stage, eye, forward);
       hovered = under;
-      hoveredName = under ? labelOf(stage, *under) : "";
-      if (leftPressed)
+      hoveredName = under ? labelOf(stage, *under) : "Mundo";
+      if (leftPressed && under)
         edit(stage, under);
+      else if (leftPressed)
+        editWorld(stage);
       else if (rightPressed)
         edit(stage, stage.getPlayer());
     }
@@ -382,7 +391,7 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
   if (mode == Mode::Inspect) {
     text.push_back("MODO PROPIEDADES (" + controls.keyName(Action::DebugInspect) +
                    ": salir)");
-    text.push_back("Clic izq.: cambiar las del objeto   Clic der.: las del jugador");
+    text.push_back("Clic izq.: cambiarlas   Clic der.: las del jugador");
   } else if (mode == Mode::Place) {
     text.push_back("MODO COLOCACION (" + controls.keyName(Action::DebugPlace) +
                    ": salir)");

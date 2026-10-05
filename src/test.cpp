@@ -17,6 +17,7 @@
 #include "Controls.h"
 #include "CommandConsole.h"
 #include "Commands.h"
+#include "TextFormat.h"
 #include "DebugSelector.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
@@ -726,6 +727,19 @@ int main(int argc, char **argv) {
                  resetRequested = true; // not from inside the UI's update
                  return std::string("Reiniciando el mapa...");
                });
+  // "day" and "night": the clock of the map jumps to the middle of the day or
+  // of the night and goes on from there. In the day map (TestStage) the sun
+  // rises at 6:00 and sets at 18:00; it is full day from about 7:30 to 16:30
+  // and full night (dark, all the stars) from about 19:00 to 5:00.
+  const float DAY_HOUR = 12.0f, NIGHT_HOUR = 0.0f;
+  auto setHour = [&](float hour) {
+    stage->setTimeOfDay(hour);
+    return textFormat("Hora: %02d:00", (int)hour);
+  };
+  commands.add("day", "pone el mediodía (12:00)",
+               [&](const std::vector<std::string> &) { return setHour(DAY_HOUR); });
+  commands.add("night", "pone la medianoche (0:00)",
+               [&](const std::vector<std::string> &) { return setHour(NIGHT_HOUR); });
   std::vector<std::string> commandHistory;
   auto openConsole = [&](const std::string &text) {
     int width, height;
