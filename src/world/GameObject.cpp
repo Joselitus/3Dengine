@@ -110,6 +110,12 @@ void GameObject::drawParts(Shader *shader, bool translucent) {
   shader->setInt("unlit", 0);
 }
 
+void GameObject::getProperties(vector<Property> &properties) {
+  properties.push_back(Property::info("Posicion", [this]() { return textOf(position); }));
+  properties.push_back(Property::toggle(
+      "Visible", [this]() { return visible; }, [this](bool on) { visible = on; }));
+}
+
 void GameObject::describe(vector<string> &lines) const {
   lines.push_back("Posicion: " + textOf(position));
   // Heading: where its +z points, around +y (as setYaw); tilt: how far its

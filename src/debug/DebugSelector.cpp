@@ -7,6 +7,7 @@
 #include "Camera.h"
 #include "GameStage.h"
 #include "Interactable.h"
+#include "PropertyPanel.h"
 #include "TextFormat.h"
 
 using namespace std;
@@ -53,6 +54,8 @@ void DebugSelector::setMode(Mode next) {
   mode = next;
   hasTarget = false;
   turning = false;
+  hovered.reset();
+  hoveredName.clear();
 }
 
 bool DebugSelector::capturesMouse() const {
@@ -63,6 +66,8 @@ bool DebugSelector::capturesMouse() const {
 void DebugSelector::clear() {
   selected.reset();
   selectedName.clear();
+  hovered.reset();
+  hoveredName.clear();
   info.clear();
 }
 
@@ -156,28 +161,41 @@ vec3 DebugSelector::destination(const GameStage &stage,
 void DebugSelector::select(const GameStage &stage,
                            shared_ptr<GameObject> object) {
   selected = object;
-  selectedName = object ? nameOf(*object) : "";
-  if (!object)
-    return;
-  // Its index in the stage tells apart objects of the same class
+  selectedName = object ? labelOf(stage, *object) : "";
+}
+
+string DebugSelector::labelOf(const GameStage &stage, const GameObject &object) {
+  string label = nameOf(object);
   int index = 0;
   for (const auto &o : stage.getObjects()) {
-    if (o == object)
-      selectedName += textFormat(" #%d", index);
+    if (o.get() == &object)
+      label += textFormat(" #%d", index);
     index++;
   }
   index = 0;
   for (const auto &o : stage.getDynamicObjects()) {
-    if (o == object)
-      selectedName += textFormat(" #d%d", index);
+    if (o.get() == &object)
+      label += textFormat(" #d%d", index);
     index++;
   }
+  return label;
+}
+
+void DebugSelector::edit(const GameStage &stage, shared_ptr<GameObject> object) {
+  if (!object)
+    return;
+  UIPanel *panel = ui.open(new PropertyPanel(labelOf(stage, *object), object));
+  // At the right, leaving the object in the middle of the view in sight
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
+  panel->moveTo(width - panel->getWidth() - BOX_MARGIN,
+                std::max(BOX_MARGIN, (height - panel->preferredHeight()) / 2));
 }
 
 void DebugSelector::refresh(const GameStage &stage, Camera &camera) {
   info.clear();
   shared_ptr<GameObject> object = selected.lock();
-  if (!object) {
+  if (!object && mode != Mode::Inspect) {
     info.push_back(mode == Mode::Place
                        ? "Ningun objeto elegido: eligelo antes con " +
                              controls.keyName(Action::DebugSelect)
@@ -193,6 +211,21 @@ void DebugSelector::refresh(const GameStage &stage, Camera &camera) {
                               !turning   ? ""
                               : snapping ? "  (girando de 15 en 15)"
                                          : "  (girando)"));
+    return;
+  }
+  if (mode == Mode::Inspect) {
+    shared_ptr<GameObject> under = hovered.lock();
+    if (!under) {
+      info.push_back("Apunta a un objeto");
+      return;
+    }
+    vector<Property> properties;
+    under->getProperties(properties);
+    for (const Property &p : properties)
+      if (p.kind != Property::Kind::Action)
+        info.push_back(p.name + ": " + p.valueText());
+    if (properties.empty())
+      info.push_back("(sin propiedades)");
     return;
   }
   object->describe(info);
@@ -220,7 +253,18 @@ void DebugSelector::update(GameStage &stage, Camera &camera, bool canPick) {
     return;
   vec3 eye = camera.getPosition(), forward = camera.getForward();
   shared_ptr<GameObject> object = selected.lock();
-  if (mode == Mode::Select) {
+  if (mode == Mode::Inspect) {
+    // What the crosshair points at; it stays while a panel is open
+    if (canPick) {
+      shared_ptr<GameObject> under = pick(stage, eye, forward);
+      hovered = under;
+      hoveredName = under ? labelOf(stage, *under) : "";
+      if (leftPressed)
+        edit(stage, under);
+      else if (rightPressed)
+        edit(stage, stage.getPlayer());
+    }
+  } else if (mode == Mode::Select) {
     if (canPick && leftPressed)
       select(stage, pick(stage, eye, forward));
     else if (canPick && rightPressed)
@@ -292,8 +336,9 @@ void DebugSelector::outline(const CollisionShape &shape, const Pose &pose,
 }
 
 void DebugSelector::draw(Camera &camera) {
-  shared_ptr<GameObject> object =
-      mode != Mode::Off ? selected.lock() : nullptr;
+  shared_ptr<GameObject> object = mode == Mode::Inspect ? hovered.lock()
+                                  : mode != Mode::Off      ? selected.lock()
+                                                           : nullptr;
   if (!object)
     return;
   Pose pose = object->getPose();
@@ -328,9 +373,17 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
   renderer.rect(cx - CROSSHAIR, cy - 1, 2 * CROSSHAIR, 2, light);
   renderer.rect(cx - 1, cy - CROSSHAIR, 2, 2 * CROSSHAIR, light);
 
-  // The box of data, at the top left
+  // The box of data, at the top left; not while a properties window is open
+  // (it says the same, and they would overlap)
+  if (mode == Mode::Inspect && ui.hasPanels())
+    return;
   vector<string> text;
-  if (mode == Mode::Place) {
+  const string &name = mode == Mode::Inspect ? hoveredName : selectedName;
+  if (mode == Mode::Inspect) {
+    text.push_back("MODO PROPIEDADES (" + controls.keyName(Action::DebugInspect) +
+                   ": salir)");
+    text.push_back("Clic izq.: cambiar las del objeto   Clic der.: las del jugador");
+  } else if (mode == Mode::Place) {
     text.push_back("MODO COLOCACION (" + controls.keyName(Action::DebugPlace) +
                    ": salir)");
     text.push_back("Clic izq.: llevarlo a la cruz   Clic der. + raton: girar");
@@ -341,8 +394,8 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
                    ": colocar)");
     text.push_back("Clic izq.: objeto del centro   Clic der.: jugador");
   }
-  if (!selectedName.empty())
-    text.push_back(selectedName);
+  if (!name.empty())
+    text.push_back(name);
   float boxWidth = 0.0f;
   for (const string &line : text)
     boxWidth = std::max(boxWidth, UIRenderer::textWidth(line));
@@ -359,9 +412,9 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
   float ty = y + UITheme::PADDING;
   for (size_t i = 0; i < text.size(); i++) {
     // The title, the help lines and, last, the selected object's name
-    bool name = !selectedName.empty() && i + 1 == text.size();
+    bool isName = !name.empty() && i + 1 == text.size();
     renderer.text(x + UITheme::PADDING, ty, text[i],
-                  name ? TITLE_COLOR : (i == 0 ? UITheme::TEXT : UITheme::MUTED));
+                  isName ? TITLE_COLOR : (i == 0 ? UITheme::TEXT : UITheme::MUTED));
     ty += lineHeight;
   }
   ty += UITheme::SPACING;

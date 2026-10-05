@@ -82,6 +82,33 @@ void DynamicGameObject::setMesh(size_t index) {
   }
 }
 
+void DynamicGameObject::getProperties(std::vector<Property> &properties) {
+  GameObject::getProperties(properties);
+  properties.push_back(Property::number(
+      "Velocidad", 0.0f, 30.0f, 0.0f,
+      [this]() { return length(vec3(velocity.x, 0.0f, velocity.z)); },
+      [this](float speed) {
+        vec3 horizontal(velocity.x, 0.0f, velocity.z);
+        vec3 direction = length(horizontal) > 1e-3f ? normalize(horizontal)
+                                                    : vec3(rotation[2]);
+        direction.y = 0.0f;
+        if (length(direction) < 1e-3f)
+          return;
+        direction = normalize(direction);
+        velocity = vec3(direction.x * speed, velocity.y, direction.z * speed);
+      },
+      "m/s"));
+  properties.push_back(Property::number(
+      "Velocidad maxima", 0.0f, 30.0f, 0.5f, [this]() { return maxSpeed; },
+      [this](float v) { maxSpeed = v; }, "m/s"));
+  properties.push_back(Property::number(
+      "Rozamiento", 0.0f, 20.0f, 0.5f, [this]() { return drag; },
+      [this](float d) { drag = d; }, "/s"));
+  properties.push_back(Property::number(
+      "Gravedad", 0.0f, 30.0f, 0.1f, [this]() { return gravity; },
+      [this](float g) { gravity = g; }, "m/s2"));
+}
+
 void DynamicGameObject::describe(std::vector<std::string> &lines) const {
   GameObject::describe(lines);
   lines.push_back(textFormat("Velocidad: %s  %.2f m/s",

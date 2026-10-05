@@ -17,8 +17,8 @@ class Camera;
 class GameObject;
 class GameStage;
 
-// Debug modes to inspect the objects of the map and move them around. Both
-// show a crosshair at the centre of the view and a box of data at the top
+// Debug modes to inspect the objects of the map, change their values and move
+// them around. They show a crosshair at the centre of the view and a box of data at the top
 // left, and draw the selected object's collision shape (orange), its
 // axis-aligned bounding box (blue) and its velocity (green) over the world.
 //
@@ -35,6 +35,11 @@ class GameStage;
 //   button and moving the mouse sideways turns it around the vertical
 //   (Stage::turn) instead of the camera (see capturesMouse); with Shift held
 //   as well, its heading snaps to multiples of 15 degrees.
+// - Properties (Action::DebugInspect, 0 by default): the object the crosshair
+//   points at (no click needed) is outlined and its values
+//   (GameObject::getProperties: the RV's speed, the chance its headlights
+//   fail...) are listed in the box. A left click on it opens a window to change
+//   them (PropertyPanel); a right click, the player's.
 // Each key turns its mode on (or off, if it is the current one).
 //
 // It is not a panel, just an overlay (UIOverlay): the player keeps moving and
@@ -43,7 +48,7 @@ class GameStage;
 // but the selection belongs to the old map).
 class DebugSelector : public UIOverlay {
 public:
-  enum class Mode { Off, Select, Place };
+  enum class Mode { Off, Select, Place, Inspect };
 
 private:
   GLFWwindow *window;
@@ -54,6 +59,8 @@ private:
   bool leftWasDown = false, rightWasDown = false;
   std::weak_ptr<GameObject> selected;
   std::string selectedName;
+  std::weak_ptr<GameObject> hovered; // Inspect: under the crosshair
+  std::string hoveredName;
   std::vector<std::string> info; // what the box shows, refreshed each update
   bool turning = false;          // Place: the right button turns the object
   double lastCursorX = 0.0;      // while turning, on the previous update
@@ -68,6 +75,11 @@ private:
                                    const glm::vec3 &origin,
                                    const glm::vec3 &direction) const;
   void select(const GameStage &stage, std::shared_ptr<GameObject> object);
+  // Its name, plus its index in the stage, which tells apart objects of the
+  // same class (e.g. "GameObject #12")
+  static std::string labelOf(const GameStage &stage, const GameObject &object);
+  // Inspect: opens the window to change the values of `object`
+  void edit(const GameStage &stage, std::shared_ptr<GameObject> object);
   // Where `object` would go if the crosshair's floor point is `floorPoint`
   glm::vec3 destination(const GameStage &stage, const GameObject &object,
                         const glm::vec3 &floorPoint) const;
@@ -84,12 +96,16 @@ public:
   // The keys of the modes: on, or off if it was already on
   void toggleSelect() { setMode(mode == Mode::Select ? Mode::Off : Mode::Select); }
   void togglePlace() { setMode(mode == Mode::Place ? Mode::Off : Mode::Place); }
+  void toggleInspect() {
+    setMode(mode == Mode::Inspect ? Mode::Off : Mode::Inspect);
+  }
   Mode getMode() const { return mode; }
   // Whether the mouse turns the selected object now (placement mode, right
   // button held): then the camera must not turn with it
   // (Controller::setLookEnabled)
   bool capturesMouse() const;
-  // Forgets the selected object (e.g. its map is about to be replaced)
+  // Forgets the selected and the hovered object (e.g. its map is about to be
+  // replaced)
   void clear();
 
   // Reads the mouse (if `canPick`: no panel is open), selects or moves, and

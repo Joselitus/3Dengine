@@ -321,9 +321,9 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 - **En datos (lo más fácil):** crea `assets/scenes/mi_mapa.scene` (ver [Ficheros de escena](#ficheros-de-escena-assetsscenesscene)) y añade a `maps` la entrada `{"Mi mapa", [floorMode]() -> std::unique_ptr<GameStage> { return SceneStage::load("../assets/scenes/mi_mapa.scene", "../assets", floorMode); }}`. El visor web también lo mostrará con `--scene`.
 - **En código** (si necesita lógica propia, como `TestStage`): hereda de `GameStage` y, en el constructor, rellena `environment`, `cameraDistance`/`cameraHeight` y `player`, llama a `setFloor` y a `add`/`addDynamic` para el contenido, y opcionalmente `setSky` e `interactables`. Si hace falta, sobrescribe `apply()`. Después añádelo a `maps`.
 
-## Modos selección y colocación (depuración)
+## Modos selección, colocación y propiedades (depuración)
 
-`DebugSelector` (`src/debug/`) sirve para inspeccionar los objetos del mapa mientras se juega, y para moverlos. Tiene dos modos (`Mode::Select`, `Mode::Place`); cada tecla enciende el suyo, o lo apaga si ya estaba encendido. En los dos se ve una cruz en el centro y un recuadro arriba a la izquierda.
+`DebugSelector` (`src/debug/`) sirve para inspeccionar los objetos del mapa mientras se juega, moverlos y cambiar sus valores. Tiene tres modos (`Mode::Select`, `Mode::Place`, `Mode::Inspect`); cada tecla enciende el suyo, o lo apaga si ya estaba encendido. En todos se ve una cruz en el centro y un recuadro arriba a la izquierda.
 
 ### Selección (tecla 1)
 
@@ -511,6 +511,18 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
    - `applyCollision(empuje, cambioDeVelocidad)` es virtual: el RV lo sobrescribe para mover también su cuerpo de física.
 5. Otra vez forma contra suelo, por si un empujón metió algo en el terreno.
 
+### Propiedades (tecla 0)
+
+- **0** (`Action::DebugInspect`, reasignable).
+- **Sin hacer clic:** el objeto bajo la cruz (el mismo rayo que en selección, `pick`) se resalta con su forma y el recuadro lista sus **propiedades** con su valor actual, cada frame. Lo que se apunta no cambia la selección de la tecla 1 (`hovered` es aparte de `selected`).
+- **Clic izquierdo:** abre una ventana (`PropertyPanel : UIPanel`, a la derecha) para cambiarlas; **clic derecho:** la del jugador (el RV si se conduce). Con la ventana abierta los controles están en pausa (regla general de los paneles) y el recuadro de datos se oculta para no pisarla. Esc o "Cerrar" la cierran.
+- **Las propiedades** son `Property` (`world/Property.h`): `Number` (slider; solo texto si no tiene `set`), `Toggle` (botón que lo cambia), `Action` (botón que hace algo) e `Info` (texto). No guardan el valor: `get`/`set` son funciones atadas al objeto, así que siempre muestran el estado real. Las da **`GameObject::getProperties(props)`**, virtual, como `describe`: cada clase añade las suyas tras las de su padre.
+  - `GameObject`: posición (texto) y visible.
+  - `DynamicGameObject`: velocidad horizontal (al cambiarla conserva la dirección del movimiento, o la del objeto si está parado), velocidad máxima, rozamiento y gravedad.
+  - `RV` (no usa las de `DynamicGameObject`: su movimiento es el del `VehicleBody`): velocidad hacia delante (cambia la del cuerpo), velocidad máxima (`VehicleBody::setMaxSpeed`), combustible, faros encendidos, **probabilidad de avería de los faros** (%/min), **probabilidad de que se apaguen** (%), su estado, "provocar una avería" y parabrisas roto.
+  - `Satellite`: hacia dónde apunta, azimut y cénit objetivo y velocidad de giro.
+- `PropertyPanel` guarda un `shared_ptr` del objeto mientras está abierta (sus controles están atados a él). **Para que una clase nueva tenga propiedades,** sobrescribe `getProperties` llamando primero a la de su padre.
+
 ## El RV: vehículo con suspensión
 
 `RV` es el vehículo del mapa de día (el jugador lo conduce tras subir por su puerta, ver [Subir y bajar del RV](#subir-y-bajar-del-rv)). Su física está en `VehicleBody`, que no depende de OpenGL (se puede probar sola) y se mueve en pasos fijos de 1/240 s.
@@ -521,6 +533,7 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
 - **Esquinas del chasis:** ocho puntos de contacto elásticos, con rozamiento, algo por fuera de la caja de colisión. Entran en juego antes que la corrección dura del stage, así que un RV volcado se desliza, rueda y se frena con fricción en vez de "flotar" sin rozamiento. La fuerza de cada uno está limitada para que un choque fuerte no lo dispare.
 - **Autoenderezado (tentetieso):** una aceleración angular lo devuelve siempre a apoyarse en las ruedas: suave si está algo inclinado y fuerte pasado ~26°, amortiguada para que se asiente. En el aire solo funciona al 15% (no hay nada contra lo que empujar). Desde cualquier postura, incluso boca abajo, vuelve a las ruedas en 1 a 2 s.
 - **Arena y asfalto:** cada rueda pregunta de qué es el suelo bajo ella (`Stage::materialAt`, a través de `VehicleBody::setSurfaceQuery`) y recibe una `VehicleBody::Surface` con tres multiplicadores de los parámetros del vehículo: el agarre de los neumáticos, la resistencia a rodar y la velocidad máxima del motor. El asfalto es la referencia (todo 1). **En arena** (`SAND_*` en `RV.cpp`): agarre 0.75, resistencia a rodar ×2.5 y velocidad máxima ×0.5. La velocidad máxima es la media de las cuatro ruedas, así que con medio coche en la arena va a medias y se desvía hacia el lado lento. Medido en llano (con el motor de velocidad terminal): 20 m/s en asfalto y 10 en arena (antes 8.6: el motor no compensaba la mayor rodadura de la arena); una vuelta al circuito a todo gas, 17.6 s por la carretera frente a 29.3 s si todo fuera arena.
+- **Averías de los faros:** con los faros encendidos, en cada frame puede empezar una avería con probabilidad `lightFaultChance` (en % por minuto, convertida a la del frame con `1 − (1 − p)^(dt/60)`, así no depende de los FPS; 10 %/min por defecto). El jugador no ve ese número: solo la tecla 0 lo muestra y lo cambia. Durante la avería (0.6–2.2 s) las lámparas saltan al azar entre apagadas, tenues y fuertes cada 0.03–0.16 s (`lampLevel` escala el color de los focos y de las luces del salpicadero; las lentes y el salpicadero se ven si pasa de 0.5). Al acabar, vuelven o, el `lightOutChance` % de las veces (35 % por defecto), **se apagan**: el interruptor queda en apagado y hay que encenderlas otra vez (F). Encender o apagar a mano corta la avería. `startLightFault()` la provoca al momento. Medido sin ventana (2000 min simulados): 0.10–0.11 averías/min con 10 %/min (esperado 0.105) y se apagan el 0 / 30 / 100 % con 0 / 35 / 100 %.
 - **Control:** `control()` solo guarda el acelerador (W/S) y la dirección (A/D); la dirección de la cámara se ignora a propósito. El `Stage` llama a `RV::contactFloor`, que avanza el `VehicleBody` y copia su posición y su orientación al objeto.
 - **Constantes:** la masa, el centro de masas, las esquinas y la forma del chasis están en `RV.cpp`; los parámetros de suspensión, neumáticos y autoenderezado, en `VehicleBody::Params` (`VehicleBody.h`).
 

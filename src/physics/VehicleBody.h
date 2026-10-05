@@ -130,6 +130,8 @@ public:
   const std::vector<WheelState> &getWheels() const { return wheelStates; }
   bool isOnGround() const;
   const Params &getParams() const { return params; }
+  // The terminal speed (Params::maxSpeed), e.g. from the debug inspector
+  void setMaxSpeed(float speed) { params.maxSpeed = speed; }
 
   // Turns the chassis (e.g. to test it upside down); no other state changes
   void setOrientation(const glm::quat &q) { orientation = glm::normalize(q); }

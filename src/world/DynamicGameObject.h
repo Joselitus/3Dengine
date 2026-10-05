@@ -78,6 +78,9 @@ public:
   }
   // Adds the motion: velocity, acceleration, mass, gravity...
   void describe(std::vector<std::string> &lines) const override;
+  // Adds its speed (along where it is going, or where it faces if it is
+  // still), top speed, drag and gravity
+  void getProperties(std::vector<Property> &properties) override;
 
   // Called by the stage instead of its default floor handling (snapping the
   // object on the floor). Return true if the object deals with the floor

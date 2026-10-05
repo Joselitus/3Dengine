@@ -20,6 +20,7 @@ enum class Action {
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)
   DebugPlace,  // debug: move the selected object where the camera points
+  DebugInspect, // debug: see and change the values of objects (DebugSelector)
   Count     // number of actions, not an action
 };
 

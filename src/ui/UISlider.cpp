@@ -30,7 +30,8 @@ UIRect UISlider::track() const {
 void UISlider::draw(UIRenderer &renderer, const UIState &state) const {
   float value = get();
   char number[32];
-  snprintf(number, sizeof(number), "%.1f", value);
+  snprintf(number, sizeof(number), "%.1f",
+           value > -0.05f && value < 0.05f ? 0.0f : value); // not "-0.0"
   string valueText = string(number) + (unit.empty() ? "" : " " + unit);
   renderer.text(rect.x, rect.y, label, UITheme::MUTED);
   renderer.text(rect.x + rect.w - UIRenderer::textWidth(valueText), rect.y,

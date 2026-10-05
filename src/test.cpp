@@ -561,8 +561,8 @@ int main(int argc, char **argv) {
   UIManager ui(window);
   // Objects the player can use (key E), each with its own panel
   InteractionSystem interaction(window, &ui, controls);
-  // Debug: select objects, see their data and move them (keys 1 and 2, see
-  // DebugSelector)
+  // Debug: select objects, see their data, move them and change their values
+  // (keys 1, 2 and 0, see DebugSelector)
   DebugSelector selector(window, ui, controls);
 
   // The maps, in the order the debug selector (key Z) lists them
@@ -669,6 +669,10 @@ int main(int argc, char **argv) {
   // Debug place key (2): moves the selected object where the camera points
   ui.bindKey([&controls]() { return controls.key(Action::DebugPlace); },
              [&]() { selector.togglePlace(); });
+  // Debug properties key (0): see the values of what the crosshair points at,
+  // and change them with a click
+  ui.bindKey([&controls]() { return controls.key(Action::DebugInspect); },
+             [&]() { selector.toggleInspect(); });
 
   // Leave-vehicle key (with no panel open): the map puts the player back on
   // foot, if it was driving
