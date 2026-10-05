@@ -10,6 +10,15 @@ using namespace std;
 PropertyPanel::PropertyPanel(const string &title, shared_ptr<GameObject> object)
     : UIPanel(title, 440.0f), object(object) {
   object->getProperties(properties);
+  build();
+}
+
+PropertyPanel::PropertyPanel(const string &title, const vector<Property> &properties)
+    : UIPanel(title, 440.0f), properties(properties) {
+  build();
+}
+
+void PropertyPanel::build() {
   for (const Property &p : properties) {
     switch (p.kind) {
     case Property::Kind::Number:

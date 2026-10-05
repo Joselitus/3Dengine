@@ -39,7 +39,9 @@ class GameStage;
 //   points at (no click needed) is outlined and its values
 //   (GameObject::getProperties: the RV's speed, the chance its headlights
 //   fail...) are listed in the box. A left click on it opens a window to change
-//   them (PropertyPanel); a right click, the player's.
+//   them (PropertyPanel); a right click, the player's. Pointing at no object,
+//   the box shows the world's (Stage::getProperties: the time of day and how
+//   fast it runs), and a left click opens them.
 // Each key turns its mode on (or off, if it is the current one).
 //
 // It is not a panel, just an overlay (UIOverlay): the player keeps moving and
@@ -80,10 +82,15 @@ private:
   static std::string labelOf(const GameStage &stage, const GameObject &object);
   // Inspect: opens the window to change the values of `object`
   void edit(const GameStage &stage, std::shared_ptr<GameObject> object);
+  // Inspect: opens the window to change the world's values
+  void editWorld(GameStage &stage);
+  // Places a properties window at the right, leaving the middle of the view
+  // in sight
+  void placeAtRight(UIPanel *panel);
   // Where `object` would go if the crosshair's floor point is `floorPoint`
   glm::vec3 destination(const GameStage &stage, const GameObject &object,
                         const glm::vec3 &floorPoint) const;
-  void refresh(const GameStage &stage, Camera &camera);
+  void refresh(GameStage &stage, Camera &camera);
   void setMode(Mode mode);
   // Outline of `shape` at `pose`
   void outline(const CollisionShape &shape, const Pose &pose,

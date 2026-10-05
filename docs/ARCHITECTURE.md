@@ -462,6 +462,19 @@ Todo `Stage` lleva un reloj: `getTimeOfDay()` (horas, 0 = medianoche, 12 = medio
 
 `TestStage` (día) lo usa para un ciclo sencillo (`DAY_DURATION` = 360 s, empieza a las 12:00 —mediodía—, y anochece a los ~90 s (la puesta de sol es a las 18:00): el sol sale por +x a las 6:00, está más alto a las 12:00 y se pone por −x a las 18:00 (con una pequeña inclinación hacia −z). No hay luna. `onTimeChanged` rellena el `Environment` (`horizon`, `skyZenith`, `sunDir`, `starAlpha`, `lightDir`, `lightColor`) según la altura del sol: azul de día, naranja en el amanecer y el atardecer, y de noche oscuro con estrellas. La luz es la del sol mientras está alto y, siempre, un **mínimo** (`NIGHT_LIGHT` = 0.022, 0.025, 0.04) que de noche cae desde arriba: tan bajo que sin los faros del RV apenas se ve nada. El cielo es una cúpula sin textura (`assets/sky/skydome_plain.obj`, `unlit` = 3) que pinta el shader; el `main` envía el `Environment` al shader **cada frame** (`applyEnvironment`). **La música sigue al sol:** `onTimeChanged` también llama a `setMusicVolume` (de 0 con el sol 6° bajo el horizonte a 1 con él a 30° de altura: empieza a bajar por la tarde y casi no se oye al ponerse) y `main` pasa ese volumen al `MusicPlayer` cada frame. El viento (`assets/music/wind.wav`, `Stage::setAmbience`/`loadAmbience`, otro `MusicPlayer` en `main`) no se toca, así que de noche solo queda él. Para otro ciclo, otro mapa sobrescribe `onTimeChanged` y rellena el `Environment` como quiera.
 
+**Horas en `TestStage`** (de las rampas de `onTimeChanged`; un día dura 360 s, así que una hora son 15 s reales):
+
+| Hora | Cielo y luz |
+|---|---|
+| 19:00 – 5:00 | noche cerrada: sin sol, todas las estrellas, solo `NIGHT_LIGHT` (lo más oscuro, a las 0:00) |
+| 5:00 – 6:00 y 18:00 – 19:00 | crepúsculo: el cielo se vuelve naranja y las estrellas aparecen o se van; la luz del sol se apaga hacia las 18:12 y vuelve hacia las 5:48 |
+| 6:00 – 7:30 y 16:30 – 18:00 | sol bajo: amanecer o atardecer naranja, la luz ya o aún entera desde las 7:00 hasta las 17:00 |
+| 7:30 – 16:30 | pleno día (el sol en lo más alto a las 12:00) |
+
+**Velocidad del tiempo:** `Stage::setTimeScale(x)` multiplica cada segundo real para el reloj (`timeOfDay += dt · timeScale · 24 / dayDuration`): 1 normal, 2 el doble de rápido, 0 parado. Solo afecta al reloj, no a la física. Se cambia con un slider en el modo propiedades (tecla 0) apuntando a ningún objeto: ver "Propiedades (tecla 0)". Un `reset` lo devuelve a 1.
+
+Los comandos de la consola **`/day`** y **`/night`** ponen el reloj del mapa actual a las 12:00 y a las 0:00 (`DAY_HOUR`, `NIGHT_HOUR` en `main`) y desde ahí sigue corriendo. En el mapa de noche (`SceneStage`) la hora no cambia nada que se vea.
+
 ## Suelo y colisiones
 
 Todo esto vive en `Stage` (y en `physics/`). Un objeto nunca sabe nada del suelo ni de los demás: el stage lo mueve y lo empuja.
@@ -524,6 +537,7 @@ El `Stage` divide el plano x/z en celdas fijas cuadradas (8 unidades por defecto
 - **0** (`Action::DebugInspect`, reasignable).
 - **Sin hacer clic:** el objeto bajo la cruz (el mismo rayo que en selección, `pick`) se resalta con su forma y el recuadro lista sus **propiedades** con su valor actual, cada frame. Lo que se apunta no cambia la selección de la tecla 1 (`hovered` es aparte de `selected`).
 - **Clic izquierdo:** abre una ventana (`PropertyPanel : UIPanel`, a la derecha) para cambiarlas; **clic derecho:** la del jugador (el RV si se conduce). Con la ventana abierta los controles están en pausa (regla general de los paneles) y el recuadro de datos se oculta para no pisarla. Esc o "Cerrar" la cierran.
+- **Sin objeto bajo la cruz** (cielo, suelo), el recuadro muestra las del **Mundo** (`Stage::getProperties`, virtual: hora, velocidad del tiempo ×0–20 y cuánto dura un día en segundos reales) y el clic izquierdo abre su ventana. `PropertyPanel` tiene un constructor que recibe la lista de propiedades directamente; no puede mantener vivo el stage, pero no hace falta: `switchMap` cierra todos los paneles antes de cambiarlo.
 - **Las propiedades** son `Property` (`world/Property.h`): `Number` (slider; solo texto si no tiene `set`), `Toggle` (botón que lo cambia), `Action` (botón que hace algo) e `Info` (texto). No guardan el valor: `get`/`set` son funciones atadas al objeto, así que siempre muestran el estado real. Las da **`GameObject::getProperties(props)`**, virtual, como `describe`: cada clase añade las suyas tras las de su padre.
   - `GameObject`: posición (texto) y visible.
   - `DynamicGameObject`: velocidad horizontal (al cambiarla conserva la dirección del movimiento, o la del objeto si está parado), velocidad máxima, rozamiento y gravedad.
