@@ -41,6 +41,10 @@ public:
             std::vector<BoneInfo> in_bones);
   // Evaluates the animation at `seconds` (looping) and fills boneMats.
   void Update(double seconds);
+  // Poses the skeleton from outside (a ragdoll): `globals` has, for the bones it names, their
+  // object-space matrix (rotation + the position of the bone's joint, like NodeGlobal gives
+  // when a bone is animated). The bones it does not name keep their last pose.
+  void SetPose(const std::unordered_map<std::string, glm::mat4> &globals);
   // Object-space transform of a node for the last Update().
   glm::mat4 NodeGlobal(const aiNode *node) const;
 

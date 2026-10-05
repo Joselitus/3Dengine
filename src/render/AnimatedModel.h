@@ -2,6 +2,8 @@
 #define ANIMATED_MODEL
 
 #include "AnimatedMesh.h"
+#include <map>
+
 #include "Skeleton.h"
 
 // TODO Very carefully refactor this to extend Model
@@ -30,6 +32,7 @@ public:
   float fitScale;
   bool feetAtOrigin;
   bool idle = false; // see setIdle()
+  bool externalPose = false; // posed from outside (setBoneGlobals): the animation does not play
   glm::mat4 idleMat; // the skin matrix of every bone in the bind pose
   unsigned int animationIndex; // which aiAnimation is played (clamped to the file)
 
@@ -58,6 +61,13 @@ public:
   // Keep the model's own size and place instead of fitting it to 1.8 units around
   // the origin: for a model made in metres with its feet on y = 0 (the creature)
   void useRealSize();
+
+  // Poses the model from outside (see Skeleton::SetPose, a ragdoll): from then on the animation
+  // does not move it any more (Update does nothing) until usePlayedAnimation()
+  void setBoneGlobals(const std::map<std::string, glm::mat4> &globals);
+  void usePlayedAnimation() { externalPose = false; }
+  // The object-space matrix of a bone as the animation left it (false if it has no such bone)
+  bool getBoneGlobal(const std::string &name, glm::mat4 &matrix) const;
 
   void Update(double seconds);
   void Draw(Shader *shader);

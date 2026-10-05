@@ -327,7 +327,11 @@ classDiagram
     class FollaCulos {
         Criatura nocturna: corre en línea recta hacia el jugador
         -function targetPosition
+        -bool dead
+        -bool criticalCondition
         +setTarget(where)
+        +kill()
+        +applyCollision(push, velocityChange)
         +update(dt)
         +getLight(lights)
     }

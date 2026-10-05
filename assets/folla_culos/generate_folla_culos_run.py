@@ -4,7 +4,8 @@ animation "run": it gallops on four legs, hands and feet on the ground.
 glTF 2.0 binary (the engine's Assimp and f3d read it): one skin with the skeleton below, smooth
 skinning (up to 4 bones per vertex, weights from the distance to each bone), and one animation of
 24 frames per cycle. The bind pose is the T-pose of folla_culos.obj, so the same file is also the
-rigged T-pose model. Check it with f3d (--animation-time) and see check() at the end.
+rigged T-pose model. Animation 0 is "run" and animation 1 is "splat" (spread out against a surface,
+breathing; see splat_pose). Check it with f3d (--animation-time) and see check() at the end.
 
 Skeleton (bind = T-pose, joints at the points below; the hierarchy):
   pelvis > spine1 > spine2 > chest > neck > head
@@ -286,9 +287,67 @@ def skinned(R, P):
 
 
 # ------------------------------------------------------------------------- the glb
-def build():
-    times = [CYCLE * k / FRAMES for k in range(FRAMES + 1)]
-    samples = [pose((k % FRAMES) / FRAMES) for k in range(FRAMES + 1)]
+def rz(deg):
+    a = math.radians(deg); c, s_ = math.cos(a), math.sin(a)
+    return np.array([[c, -s_, 0], [s_, c, 0], [0, 0, 1]], float)
+
+
+# ---- the second animation: "splat". The creature spread out like a dead bug, flat against a surface
+# (the windshield of the RV when it has been run over): it faces +z (the surface is in front of it,
+# as if it had run into it), the arms and legs open out in the xy plane in a star, the head
+# drooping to one side, and it breathes very slowly: the chest and the shoulders rise and fall.
+SPLAT_PERIOD = 4.0      # seconds of one breath
+SPLAT_FRAMES = 24
+
+
+def splat_pose(t):
+    R, P = {}, {}
+    ph = 2 * math.pi * t
+    breath = math.sin(ph)
+    R['pelvis'] = rz(5.0)
+    P['pelvis'] = BIND['pelvis'] + np.array([0.0, 0.012 * breath, 0.0])
+    # the spine: a slight bend sideways and the chest swelling forwards and back with each breath
+    R['spine1'] = rz(3.0) @ Rx(-1.2 * breath)
+    R['spine2'] = rz(1.0) @ Rx(-2.2 * breath)
+    R['chest'] = rz(-2.0) @ Rx(-3.0 * breath)
+    R['neck'] = rz(8.0) @ Rx(2.0 * breath)
+    R['head'] = rz(16.0 + 1.5 * math.sin(ph - 0.8)) @ Rx(-4.0)
+    for name in ('spine1', 'spine2', 'chest', 'neck', 'head'):
+        parent = J[name][0]
+        P[name] = P[parent] + R[parent] @ (BIND[name] - BIND[parent])
+    # (angle in the xy plane, from the bind direction: arms start along +-x, legs hang along -y)
+    ARMS = {'L': (50.0, 66.0, 88.0), 'R': (36.0, 58.0, 74.0)}      # raised, like a bug's legs in the air
+    LEGS = {'L': (52.0, 24.0, 12.0), 'R': (40.0, 6.0, -4.0)}       # frog legs: knees out, shins down
+    for side in 'LR':
+        s_ = 1 if side == 'L' else -1
+        up, fore, hand = ARMS[side]
+        sway = 2.5 * math.sin(ph - 0.5)                            # the shoulders rise with the breath
+        R['upperarm_' + side] = rz(s_ * (up + sway))
+        R['forearm_' + side] = rz(s_ * (fore + 0.6 * sway))
+        R['hand_' + side] = rz(s_ * (hand + 0.3 * sway)) @ Rx(-14.0 * s_)   # fingers splayed
+        th, sh, ft = LEGS[side]
+        R['thigh_' + side] = rz(s_ * th)
+        R['shin_' + side] = rz(s_ * sh)
+        R['foot_' + side] = rz(s_ * ft) @ Rx(-20.0)
+        for name in ('upperarm_', 'thigh_'):
+            n = name + side
+            P[n] = P[J[n][0]] + R[J[n][0]] @ (BIND[n] - BIND[J[n][0]])
+        for name in ('forearm_', 'hand_'):
+            n = name + side
+            P[n] = P[J[n][0]] + R[J[n][0]] @ (BIND[n] - BIND[J[n][0]])
+        for name in ('shin_', 'foot_'):
+            n = name + side
+            P[n] = P[J[n][0]] + R[J[n][0]] @ (BIND[n] - BIND[J[n][0]])
+    return R, P
+
+
+ANIMATIONS = [('run', CYCLE, FRAMES, pose), ('splat', SPLAT_PERIOD, SPLAT_FRAMES, splat_pose)]
+
+
+def sample(period, frames, pose_fn):
+    """(times, {bone: [quaternions]}, root positions, samples) of one animation."""
+    times = [period * k / frames for k in range(frames + 1)]
+    samples = [pose_fn((k % frames) / frames) for k in range(frames + 1)]
     rot = {n: [] for n in ORDER}
     for R, P in samples:
         for n in ORDER:
@@ -299,8 +358,12 @@ def build():
         for k in range(1, len(rot[n])):
             if np.dot(rot[n][k], rot[n][k - 1]) < 0:
                 rot[n][k] = -rot[n][k]
-    root_pos = [P['pelvis'] for R, P in samples]
+    return times, rot, [P['pelvis'] for R, P in samples], samples
 
+
+def build():
+    sampled = [(name,) + sample(period, frames, fn) for name, period, frames, fn in ANIMATIONS]
+    samples = sampled[0][4]            # the run, for check()
     blob = bytearray()
     views, accessors = [], []
 
@@ -356,21 +419,24 @@ def build():
     mesh_node = len(nodes)
     nodes.append({'name': 'folla_culos', 'mesh': 0, 'skin': 0})
 
-    t_acc = add(np.array(times, '<f4').tobytes(), FLOAT, len(times), 'SCALAR', None, ([times[0]], [times[-1]]))
-    samplers, channels = [], []
-    for n in ORDER:
-        a = add(np.array(rot[n], '<f4').tobytes(), FLOAT, len(times), 'VEC4')
+    animations = []
+    for name, times, rot, root_pos, _ in sampled:
+        t_acc = add(np.array(times, '<f4').tobytes(), FLOAT, len(times), 'SCALAR', None, ([times[0]], [times[-1]]))
+        samplers, channels = [], []
+        for n in ORDER:
+            a = add(np.array(rot[n], '<f4').tobytes(), FLOAT, len(times), 'VEC4')
+            samplers.append({'input': t_acc, 'output': a, 'interpolation': 'LINEAR'})
+            channels.append({'sampler': len(samplers) - 1, 'target': {'node': INDEX[n], 'path': 'rotation'}})
+        a = add(np.array(root_pos, '<f4').tobytes(), FLOAT, len(times), 'VEC3')
         samplers.append({'input': t_acc, 'output': a, 'interpolation': 'LINEAR'})
-        channels.append({'sampler': len(samplers) - 1, 'target': {'node': INDEX[n], 'path': 'rotation'}})
-    a = add(np.array(root_pos, '<f4').tobytes(), FLOAT, len(times), 'VEC3')
-    samplers.append({'input': t_acc, 'output': a, 'interpolation': 'LINEAR'})
-    channels.append({'sampler': len(samplers) - 1, 'target': {'node': INDEX['pelvis'], 'path': 'translation'}})
+        channels.append({'sampler': len(samplers) - 1, 'target': {'node': INDEX['pelvis'], 'path': 'translation'}})
+        animations.append({'name': name, 'samplers': samplers, 'channels': channels})
 
     gltf = {'asset': {'version': '2.0', 'generator': 'generate_folla_culos_run.py'},
             'scene': 0, 'scenes': [{'nodes': [0, mesh_node]}], 'nodes': nodes,
             'meshes': [{'name': 'folla_culos', 'primitives': primitives}], 'materials': materials,
             'skins': [{'joints': list(range(len(ORDER))), 'inverseBindMatrices': ibm_acc, 'skeleton': 0}],
-            'animations': [{'name': 'run', 'samplers': samplers, 'channels': channels}],
+            'animations': animations,
             'buffers': [{'byteLength': len(blob)}], 'bufferViews': views, 'accessors': accessors}
     js = json.dumps(gltf, separators=(',', ':')).encode()
     js += b' ' * (-len(js) % 4)

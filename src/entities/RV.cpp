@@ -180,6 +180,58 @@ void RV::applyCollision(const vec3 &push, const vec3 &velocityChange) {
     breakWindshield();
 }
 
+// The slanted front face of the body (generate_rv.py: A = (z 3.55, y 1.7) to B = (z 3.0, y 2.95)),
+// and the middle of the glass in it (T0 = 0.08 to T1 = 0.85 along it)
+static const float GLASS_MID_Z = 3.55f - 0.55f * 0.465f, GLASS_MID_Y = 1.7f + 1.25f * 0.465f;
+static const float SLOPE_UP_Y = 1.25f / 1.3658f, SLOPE_UP_Z = -0.55f / 1.3658f; // unit vector up it
+// Where its front is, for isInFront: from the bumper ahead
+static const float FRONT_Z = 3.55f, FRONT_REACH = 1.9f, FRONT_HALF_WIDTH = 1.7f;
+
+void RV::windshieldFrame(vec3 &center, vec3 &up, vec3 &normal) const {
+  center = position + vec3(rotation * vec4(0.0f, GLASS_MID_Y, GLASS_MID_Z, 0.0f));
+  up = vec3(rotation * vec4(0.0f, SLOPE_UP_Y, SLOPE_UP_Z, 0.0f));
+  // the outward normal: perpendicular to the slope, pointing forwards and up
+  normal = vec3(rotation * vec4(0.0f, -SLOPE_UP_Z, SLOPE_UP_Y, 0.0f));
+}
+
+// The side profile of the body (generate_rv.py: PROF, (z, y), counter-clockwise) and its half width
+static const float BODY_PROFILE[7][2] = {{-3.55f, 0.55f}, {3.55f, 0.55f}, {3.55f, 1.7f}, {3.0f, 2.95f},
+                                         {2.85f, 3.05f}, {-3.4f, 3.05f}, {-3.55f, 2.9f}};
+static const float BODY_HALF_WIDTH = 1.2f;
+
+void RV::pushOutOfBody(vec3 &point, float radius) const {
+  vec3 local = vec3(transpose(mat3(rotation)) * (point - position));
+  // The body is the profile extruded along x: a convex shape, the planes of its edges (outward
+  // normals) and its two sides. The sphere is inside if it is inside all of them; then it
+  // leaves through the nearest.
+  vec3 bestNormal(0.0f);
+  float bestDistance = -1e30f;
+  auto consider = [&](const vec3 &normal, float distance) {
+    if (distance > bestDistance) {
+      bestDistance = distance;
+      bestNormal = normal;
+    }
+  };
+  for (int i = 0; i < 7; i++) {
+    const float *a = BODY_PROFILE[i], *b = BODY_PROFILE[(i + 1) % 7];
+    vec2 edge(b[0] - a[0], b[1] - a[1]);
+    vec2 n = normalize(vec2(edge.y, -edge.x)); // outward for a counter-clockwise profile (z, y)
+    consider(vec3(0.0f, n.y, n.x), n.x * (local.z - a[0]) + n.y * (local.y - a[1]));
+  }
+  consider(vec3(1.0f, 0.0f, 0.0f), local.x - BODY_HALF_WIDTH);
+  consider(vec3(-1.0f, 0.0f, 0.0f), -local.x - BODY_HALF_WIDTH);
+  if (bestDistance >= radius)
+    return; // outside (or touching) in at least one direction
+  local += bestNormal * (radius - bestDistance);
+  point = position + vec3(rotation * vec4(local, 0.0f));
+}
+
+bool RV::isInFront(const vec3 &p) const {
+  vec3 local = vec3(transpose(mat3(rotation)) * (p - position));
+  return local.z > FRONT_Z - FRONT_REACH && local.z < FRONT_Z + 2.0f * FRONT_REACH &&
+         std::fabs(local.x) < FRONT_HALF_WIDTH;
+}
+
 void RV::setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken) {
   windshieldPart = addPart(intact);
   brokenWindshieldPart = addPart(broken);

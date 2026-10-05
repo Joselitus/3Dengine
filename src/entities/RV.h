@@ -195,6 +195,19 @@ public:
   // glass) that replaces it when the windshield is damaged
   void setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken);
   bool isWindshieldDamaged() const { return damagedWindshield; }
+  // The windshield as a surface, in the world: the middle of the glass, the way up along its
+  // slope and its outward normal (for what gets stuck on it: see FollaCulos)
+  void windshieldFrame(glm::vec3 &center, glm::vec3 &up, glm::vec3 &normal) const;
+  // Is the world point `p` right in front of the vehicle, where its front would hit it? (within
+  // its width, from near its bumper to a body length out)
+  bool isInFront(const glm::vec3 &p) const;
+  // Pushes a sphere of this radius out of the vehicle's body (its side profile, a convex
+  // shape: for a ragdoll that falls on it)
+  void pushOutOfBody(glm::vec3 &point, float radius) const;
+  // Its velocity in the world (m/s)
+  glm::vec3 getVelocity() const { return body ? body->getVelocity() : glm::vec3(0.0f); }
+  // How fast it goes forwards (m/s)
+  float forwardSpeed() const { return body ? body->getForwardSpeed() : 0.0f; }
   void repairWindshield(); // the intact windshield again
   // Fuel level, 0 (empty) to 1 (full). Driving burns it in proportion to the speed; with none
   // left the engine does not push any more (shown on the gauge)

@@ -24,6 +24,14 @@ void Skeleton::Init(aiNode *in_root, const aiAnimation *in_animation,
   Update(0.0);
 }
 
+void Skeleton::SetPose(const std::unordered_map<std::string, glm::mat4> &globals) {
+  for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++) {
+    auto it = globals.find(bones[i].name);
+    if (it != globals.end())
+      boneMats[i] = globalInverseTransform * it->second * bones[i].offset;
+  }
+}
+
 glm::mat4 Skeleton::NodeGlobal(const aiNode *node) const {
   auto it = nodeGlobals.find(node);
   return it == nodeGlobals.end() ? glm::mat4(1.0f) : it->second;

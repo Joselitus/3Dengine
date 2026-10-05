@@ -184,8 +184,22 @@ vector<Texture> AnimatedModel::loadMaterialTextures(aiMaterial *mat,
 }
 
 void AnimatedModel::Update(double seconds) {
-  if (!idle)
+  if (!idle && !externalPose)
     skeleton.Update(seconds);
+}
+
+void AnimatedModel::setBoneGlobals(const std::map<std::string, glm::mat4> &globals) {
+  externalPose = true;
+  std::unordered_map<std::string, glm::mat4> byName(globals.begin(), globals.end());
+  skeleton.SetPose(byName);
+}
+
+bool AnimatedModel::getBoneGlobal(const std::string &name, glm::mat4 &matrix) const {
+  const aiNode *node = scene ? scene->mRootNode->FindNode(name.c_str()) : nullptr;
+  if (!node)
+    return false;
+  matrix = skeleton.NodeGlobal(node);
+  return true;
 }
 
 void AnimatedModel::setIdle(bool on) {

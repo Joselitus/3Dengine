@@ -469,7 +469,19 @@ public:
     // foot, or the RV when driving). The model is its own size, in metres.
     creature = make_shared<FollaCulos>(
         make_shared<AnimatedModel>("../assets/folla_culos/folla_culos_run.glb", true),
+        make_shared<AnimatedModel>("../assets/folla_culos/folla_culos_run.glb", false, 1),
         sound, speech);
+    // If it is run over from the front it ends up stuck on the windshield of the RV
+    creature->setFrontHitTest([this](const FollaCulos &c) {
+      return rv->forwardSpeed() > 1.0f && rv->isInFront(c.getPosition());
+    });
+    creature->setRagdollWorld(
+        [this](float x, float z, float &height) { return floorAt(x, z, height); },
+        [this](vec3 &point, float radius) { rv->pushOutOfBody(point, radius); },
+        [this]() { return rv->getVelocity(); });
+    creature->setSurfaceFrame([this](vec3 &center, vec3 &up, vec3 &normal) {
+      rv->windshieldFrame(center, up, normal);
+    });
     creature->setPosition(18.0f, groundAt(18.0f, 24.0f), 24.0f);
     creature->setGravity(25.0f);
     creature->setTarget([this]() { return player->getPosition(); });
