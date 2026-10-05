@@ -74,10 +74,10 @@ void AnimatedMesh::Draw(Shader *shader) {
   bool flat = textures.empty() && (hasColor || hasEmissive);
   shader->setInt("useColor", flat ? 1 : 0);
   if (flat) {
-    glm::vec3 shown = hasEmissive ? emissive : color;
+    glm::vec3 shown = hasEmissive ? (glowing ? emissive : color * 0.12f) : color;
     shader->setVector3("diffuseColor", shown.x, shown.y, shown.z);
   }
-  if (hasEmissive)
+  if (hasEmissive && glowing)
     shader->setInt("unlit", 2);
   shader->setFloat("alpha", 1.0f);
 
@@ -85,6 +85,6 @@ void AnimatedMesh::Draw(Shader *shader) {
   glBindVertexArray(VAO);
   glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
   glBindVertexArray(0);
-  if (hasEmissive)
+  if (hasEmissive && glowing)
     shader->setInt("unlit", 0);
 }

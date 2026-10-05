@@ -41,6 +41,7 @@ private:
   bool stuck = false;
   bool ragdolling = false;
   Ragdoll ragdoll;
+  std::shared_ptr<AnimatedModel> runningModel, splatModel; // (to switch the glow of the eyes off)
   Ragdoll::FloorQuery floorHeight;
   Ragdoll::PushOut pushOut;
   std::function<glm::vec3()> carrierVelocity; // the vehicle it is stuck on, for when it lets go
@@ -67,9 +68,12 @@ public:
 
   // Mesh 0 is the running one and mesh 1 the "splat" one (the same file, animation 1)
   enum Mesh { Running = 0, Splat = 1 };
-  // How high its chest is, and how far the chest sticks out of the surface it is stuck on
-  static constexpr float CHEST_HEIGHT = 1.45f;
+  // The point of its body (its height, a bit below the head, so that the face shows in the glass
+  // and not above the roof) that is put in the middle of the surface it is stuck on, how far the
+  // body sticks out of it, and how much it is turned about the normal (degrees)
+  static constexpr float ANCHOR_HEIGHT = 1.95f;
   static constexpr float STUCK_OFFSET = 0.12f;
+  static constexpr float STUCK_ROLL = 10.0f;
   // It lets go of the windshield when the vehicle goes slower than this (m/s)
   static constexpr float RAGDOLL_SPEED = 3.0f;
 
@@ -97,6 +101,10 @@ public:
   }
   // Lets go now (what slowing down does): dead, and a ragdoll
   void startRagdoll();
+
+private:
+  void die(); // the eyes stop glowing
+public:
   void setFrontHitTest(std::function<bool(const FollaCulos &)> test) { frontHit = test; }
   void setSurfaceFrame(std::function<void(glm::vec3 &, glm::vec3 &, glm::vec3 &)> frame) {
     surfaceFrame = frame;

@@ -29,6 +29,7 @@ private:
 
   // Flat colours for a material without a texture, and a glow (emissive) colour
   bool hasColor = false, hasEmissive = false;
+  bool glowing = true;
   glm::vec3 color = glm::vec3(1.0f), emissive = glm::vec3(0.0f);
 
   //  render data
@@ -46,6 +47,8 @@ public:
   // emissive (drawn flat, unaffected by the light: it glows)
   void setColor(const glm::vec3 &c) { color = c; hasColor = true; }
   void setEmissive(const glm::vec3 &c) { emissive = c; hasEmissive = true; }
+  // An emissive mesh stops glowing (glowing = false): it is drawn lit, in its colour much darker
+  void setGlowing(bool on) { glowing = on; }
   void Draw(Shader *shader);
 };
 

@@ -61,6 +61,11 @@ public:
   // Keep the model's own size and place instead of fitting it to 1.8 units around
   // the origin: for a model made in metres with its feet on y = 0 (the creature)
   void useRealSize();
+  // The meshes that glow (emissive materials: the eyes) glow or not
+  void setGlowing(bool on) {
+    for (AnimatedMesh &mesh : meshes)
+      mesh.setGlowing(on);
+  }
 
   // Poses the model from outside (see Skeleton::SetPose, a ragdoll): from then on the animation
   // does not move it any more (Update does nothing) until usePlayedAnimation()

@@ -87,13 +87,19 @@ int jointOf(int point) {
 FollaCulos::FollaCulos(shared_ptr<AnimatedModel> running, shared_ptr<AnimatedModel> splat,
                        SoundEngine &engine, SpeechSynthesizer &synthesizer)
     : Npc(running, "Folla Culos", vector<string>(), engine, synthesizer),
-      ragdoll(bindPoints(), bones(), links()) {
+      ragdoll(bindPoints(), bones(), links()), runningModel(running), splatModel(splat) {
   running->useRealSize();
   splat->useRealSize();
   addMesh(splat); // mesh 1
   setDrag(0.0f);               // it runs at its own pace (no NPC drag)
   setMaxSpeed(RUN_SPEED);
   setMaxAcceleration(60.0f);
+}
+
+// Dead: the eyes stop glowing (and giving off light: see getLight)
+void FollaCulos::die() {
+  runningModel->setGlowing(false);
+  splatModel->setGlowing(false);
 }
 
 void FollaCulos::kill() {
@@ -109,6 +115,7 @@ void FollaCulos::kill() {
     setMesh(Splat);
   } else {
     dead = true;
+    die();
     setVisible(false);    // not drawn (and with it, its light: see getLight)
   }
 }
@@ -132,6 +139,7 @@ void FollaCulos::startRagdoll() {
   stuck = false;
   dead = true;
   ragdolling = true;
+  die();
   setMesh(Running); // the model whose bones the ragdoll poses
   rotation = mat4(1.0f);
   vec3 velocity = carrierVelocity ? carrierVelocity() : vec3(0.0f);
@@ -155,7 +163,10 @@ void FollaCulos::update(double dt) {
       surfaceFrame(center, up, normal);
       vec3 into = -normal;
       mat3 axes(cross(up, into), up, into);
-      position = center + normal * STUCK_OFFSET - axes * vec3(0.0f, CHEST_HEIGHT, 0.0f);
+      float roll = radians(STUCK_ROLL);
+      axes = axes * mat3(vec3(cos(roll), sin(roll), 0.0f), vec3(-sin(roll), cos(roll), 0.0f),
+                         vec3(0.0f, 0.0f, 1.0f)); // turned about its own z (the normal)
+      position = center + normal * STUCK_OFFSET - axes * vec3(0.0f, ANCHOR_HEIGHT, 0.0f);
       rotation = mat4(axes);
       splatClock += dt;
       if (aniModel)
@@ -208,10 +219,9 @@ void FollaCulos::getLight(vector<SpotLight> &lights) const {
   if (!visible)
     return;
   vec3 forward = vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f));
-  if (ragdolling) // (the head is wherever the ragdoll has it)
-    lights.push_back(SpotLight::omni(ragdoll.getPoints()[HEAD], vec3(0.55f, 0.42f, 0.02f),
-                                     EYE_LIGHT_RANGE));
-  else if (!stuck)
+  if (dead) // (dead eyes do not shine)
+    return;
+  if (!stuck)
   lights.push_back(SpotLight::omni(position + vec3(0.0f, EYE_HEIGHT, 0.0f) + forward * 0.5f,
                                    vec3(0.55f, 0.42f, 0.02f), EYE_LIGHT_RANGE));
 }
