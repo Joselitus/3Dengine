@@ -249,6 +249,11 @@ public:
     if (inVehicle)
       rv->toggleEngine();
   }
+  // Space: the handbrake, only while the penguin is driving
+  void toggleHandbrake() override {
+    if (inVehicle)
+      rv->toggleHandbrake();
+  }
   // C: inside the RV or behind it, only while the penguin is driving
   void toggleVehicleCamera() override {
     if (inVehicle)
@@ -435,8 +440,10 @@ public:
     player = walker;
 
     // A satellite next to the start, within reach (see Interactable)
-    auto satellite = make_shared<Satellite>(loadModel("../assets/cube/cube.obj"),
-                                            vec3(4.5f, groundAt(4.5f, 2.0f), 2.0f));
+    auto satellite = make_shared<Satellite>(
+        loadModel("../assets/antenna/antenna_dish.obj"),
+        loadModel("../assets/antenna/antenna_base.obj"),
+        vec3(4.5f, groundAt(4.5f, 2.0f), 2.0f));
     add(satellite);
     add(satellite->getMount());
     interactables.push_back(satellite.get());
@@ -714,6 +721,10 @@ int main(int argc, char **argv) {
   // Engine key: switches the vehicle's engine on or off
   ui.bindKey([&controls]() { return controls.key(Action::Engine); },
              [&]() { stage->toggleEngine(); });
+
+  // Handbrake key: pulls or releases the vehicle's handbrake
+  ui.bindKey([&controls]() { return controls.key(Action::Handbrake); },
+             [&]() { stage->toggleHandbrake(); });
 
   // Vehicle camera key: inside the vehicle or from behind
   ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },

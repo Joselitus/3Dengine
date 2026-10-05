@@ -66,6 +66,7 @@ private:
   float facing = 3.14159265f; // initial heading, radians (pi = towards -z)
   float throttle = 0.0f;      // -1 (reverse) .. 1 (forward)
   float steering = 0.0f;      // -1 (left) .. 1 (right)
+  bool handbrakeOn = false;   // pulled by the driver (Space); it stays until released
 
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
@@ -225,15 +226,14 @@ public:
 
   // What happens when the player uses the RV (the stage hands it the controls)
   void setEnterAction(std::function<void()> action) { enterAction = action; }
-  // The engine starts off (also each time the player gets in): getting out switches it off and
-  // getting in does not start it, the Engine key does
-  // If its lights are on when the player gets out they stay on (parkedLights: the engine is off
-  // but the switch still gives them power) until somebody gets in again.
+  // The engine starts off and only the Engine key switches it on or off: getting out leaves it
+  // as it is (an empty RV with the engine running stays put, its handbrake on, and burns no
+  // fuel), so getting back in finds it running.
+  // If its lights are on when the player gets out they stay on (parkedLights: the switch still
+  // gives them power, even if the engine is off) until somebody gets in again.
   void setOccupied(bool occupied) {
     parkedLights = !occupied && lightsActive();
     this->occupied = occupied;
-    if (!occupied)
-      setEngine(false); // getting out switches it off; getting in does not start it (press R)
   }
   // The engine (the ignition key): off, the vehicle can't be driven (it coasts and its brake
   // holds it), both gauge needles drop to empty whatever the real values, the key turns back
@@ -272,6 +272,12 @@ public:
   void followCamera() override;
   // Stores the input; the camera heading is ignored on purpose
   void control(glm::vec2 dir, float up, float cameraYaw) override;
+  // The handbrake the driver pulls or releases (Space): while it is pulled every wheel brakes
+  // (VehicleBody::setHandbrake), until it is released. It keeps its state when the driver gets
+  // out (an empty RV brakes anyway) and in.
+  bool isHandbrakeOn() const { return handbrakeOn; }
+  void setHandbrakeOn(bool on) { handbrakeOn = on; }
+  void toggleHandbrake() { handbrakeOn = !handbrakeOn; }
   void update(double dt) override;
   // The suspension and the floor: moves the RV
   bool contactFloor(const Stage &stage, double dt) override;

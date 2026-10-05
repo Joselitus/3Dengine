@@ -13,9 +13,13 @@
 using namespace std;
 using namespace glm;
 
-// Proportions of the post
-#define POST_HEIGHT 0.8f
-#define POST_WIDTH 0.18f
+// The hinge the dish tilts on, in the frame of antenna_base.obj (printed by
+// assets/antenna/split_antenna.py): on the base's south edge (+z), at the
+// dish's lowest point
+static const vec3 HINGE(0.0f, 0.203f, 0.780f);
+// The zenith the dish was modelled at (also printed by split_antenna.py): it
+// starts like that
+#define MODELLED_ZENITH 45.0f
 // Below this difference (degrees) an axis counts as on target
 #define ON_TARGET 0.01f
 
@@ -44,16 +48,13 @@ static string format(const char *pattern, ...) {
   return text;
 }
 
-Satellite::Satellite(shared_ptr<Model> cube, vec3 ground, float size)
-    : GameObject(cube), mount(make_shared<GameObject>(cube)) {
-  mount->setPosition(ground.x, ground.y + POST_HEIGHT / 2, ground.z);
-  // A non-uniform scale fits in the rotation matrix
-  mount->setRotation(glm::scale(mat4(1.0f), vec3(POST_WIDTH, POST_HEIGHT,
-                                                 POST_WIDTH)));
+Satellite::Satellite(shared_ptr<Model> dish, shared_ptr<Model> base,
+                     vec3 ground, float size)
+    : GameObject(dish), mount(make_shared<GameObject>(base)), ground(ground),
+      size(size) {
   setScale(size);
-  // High enough that the tilted head never sinks into the post
-  base = ground + vec3(0.0f, POST_HEIGHT + size * 0.75f, 0.0f);
-  setPosition(base.x, base.y, base.z);
+  mount->setScale(size);
+  zenith = targetZenith = MODELLED_ZENITH; // as it was modelled
   applyOrientation();
 }
 
@@ -86,12 +87,17 @@ void Satellite::update(double dt) {
 }
 
 // The head starts with its boresight (+y) up. Tilting it by the zenith
-// around x brings it down towards north (-z); turning that by the azimuth
-// around y (clockwise from above, hence the minus) gives the heading.
-// See getPointing() for the resulting vector.
+// around x (its hinge) brings it down towards north (-z); turning that by the
+// azimuth around y (clockwise from above, hence the minus) gives the heading.
+// See getPointing() for the resulting vector. The base turns by the azimuth
+// too, and carries the hinge round with it.
 void Satellite::applyOrientation() {
-  mat4 m = rotate(mat4(1.0f), -radians(azimuth), vec3(0.0f, 1.0f, 0.0f));
-  setRotation(rotate(m, -radians(zenith), vec3(1.0f, 0.0f, 0.0f)));
+  mat4 turn = rotate(mat4(1.0f), -radians(azimuth), vec3(0.0f, 1.0f, 0.0f));
+  mount->setPosition(ground.x, ground.y, ground.z);
+  mount->setRotation(turn);
+  vec3 hinge = ground + vec3(turn * vec4(HINGE * size, 0.0f));
+  setPosition(hinge.x, hinge.y, hinge.z);
+  setRotation(rotate(turn, -radians(zenith), vec3(1.0f, 0.0f, 0.0f)));
 }
 
 void Satellite::buildInterface(UIPanel &panel) {
@@ -138,10 +144,10 @@ void Satellite::buildInterface(UIPanel &panel) {
 }
 
 void Satellite::teleport(const vec3 &position) {
-  vec3 delta = position - this->position;
+  // `position` is where the head (its hinge) goes: the base goes as far
+  ground += position - this->position;
   GameObject::teleport(position);
-  base += delta;
-  mount->translate(delta);
+  applyOrientation();
 }
 
 void Satellite::turn(float radians) {

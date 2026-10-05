@@ -94,6 +94,9 @@ public:
   // The engine key was pressed: a map with a vehicle the player is driving switches its
   // engine on or off
   virtual void toggleEngine() {}
+  // The handbrake key was pressed: a map with a vehicle the player is driving pulls or
+  // releases its handbrake
+  virtual void toggleHandbrake() {}
   // Adds the spot lights that are on right now (the shader takes the first
   // few; see the main loop)
   virtual void getSpotLights(std::vector<SpotLight> &lights) const {}

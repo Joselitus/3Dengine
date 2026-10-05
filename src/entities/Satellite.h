@@ -6,8 +6,11 @@
 #include "GameObject.h"
 #include "Interactable.h"
 
-// A sky-pointing device on an alt-azimuth mount, like a satellite dish or a
-// telescope: a cube (the head, whose +y face is the boresight) on a post.
+// A sky-pointing device on an alt-azimuth mount: a satellite dish (modelled in
+// Blender, assets/antenna/: see split_antenna.py). The head is the dish with
+// its arm and receiver (the boresight is along the arm, +y of its model); it
+// tilts around a hinge on the dish's lowest edge, on the edge of the base, and
+// the base turns with the azimuth like a turntable, carrying the head.
 //
 // Angles are in degrees:
 //   azimuth: heading of the boresight, from north (-z) clockwise to east (+x),
@@ -19,12 +22,14 @@
 // the slew rate, along the shortest way for the azimuth, like a real mount.
 // The player controls it through its interface (Interactable).
 //
-// The Satellite object is the head. The post doesn't turn, so it is a second
-// GameObject (getMount()) that has to be added to the stage as well.
+// The Satellite object is the head. The base moves differently (it doesn't
+// tilt), so it is a second GameObject (getMount()) that has to be added to the
+// stage as well.
 class Satellite : public GameObject, public Interactable {
 private:
-  std::shared_ptr<GameObject> mount; // the post, fixed
-  glm::vec3 base;                    // centre of the head
+  std::shared_ptr<GameObject> mount; // the base, turning with the azimuth
+  glm::vec3 ground;                  // where the base stands (its bottom centre)
+  float size;                        // scale of both models
 
   float azimuth = 0.0f, zenith = 0.0f;
   float targetAzimuth = 0.0f, targetZenith = 0.0f;
@@ -37,13 +42,15 @@ public:
   static constexpr float MIN_SLEW_RATE = 1.0f;
   static constexpr float MAX_SLEW_RATE = 120.0f;
 
-  // `ground`: point on the floor where the post stands; `size`: side of the
-  // head
-  Satellite(std::shared_ptr<Model> cube, glm::vec3 ground, float size = 0.7f);
+  // `dish`: antenna_dish.obj, `base`: antenna_base.obj; `ground`: point on
+  // the floor where the base stands; `size`: scale of the models (1 = as
+  // modelled, a dish 4.5 m wide)
+  Satellite(std::shared_ptr<Model> dish, std::shared_ptr<Model> base,
+            glm::vec3 ground, float size = 0.5f);
   std::shared_ptr<GameObject> getMount() const { return mount; }
-  // The post goes with it
+  // The base goes with it
   void teleport(const glm::vec3 &position) override;
-  // Turns its azimuth (and the target's) at once; the post stays
+  // Turns its azimuth (and the target's) at once, base included
   void turn(float radians) override;
   // From its azimuth (its rotation also has the tilt of the zenith)
   float getHeading() const override;
@@ -72,7 +79,10 @@ public:
 
   // Interactable
   std::string getInteractionName() const override { return "Satelite"; }
-  glm::vec3 getInteractionPoint() const override { return base; }
+  // Above the middle of the base
+  glm::vec3 getInteractionPoint() const override {
+    return ground + glm::vec3(0.0f, 1.0f, 0.0f);
+  }
   void buildInterface(UIPanel &panel) override;
 };
 

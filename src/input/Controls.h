@@ -17,6 +17,7 @@ enum class Action {
   Headlights,   // turn the lights of the vehicle being driven on/off (F)
   VehicleCamera, // change the point of view of the vehicle being driven (C)
   Engine,        // switch the engine of the vehicle being driven on/off (R)
+  Handbrake,     // pull or release the handbrake of the vehicle being driven (Space)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)

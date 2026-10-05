@@ -625,7 +625,8 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   // when it is nearly stopped)
   bool noEngine = fuel <= 0.0f || !engineOn; // no fuel, or the engine is switched off
   float speedNow = body->getForwardSpeed();
-  body->setHandbrake(!occupied || (noEngine && std::fabs(speedNow) < EMPTY_HOLD_SPEED));
+  body->setHandbrake(!occupied || handbrakeOn ||
+                     (noEngine && std::fabs(speedNow) < EMPTY_HOLD_SPEED));
   body->setInput(noEngine ? 0.0f : throttle, -steering);
   body->step(dt, [&stage](float x, float z, float maxY, float &height,
                           vec3 &normal) {
@@ -677,8 +678,8 @@ void RV::describe(std::vector<std::string> &lines) const {
   lines.push_back(std::string("Camara: ") +
                   (cameraView == CameraView::Cockpit ? "cabina" : "exterior"));
   lines.push_back(std::string("Ocupado: ") + (occupied ? "si" : "no") +
-                  textFormat("  Acelerador: %.1f  Volante: %.1f", throttle,
-                             steering));
+                  textFormat("  Acelerador: %.1f  Volante: %.1f%s", throttle,
+                             steering, handbrakeOn ? "  Freno de mano" : ""));
   if (!body)
     return; // no physics until the first update
   lines.push_back(textFormat("Vehiculo: %.2f m/s hacia delante",
@@ -724,6 +725,9 @@ void RV::getProperties(std::vector<Property> &properties) {
   properties.push_back(Property::toggle(
       "Motor encendido", [this]() { return engineOn; },
       [this](bool on) { setEngine(on); }));
+  properties.push_back(Property::toggle(
+      "Freno de mano", [this]() { return handbrakeOn; },
+      [this](bool on) { setHandbrakeOn(on); }));
   properties.push_back(Property::toggle(
       "Faros encendidos", [this]() { return headlightsOn; },
       [this](bool on) { setHeadlights(on); }));
