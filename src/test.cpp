@@ -82,6 +82,12 @@ GLFWwindow *initializeGLFW(const char *windowname) {
                       // global for simplicity)
   if (FULLSCREEN) {
     const GLFWvidmode *mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+    // Ask for the current mode exactly: otherwise GLFW picks the highest
+    // refresh rate and switches video mode, which blanks every screen.
+    glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+    glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+    glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+    glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
     int window_width = mode->width;
     int window_height = mode->height;
     window = glfwCreateWindow(window_width, window_height, windowname,
