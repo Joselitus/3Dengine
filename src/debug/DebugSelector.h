@@ -100,6 +100,7 @@ public:
     setMode(mode == Mode::Inspect ? Mode::Off : Mode::Inspect);
   }
   Mode getMode() const { return mode; }
+  void turnOff() { setMode(Mode::Off); }
   // Whether the mouse turns the selected object now (placement mode, right
   // button held): then the camera must not turn with it
   // (Controller::setLookEnabled)

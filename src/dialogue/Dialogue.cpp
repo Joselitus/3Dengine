@@ -51,5 +51,4 @@ void Dialogue::buildPanel(UIPanel &panel) {
         current++;
         sayCurrent();
       }));
-  panel.add(new UILabel("Esc: terminar", UITheme::MUTED));
 }

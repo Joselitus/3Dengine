@@ -134,7 +134,7 @@ void Satellite::buildInterface(UIPanel &panel) {
   presets->add(new UIButton("Norte 45", [this]() { pointAt(0, 45); }));
   presets->add(new UIButton("Parar", [this]() { stop(); }));
 
-  panel.add(new UILabel("Norte = -z. Esc: cerrar", UITheme::MUTED));
+  panel.add(new UILabel("Norte = -z", UITheme::MUTED));
 }
 
 void Satellite::teleport(const vec3 &position) {

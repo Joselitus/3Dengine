@@ -21,6 +21,7 @@ Controls::Controls() {
   bind(Action::DebugSelect, GLFW_KEY_1);
   bind(Action::DebugPlace, GLFW_KEY_2);
   bind(Action::DebugInspect, GLFW_KEY_0);
+  bind(Action::Console, GLFW_KEY_T);
 }
 
 const char *Controls::describe(Action action) {
@@ -38,6 +39,7 @@ const char *Controls::describe(Action action) {
   case Action::DebugSelect: return "Modo seleccion de objetos (debug)";
   case Action::DebugPlace: return "Modo colocacion de objetos (debug)";
   case Action::DebugInspect: return "Modo propiedades de objetos (debug)";
+  case Action::Console: return "Consola de comandos (o /)";
   case Action::Count: break;
   }
   return "?";
@@ -58,6 +60,7 @@ const char *Controls::id(Action action) {
   case Action::DebugSelect: return "debug_select";
   case Action::DebugPlace: return "debug_place";
   case Action::DebugInspect: return "debug_inspect";
+  case Action::Console: return "console";
   case Action::Count: break;
   }
   return "?";
@@ -125,7 +128,8 @@ const char *Controls::group(Action action) {
   case Action::Maps:
   case Action::DebugSelect:
   case Action::DebugPlace:
-  case Action::DebugInspect: return "Menus";
+  case Action::DebugInspect:
+  case Action::Console: return "Menus";
   default: return "Movimiento";
   }
 }
@@ -160,7 +164,6 @@ const vector<Controls::Fixed> &Controls::fixedControls() {
   static const vector<Fixed> fixed = {
       {"Movimiento", "Mirar alrededor", "Raton"},
       {"Menus", "Menu de pausa / atras / cerrar panel", "Esc"},
-      {"Menus", "Objetos en modo debug", "Clic izq./der."},
   };
   return fixed;
 }

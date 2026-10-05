@@ -15,6 +15,8 @@
 #include "Camera.h"
 #include "Controller.h"
 #include "Controls.h"
+#include "CommandConsole.h"
+#include "Commands.h"
 #include "DebugSelector.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
@@ -585,6 +587,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<GameStage> stage;
   int currentMap = -1;
   int requestedMap = 0; // switched to at a safe point of the main loop
+  bool resetRequested = false; // start the current map again, there too
 
   // Hands the map's light and sky colours to the shader (they change with
   // its time of day, so this is done every frame)
@@ -624,6 +627,7 @@ int main(int argc, char **argv) {
 
   // Replaces the current map: nothing may still point into the old one (its
   // panels, the interaction targets, the controller's character)
+  bool mapLoaded = false; // switchMap ran this frame (see the main loop)
   auto switchMap = [&](int index) {
     std::unique_ptr<GameStage> next = maps[index].create();
     if (!next) {
@@ -648,6 +652,7 @@ int main(int argc, char **argv) {
       stage->setTimeOfDay(startHour);
     if (dayDuration >= 0.0f)
       stage->setDayDuration(dayDuration);
+    mapLoaded = true;
   };
 
   // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
@@ -692,6 +697,29 @@ int main(int argc, char **argv) {
   ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },
              [&]() { stage->toggleVehicleCamera(); });
 
+  // The command console (key T): the commands it knows, and what has been
+  // typed in it (kept while the game runs)
+  Commands commands;
+  commands.add("reset", "empieza el mapa de nuevo, como al arrancar el juego",
+               [&](const std::vector<std::string> &) {
+                 resetRequested = true; // not from inside the UI's update
+                 return std::string("Reiniciando el mapa...");
+               });
+  std::vector<std::string> commandHistory;
+  auto openConsole = [&](const std::string &text) {
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    const float MARGIN = 16.0f;
+    UIPanel *console = ui.open(new CommandConsole(commands, commandHistory,
+                                                  width - 2 * MARGIN, text));
+    console->moveTo(MARGIN, height - console->preferredHeight() - MARGIN);
+  };
+  ui.bindKey([&controls]() { return controls.key(Action::Console); },
+             [&]() { openConsole(""); });
+  // Typing '/' (whatever key it is on the layout) opens it with the '/' of a
+  // command already written
+  ui.bindChar('/', [&]() { openConsole("/"); });
+
   // Main loop
   double lastTime = glfwGetTime();
   while (!glfwWindowShouldClose(window)) {
@@ -700,6 +728,13 @@ int main(int argc, char **argv) {
     double dt = now - lastTime;
     lastTime = now;
 
+    // "reset" (console): a new copy of the current map, as if the game had
+    // just started (also without the debug modes)
+    if (resetRequested) {
+      resetRequested = false;
+      selector.turnOff();
+      switchMap(currentMap);
+    }
     // A map change asked for (at start, or from the selector) happens here,
     // outside of any UI callback
     if (requestedMap >= 0) {
@@ -708,6 +743,13 @@ int main(int argc, char **argv) {
       requestedMap = -1;
       if (!stage)
         break; // not even the first map could be loaded
+    }
+    // Loading a map takes a while: that time must not reach the next frame as
+    // one huge step of the physics
+    if (mapLoaded) {
+      mapLoaded = false;
+      lastTime = glfwGetTime();
+      dt = 0.0;
     }
 
     camera.resize();

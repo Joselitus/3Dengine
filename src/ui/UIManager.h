@@ -16,8 +16,15 @@
 // over the scene. Also shows a one-line hint at the bottom of the screen
 // (e.g. "E: use") and the overlays (UIOverlay: e.g. the debug selector).
 //
-// Keys: it installs the window's GLFW key callback (and user pointer), so
-// nothing else may set them. Each key press goes to the top panel's onKey();
+// Keys: it installs the window's GLFW key and char callbacks (and user
+// pointer), so nothing else may set them. Each key press goes to the top
+// panel's onKey() (Backspace also when it repeats, held down), and each typed
+// character to its onChar(), in the order they were typed. The character of a
+// key that ran a binding is dropped (the T that opens the console must not be
+// typed into it), even if it arrives in a later frame, as it does through an
+// input method: until the next key is pressed. With no panel open, a typed
+// character can run a binding of its own (bindChar: '/' opens the console),
+// whatever key it takes on the keyboard's layout.
 // if it doesn't handle it, Esc closes that panel. With no panel open, a key
 // runs its binding (bindKey): the game opens the pause menu with Esc and the
 // map selector with Z there.
@@ -38,7 +45,19 @@ private:
     std::function<void()> action;
   };
   std::vector<Binding> bindings;
-  std::vector<int> pressedKeys; // since the last update, from the callback
+  struct CharBinding {
+    unsigned int character;
+    std::function<void()> action;
+  };
+  std::vector<CharBinding> charBindings;
+  bool dropChar = false; // a binding ran: its key's character is not typed
+  // Since the last update, from the callbacks: a key (character 0) or a
+  // typed character (key -1)
+  struct InputEvent {
+    int key;
+    unsigned int character;
+  };
+  std::vector<InputEvent> input;
 
   UIState state;              // what elements see when drawn
   UIElement *active = nullptr; // receives drag/release until the button is up
@@ -46,6 +65,7 @@ private:
 
   static void keyCallback(GLFWwindow *window, int key, int scancode,
                           int action, int mods);
+  static void charCallback(GLFWwindow *window, unsigned int codepoint);
   void placeCentered(UIPanel *panel);
 
 public:
@@ -74,6 +94,12 @@ public:
   // player can rebind): `key` is asked every time a key is pressed
   void bindKey(std::function<int()> key, std::function<void()> action) {
     bindings.push_back({key, action});
+  }
+  // Runs `action` when `character` (a Unicode code point) is typed and no
+  // panel is open: for a character that has no key of its own on every
+  // layout (e.g. '/', Shift+7 on a Spanish keyboard)
+  void bindChar(unsigned int character, std::function<void()> action) {
+    charBindings.push_back({character, action});
   }
 
   void setHint(const std::string &text) { hint = text; }

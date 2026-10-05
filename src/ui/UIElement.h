@@ -72,6 +72,9 @@ public:
   // Return true if handled; otherwise the UIManager applies its default
   // (Esc closes the panel).
   virtual bool onKey(int key) { return false; }
+  // A character was typed (Unicode code point) while this element's panel is
+  // on top, for text fields. Return true if it was used.
+  virtual bool onChar(unsigned int codepoint) { return false; }
 
   const UIRect &getRect() const { return rect; }
 };

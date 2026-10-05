@@ -25,7 +25,6 @@ OptionsMenu::OptionsMenu(const MenuContext &context)
     requestClose();
   }));
   add(new UIButton("Volver", [this]() { back(); }));
-  add(new UILabel("Esc: volver", UITheme::MUTED));
 }
 
 void OptionsMenu::back() {

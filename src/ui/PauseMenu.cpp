@@ -17,7 +17,6 @@ PauseMenu::PauseMenu(const MenuContext &context)
   }));
   add(new UIButton("Salir (" + context.controls.keyName(Action::Quit) + ")",
                    context.quit));
-  add(new UILabel("Esc: volver al juego", UITheme::MUTED));
 }
 
 bool PauseMenu::onKey(int key) {

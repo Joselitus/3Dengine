@@ -267,6 +267,15 @@ Reglas para no romper nada:
 - **Para guardar algo nuevo:** elige una clave con prefijo (`audio.master_volume`, por ejemplo), léela al arrancar y escríbela cuando cambie, seguido de `settings.save()`. El objeto `Settings` vive en `main` y llega a los menús por `MenuContext`.
 - **En las pruebas**, lanza el juego con `XDG_CONFIG_HOME=<carpeta temporal>` para no sobrescribir la configuración real del usuario.
 
+## Consola de comandos (tecla T)
+
+- **T** (`Action::Console`, reasignable; sin paneles abiertos) o **escribir `/`** (`ui.bindChar('/')`: el carácter, esté en la tecla que esté según la distribución; en un teclado español es Mayús+7) abren; con `/` la caja empieza con la `/` escrita. Abren `CommandConsole : UIPanel` abajo, a lo ancho de la pantalla: las últimas 6 líneas que ha mostrado y una caja de texto (`UITextField`). Intro ejecuta lo escrito, Retroceso borra (se repite si se mantiene), ↑/↓ recorren los comandos ya escritos (el historial vive en `main` y dura toda la partida) y Esc la cierra. Como es un panel, los controles se pausan mientras está abierta (escribir "w" no anda).
+- **Texto:** `UIManager` instala también el *char callback* de GLFW y pasa cada carácter al `onChar` del panel de arriba, en el mismo orden que las teclas (una sola cola, `InputEvent`). El carácter de una tecla que ha ejecutado un atajo se descarta (`dropChar`), aunque llegue en un frame posterior, como pasa con un método de entrada (IBus): hasta la siguiente pulsación de tecla. Si no, la T que abre la consola se escribía en ella. Sin paneles, un carácter puede tener su propio atajo (`bindChar`). `UITextField` solo guarda ASCII imprimible (lo que dibuja la fuente).
+- **Comandos:** `Commands` (`core/`) es la lista de comandos. **Se escriben con `/` delante** (`/reset`); un texto sin `/` no se ejecuta ni responde nada (solo se repite la línea); uno desconocido responde "Comando desconocido: /x". Cada uno tiene nombre (se registra sin la `/`; no distingue mayúsculas), una línea de ayuda y una función que recibe las palabras siguientes y devuelve una línea para mostrar. `main` los registra.
+  - **`/reset`**: vuelve a crear el mapa actual desde cero, como al arrancar el juego (objetos, jugador, RV, hora del día, música y vista), y apaga los modos de depuración. No se hace dentro del `update` de la UI: marca `resetRequested` y el bucle de `main` llama a `switchMap(currentMap)` al principio del frame siguiente, igual que un cambio de mapa (que cierra la consola).
+- **Para añadir un comando:** `commands.add("nombre", "ayuda", [&](const std::vector<std::string> &args) { ...; return std::string("respuesta"); });` en `main`. Si cambia el mapa u otra cosa que no se pueda tocar desde la UI, márcalo y hazlo al principio del bucle.
+- **Tiempo tras cargar un mapa:** al terminar `switchMap`, el bucle reinicia el reloj (`lastTime`, `dt = 0`). Antes, el tiempo de carga llegaba al frame siguiente como un único paso enorme de física, y tras un `reset` el jugador aparecía 3 m desplazado.
+
 ## Controles y teclas
 
 **`Controls`** (`Controls.h`) es la única fuente de las teclas del juego. Cada acción (`enum class Action`) tiene una tecla (`key(action)`), una descripción (`describe`) y un grupo (`group`). `keyName` da el nombre legible, adaptado a la distribución del teclado. Hay una sola instancia, creada en `main`, que usan:
@@ -290,7 +299,7 @@ Reglas para no romper nada:
 
 Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gravedad. `PlayableCharacter::control` (de `main`) mantiene su parámetro `up`, y `Controller` le pasa 0.
 
-**Fijas (no son `Action`):** Esc es la tecla genérica de "atrás" de la interfaz (`UIManager`): cierra el panel de arriba y abre la pausa. El ratón mira, y el clic izquierdo usa los paneles. Aparecen en `Controls::fixedControls()` para la pantalla de ayuda.
+**Fijas (no son `Action`):** Esc es la tecla genérica de "atrás" de la interfaz (`UIManager`): cierra el panel de arriba y abre la pausa. El ratón mira, y el clic izquierdo usa los paneles. Aparecen en `Controls::fixedControls()` para la pantalla de ayuda. (La fila de los clics de los modos de depuración se quitó para que cupiera la de la consola: la pantalla de Controles llena una ventana de 600 px de alto, y lo que hace el ratón en esos modos ya lo dice su recuadro.)
 
 **Regla: no escribas `GLFW_KEY_...` para una función del juego.** Añade una `Action`, con su tecla en el constructor de `Controls`, su texto en `describe`, su grupo en `group` y su **`id`** (el nombre en el fichero, que no hay que cambiar después), y léela con `controls.key(Action::...)`. Así aparece en la pantalla de controles, se puede reasignar y se guarda.
 - Para un atajo sin panel abierto, usa la versión de `ui.bindKey` que recibe una función: `ui.bindKey([&]{ return controls.key(Action::X); }, acción)`. La tecla se consulta en cada pulsación, así que sigue a los cambios.
@@ -407,8 +416,7 @@ Dialogue (frases, página actual, panel)  ──usa──▶  LineNarrator (abst
 - **`Dialogue(frases, narrador, textoOcupado)`** construye el panel con `buildPanel(panel)`:
   - el `UITextBlock` con la línea, revelada según `narrator.progress()`;
   - "n/N", con "..." mientras se prepara y `textoOcupado` mientras habla ("hablando" en el NPC; vacío en el cartel);
-  - el botón "Siguiente", que en la última línea pasa a "Cerrar" y cierra el panel;
-  - "Esc: terminar".
+  - el botón "Siguiente", que en la última línea pasa a "Cerrar" y cierra el panel (Esc también lo cierra).
 
   `start()` empieza desde la primera línea y `end()` calla al narrador. Su dueño los llama desde `onInterfaceOpened`/`onInterfaceClosed`.
 - **`Npc`** = `Voice` + `Dialogue(frases, voice, "hablando")`. **`Readable`** = `Typewriter` + `Dialogue(páginas, typewriter)`.

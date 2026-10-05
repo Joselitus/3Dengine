@@ -7,14 +7,22 @@ using namespace std;
 UIManager::UIManager(GLFWwindow *window) : window(window) {
   glfwSetWindowUserPointer(window, this);
   glfwSetKeyCallback(window, keyCallback);
+  glfwSetCharCallback(window, charCallback);
 }
 
 void UIManager::keyCallback(GLFWwindow *window, int key, int, int action,
                             int) {
-  if (action != GLFW_PRESS)
+  // Held down, only Backspace repeats (to delete text)
+  if (action != GLFW_PRESS &&
+      !(action == GLFW_REPEAT && key == GLFW_KEY_BACKSPACE))
     return;
   UIManager *ui = static_cast<UIManager *>(glfwGetWindowUserPointer(window));
-  ui->pressedKeys.push_back(key);
+  ui->input.push_back({key, 0u});
+}
+
+void UIManager::charCallback(GLFWwindow *window, unsigned int codepoint) {
+  UIManager *ui = static_cast<UIManager *>(glfwGetWindowUserPointer(window));
+  ui->input.push_back({-1, codepoint});
 }
 
 UIPanel *UIManager::open(Interactable &target) {
@@ -107,17 +115,32 @@ void UIManager::update() {
   buttonWasDown = down;
   state.active = active;
 
-  // Keys pressed since the last frame. A handler may open or close panels,
-  // so the top panel is looked up again for every key.
-  vector<int> keys;
-  keys.swap(pressedKeys);
-  for (int key : keys) {
+  // Keys pressed and characters typed since the last frame. A handler may
+  // open or close panels, so the top panel is looked up again for each one.
+  vector<InputEvent> events;
+  events.swap(input);
+  for (const InputEvent &event : events) {
+    int key = event.key;
     UIPanel *top = nullptr;
     for (auto it = panels.rbegin(); it != panels.rend(); ++it)
       if (!(*it)->wantsToClose()) {
         top = it->get();
         break;
       }
+    if (key < 0) {
+      if (dropChar) // the character of the key that ran a binding
+        dropChar = false;
+      else if (top)
+        top->onChar(event.character);
+      else
+        for (const CharBinding &binding : charBindings)
+          if (binding.character == event.character) {
+            binding.action();
+            break;
+          }
+      continue;
+    }
+    dropChar = false; // another key: what comes now is its character
     if (top) {
       if (!top->onKey(key) && key == GLFW_KEY_ESCAPE)
         top->requestClose();
@@ -125,6 +148,7 @@ void UIManager::update() {
       for (const Binding &binding : bindings)
         if (binding.key() == key) {
           binding.action();
+          dropChar = true;
           break;
         }
     }

@@ -17,8 +17,6 @@ MapSelector::MapSelector(const vector<string> &mapNames, int current,
       requestClose();
     }));
   }
-  add(new UILabel(Controls::keyName(closeKey) + " o Esc: cerrar",
-                  UITheme::MUTED));
 }
 
 bool MapSelector::onKey(int key) {

@@ -21,6 +21,7 @@ enum class Action {
   DebugSelect, // debug: select objects and show their data (DebugSelector)
   DebugPlace,  // debug: move the selected object where the camera points
   DebugInspect, // debug: see and change the values of objects (DebugSelector)
+  Console,      // the command console (CommandConsole)
   Count     // number of actions, not an action
 };
 
