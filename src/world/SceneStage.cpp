@@ -17,6 +17,8 @@ unique_ptr<SceneStage> SceneStage::load(const string &path,
   return unique_ptr<SceneStage>(new SceneStage(file, assetDir, mode));
 }
 
+constexpr unsigned int SceneStage::PENGUIN_ANIMATION;
+
 SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
                        FloorMode mode)
     : GameStage(mode) {
@@ -25,6 +27,8 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
   environment.lightDir = file.moonDir;
   environment.lightColor = file.lightColor;
   environment.horizon = file.fogColor;
+  setDayDuration(file.dayDuration);
+  setTimeOfDay(file.timeOfDay);
   cameraDistance = file.cameraDistance;
   cameraHeight = file.cameraHeight;
   if (!file.sky.empty())
@@ -60,7 +64,8 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
       file.player.empty()
           ? make_shared<Walker>()
           : make_shared<Walker>(
-                make_shared<AnimatedModel>((prefix + file.player).c_str()));
+                make_shared<AnimatedModel>((prefix + file.player).c_str(), false,
+                                           PENGUIN_ANIMATION));
   const vec3 &p = file.playerPosition;
   walker->setPosition(
       p.x, file.playerOnGround ? groundAt(p.x, p.z, f.y) : p.y, p.z);

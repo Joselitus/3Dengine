@@ -56,11 +56,26 @@ void Mesh::Draw(Shader * shader) {
     }
     glActiveTexture(GL_TEXTURE0);
     shader->setInt("useColor", hasColor ? 1 : 0);
+    shader->setFloat("alpha", opacity);
     if (hasColor)
         shader->setVector3("diffuseColor", color.x, color.y, color.z);
 
     // draw mesh
+    bool blended = isTransparent();
+    GLboolean wasBlend = GL_FALSE;
+    if (blended) {
+        wasBlend = glIsEnabled(GL_BLEND);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE); // it does not hide what is behind it
+    }
     glBindVertexArray(VAO);
     glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
+    if (blended) {
+        glDepthMask(GL_TRUE);
+        if (!wasBlend)
+            glDisable(GL_BLEND);
+        shader->setFloat("alpha", 1.0f);
+    }
 }

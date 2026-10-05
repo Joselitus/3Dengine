@@ -43,8 +43,13 @@ vec3 Npc::getInteractionPoint() const {
 void Npc::buildInterface(UIPanel &panel) { dialogue.buildPanel(panel); }
 
 void Npc::onInterfaceOpened(const vec3 &playerPosition) {
+  lastPlayerPosition = playerPosition;
   faceTowards(playerPosition);
   dialogue.start();
+  onInteraction({Interaction::Type::Started, playerPosition});
 }
 
-void Npc::onInterfaceClosed() { dialogue.end(); }
+void Npc::onInterfaceClosed() {
+  dialogue.end();
+  onInteraction({Interaction::Type::Finished, lastPlayerPosition});
+}

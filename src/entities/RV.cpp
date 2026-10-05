@@ -27,12 +27,63 @@ using namespace glm;
 #define DUST_BACKWARDS 0.75f      // direction: this much backwards...
 #define DUST_UPWARDS 1.3f         // ...and this much upwards
 #define DUST_INHERIT 0.25f        // of the RV's own velocity that they take
+// Individual grains of sand: far fewer and smaller than the dust, dark, opaque
+// and heavy, so they are flung out faster, in a wider cone, and drop quickly
+#define GRAIN_RATE 70.0f          // particles per second and wheel at 10 m/s
+#define GRAIN_BACKWARDS 0.6f
+#define GRAIN_UPWARDS 1.0f
+#define GRAIN_INHERIT 0.35f
 // Without gravity the suspension has nothing to carry
 #define DEFAULT_GRAVITY 9.81f
 
 // The RV model (rv.obj): its origin is on the ground between the wheels, the
 // front is +z, the wheel axles are at height 0.5 and the chassis is
 // 2.4 wide, 7.4 long and 3.3 tall
+// Headlights (rv.obj: the lamps are at x = +-1.0, y = 0.9 and 1.08, on the front)
+static const float HEADLIGHT_X = 1.0f;
+static const float HEADLIGHT_Y = 0.99f;
+static const float HEADLIGHT_Z = 3.6f;
+static const float HEADLIGHT_PITCH = -0.06f; // aims a little downwards
+
+// The driver's eyes (Cockpit view): left-hand drive, on the door's side
+static const float EYE_X = 0.45f, EYE_Y = 2.4f, EYE_Z = 1.7f;
+
+// How much of the vehicle's roll (leaning to a side) the cockpit view follows:
+// all of its heading and pitch, but only part of the roll, which on the dunes
+// is big and makes the horizon swing
+static const float COCKPIT_ROLL = 0.5f;
+
+// The cockpit models (assets/rv/dashboard_mounts.json, written by generate_dashboard.py:
+// keep them the same). Each model's own axes x, y, z in the RV's frame, the same for the
+// key and the needles, and where its origin goes.
+static const vec3 PANEL_X(-1.0f, 0.0f, 0.0f);
+static const vec3 PANEL_Y(0.0f, 0.86691f, 0.49847f);
+static const vec3 PANEL_Z(0.0f, 0.49847f, -0.86691f); // out of the panel, to the driver
+static const vec3 KEY_ORIGIN(0.35500f, 1.65545f, 2.62828f);
+static const vec3 SPEED_NEEDLE_ORIGIN(0.70000f, 1.74017f, 2.67353f);
+static const vec3 FUEL_NEEDLE_ORIGIN(0.52000f, 1.74017f, 2.67353f);
+// Where the dashboard's lights are (dashboard_mounts.json: dashboard_lights): one on each
+// glowing component, with its range, and how they shine: dim and orange
+struct DashLight {
+  vec3 position;
+  float range;
+};
+static const DashLight DASH_LIGHTS[5] = {
+    {vec3(0.70f, 1.74865f, 2.65880f), 0.42f},     // the speedometer
+    {vec3(0.52f, 1.74865f, 2.65880f), 0.42f},     // the fuel gauge
+    {vec3(0.888f, 1.70248f, 2.64379f), 0.30f},    // the digital display
+    {vec3(0.265f, 1.76718f, 2.68675f), 0.32f},    // the pilot lamps, first column
+    {vec3(0.145f, 1.76718f, 2.68675f), 0.32f}};   // ... second column
+static const vec3 DASH_LIGHT_COLOR(0.55f, 0.25f, 0.05f);
+// The needles' own angles (degrees about their +z) at the start and at the end of the
+// scale, and the speed (m/s) at the end of the speedometer
+static const float SPEED_ANGLES[2] = {135.0f, -135.0f};
+static const float FUEL_ANGLES[2] = {60.0f, -60.0f};
+static const float SPEEDOMETER_MAX = 25.0f;
+static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the driver
+// How fast the needles and the key follow (1/s)
+static const float NEEDLE_RATE = 6.0f, KEY_RATE = 8.0f;
+
 static const float HALF_TRACK = 1.2f;
 static const float FRONT_AXLE = 2.4f;
 static const float REAR_AXLE = -2.3f;
@@ -79,16 +130,69 @@ RV::RV(std::shared_ptr<Model> model)
   settings.maxParticles = 400;
   for (unsigned i = 0; i < 4; i++)
     dust.push_back(std::make_shared<ParticleEmitter>(settings, 100 + i));
+
+  ParticleSettings grain; // sand grains: tiny, dark, opaque, heavy
+  grain.lifeMin = 0.5f;
+  grain.lifeMax = 1.0f;
+  grain.speedMin = 3.0f;
+  grain.speedMax = 8.0f;
+  grain.spread = 0.8f;
+  grain.sizeStart = 0.035f;
+  grain.sizeEnd = 0.03f;
+  grain.color = vec3(0.50f, 0.38f, 0.24f); // darker than the sand: wet-looking grains
+  grain.alpha = 1.0f;
+  grain.fadeStart = 0.85f; // solid until they land
+  grain.gravity = 16.0f;
+  grain.drag = 0.25f;
+  grain.maxParticles = 300;
+  for (unsigned i = 0; i < 4; i++)
+    grains.push_back(std::make_shared<ParticleEmitter>(grain, 200 + i));
 }
 
 float RV::getMass() const { return RV_MASS; }
 
 void RV::applyCollision(const vec3 &push, const vec3 &velocityChange) {
+  float speedBefore = body ? body->getForwardSpeed() : 0.0f;
   PlayableCharacter::applyCollision(push, velocityChange);
   if (body) {
     body->setCentreOfMass(body->getCentreOfMass() + push);
     body->setVelocity(body->getVelocity() + velocityChange);
   }
+  // Was it a violent frontal crash? The collision's own push tells where it came from (the
+  // change of speed has the same direction: both point away from what it hit)
+  float speedAfter = body ? body->getForwardSpeed() : speedBefore;
+  vec3 away = length(vec2(velocityChange.x, velocityChange.z)) > 1e-3f ? velocityChange : push;
+  impact.onCollision(speedBefore, speedAfter, vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f)),
+                     away);
+  if (impact.violent())
+    breakWindshield();
+}
+
+void RV::setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken) {
+  windshieldPart = addPart(intact);
+  brokenWindshieldPart = addPart(broken);
+  hasWindshield = true;
+  updateWindshieldParts();
+}
+
+// The flag goes up and the broken windshield is shown instead of the intact one
+void RV::breakWindshield() {
+  damagedWindshield = true;
+  impact.clear();
+  updateWindshieldParts();
+}
+
+void RV::repairWindshield() {
+  damagedWindshield = false;
+  impact.clear();
+  updateWindshieldParts();
+}
+
+void RV::updateWindshieldParts() {
+  if (!hasWindshield)
+    return;
+  setPartVisible(windshieldPart, !damagedWindshield);
+  setPartVisible(brokenWindshieldPart, damagedWindshield);
 }
 
 static VehicleBody::Surface surfaceOf(FloorMaterial material) {
@@ -140,6 +244,41 @@ void RV::setWheelModels(std::shared_ptr<Model> negativeX,
   placeWheels();
 }
 
+void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
+  glowPart = addPart(model, 2); // emissive
+  hasGlow = true;
+  setPartVisible(glowPart, headlightsOn);
+}
+
+void RV::setHeadlights(bool on) {
+  headlightsOn = on;
+  if (hasGlow)
+    setPartVisible(glowPart, on);
+  updateDashboardLights();
+}
+
+void RV::getHeadlights(std::vector<SpotLight> &lights) const {
+  if (!headlightsOn)
+    return;
+  vec3 aim = normalize(vec3(rotation * vec4(0.0f, HEADLIGHT_PITCH, 1.0f, 0.0f)));
+  for (float side : {-1.0f, 1.0f}) {
+    SpotLight light;
+    light.position = position + vec3(rotation * vec4(side * HEADLIGHT_X, HEADLIGHT_Y,
+                                                    HEADLIGHT_Z, 0.0f));
+    light.direction = aim;
+    light.color = vec3(1.1f, 1.0f, 0.82f); // warm white
+    lights.push_back(light);
+  }
+}
+
+void RV::getDashboardLights(std::vector<SpotLight> &lights) const {
+  if (!headlightsOn || !hasCockpit)
+    return;
+  for (const DashLight &light : DASH_LIGHTS)
+    lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(light.position, 0.0f)),
+                                     DASH_LIGHT_COLOR, light.range));
+}
+
 vec3 RV::seatPosition() const {
   return position + vec3(rotation * vec4(0.0f, SEAT_Y, SEAT_Z, 0.0f));
 }
@@ -167,15 +306,117 @@ void RV::onUse(const vec3 &playerPosition) {
     enterAction();
 }
 
+// A model's frame on the panel: its axes (x, y, z) and its origin, and optionally
+// turned about its own z
+static mat4 panelFrame(const vec3 &origin, float degrees) {
+  mat4 frame(vec4(PANEL_X, 0.0f), vec4(PANEL_Y, 0.0f), vec4(PANEL_Z, 0.0f),
+             vec4(origin, 1.0f));
+  return glm::rotate(frame, radians(degrees), vec3(0.0f, 0.0f, 1.0f));
+}
+
+void RV::setCockpitModels(std::shared_ptr<Model> dashboard, std::shared_ptr<Model> key,
+                          std::shared_ptr<Model> needle,
+                          std::shared_ptr<Model> dashboardGlow) {
+  addPart(dashboard); // in the RV's own frame: it needs no placing
+  dashboardGlowPart = addPart(dashboardGlow, 2); // emissive, and in the same frame
+  keyPart = addPart(key);
+  speedNeedlePart = addPart(needle);
+  fuelNeedlePart = addPart(needle);
+  hasCockpit = true;
+  updateDashboardLights();
+  updateCockpit(0.0);
+}
+
+// With the headlights on the dashboard lights up: its lit marks, lamps and display are
+// shown, and the needles glow
+void RV::updateDashboardLights() {
+  if (!hasCockpit)
+    return;
+  setPartVisible(dashboardGlowPart, headlightsOn);
+  setPartUnlit(speedNeedlePart, headlightsOn ? 2 : 0);
+  setPartUnlit(fuelNeedlePart, headlightsOn ? 2 : 0);
+}
+
+// The key and the needles follow the vehicle: a little smoothed, so that they move
+// like real ones and not like numbers
+void RV::updateCockpit(double dt) {
+  if (!hasCockpit)
+    return;
+  float follow = 1.0f;
+  if (dt > 0.0)
+    follow = glm::min(1.0f, (float)dt * NEEDLE_RATE);
+  float speed = body ? std::fabs(body->getForwardSpeed()) : 0.0f;
+  speedShown += (glm::clamp(speed / SPEEDOMETER_MAX, 0.0f, 1.0f) - speedShown) * follow;
+  fuelShown += ((occupied ? fuel : 0.0f) - fuelShown) * follow;
+  keyTurn += ((occupied ? 1.0f : 0.0f) - keyTurn) *
+             (dt > 0.0 ? glm::min(1.0f, (float)dt * KEY_RATE) : 1.0f);
+
+  setPartTransform(keyPart, panelFrame(KEY_ORIGIN, KEY_ON_ANGLE * keyTurn));
+  setPartTransform(speedNeedlePart,
+                   panelFrame(SPEED_NEEDLE_ORIGIN,
+                              SPEED_ANGLES[0] + (SPEED_ANGLES[1] - SPEED_ANGLES[0]) * speedShown));
+  setPartTransform(fuelNeedlePart,
+                   panelFrame(FUEL_NEEDLE_ORIGIN,
+                              FUEL_ANGLES[0] + (FUEL_ANGLES[1] - FUEL_ANGLES[0]) * fuelShown));
+}
+
+vec3 RV::eyePosition() const {
+  return position + vec3(rotation * vec4(EYE_X, EYE_Y, EYE_Z, 0.0f));
+}
+
 void RV::attachCamera(Camera *camera, float distance, float height) {
   this->camera = camera;
+  chaseDistance = distance;
+  chaseHeight = height;
   setYaw(facing);
-  camera->attachTo(this, distance, height);
+  applyCameraView();
+}
+
+void RV::applyCameraView() {
+  if (!camera)
+    return;
+  if (cameraView == CameraView::Chase) {
+    camera->attachTo(this, chaseDistance, chaseHeight);
+    // (world angles again: look along the heading)
+    camera->setAngles(headingYaw(), 0.0f);
+  } else {
+    camera->attachTo(nullptr, 0.0f, 0.0f); // nothing to orbit: followCamera places it
+    camera->setAngles(0.0f, 0.0f);         // (relative to the vehicle: straight ahead)
+    followCamera();
+  }
+}
+
+void RV::setCameraView(CameraView view) {
+  cameraView = view;
+  applyCameraView();
 }
 
 void RV::followCamera() {
-  if (camera)
+  if (!camera)
+    return;
+  if (cameraView == CameraView::Chase) {
     camera->follow();
+    return;
+  }
+  // Cockpit: the view turns, pitches and rolls with the vehicle, as if the head
+  // were in it (the mouse looks around from there: the camera's angles are
+  // relative to the vehicle)
+  // The vehicle's heading, pitch (nose up = positive) and roll
+  vec3 forward = vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f));
+  vec3 up = vec3(rotation * vec4(0.0f, 1.0f, 0.0f, 0.0f));
+  float yaw = std::atan2(forward.x, forward.z);
+  float pitch = std::asin(glm::clamp(forward.y, -1.0f, 1.0f));
+  mat3 level = mat3(glm::rotate(mat4(1.0f), yaw, vec3(0.0f, 1.0f, 0.0f))) *
+               mat3(glm::rotate(mat4(1.0f), -pitch, vec3(1.0f, 0.0f, 0.0f)));
+  vec3 flatUp = level * vec3(0.0f, 1.0f, 0.0f); // up with no roll
+  float roll = std::atan2(dot(cross(flatUp, up), forward), dot(flatUp, up));
+  mat3 carrier = level * mat3(glm::rotate(mat4(1.0f), roll * COCKPIT_ROLL,
+                                          vec3(0.0f, 0.0f, 1.0f)));
+  // (the camera looks towards -z at yaw 0 and the RV's front is +z: half a turn)
+  camera->setCarrier(carrier *
+                     mat3(glm::rotate(mat4(1.0f), 3.14159265f, vec3(0.0f, 1.0f, 0.0f))));
+  vec3 eye = eyePosition();
+  camera->reposition(eye.x, eye.y, eye.z);
 }
 
 void RV::control(vec2 dir, float up, float cameraYaw) {
@@ -186,6 +427,7 @@ void RV::control(vec2 dir, float up, float cameraYaw) {
 void RV::update(double dt) {
   // Only the input is read here: the stage moves the RV through contactFloor()
   GameObject::update(dt);
+  updateCockpit(dt);
 }
 
 // Wheel i hangs from its anchor at the length the suspension has now
@@ -224,10 +466,16 @@ void RV::updateDust(const Stage &stage) {
     bool onSand = wheel.onGround &&
                   stage.materialAt(contact.x, contact.z) == FloorMaterial::Sand;
     ParticleEmitter &emitter = *dust[i];
+    ParticleEmitter &grain = *grains[i];
     if (!onSand || speed < DUST_MIN_SPEED) {
       emitter.setRate(0.0f);
+      grain.setRate(0.0f);
       continue;
     }
+    grain.setPosition(contact + vec3(0.0f, 0.05f, 0.0f));
+    grain.setDirection(away * GRAIN_BACKWARDS + vec3(0.0f, GRAIN_UPWARDS, 0.0f));
+    grain.setBaseVelocity(velocity * GRAIN_INHERIT);
+    grain.setRate(GRAIN_RATE * std::min(speed, DUST_MAX_RATE_SPEED) / 10.0f);
     emitter.setPosition(contact + vec3(0.0f, 0.05f, 0.0f));
     emitter.setDirection(away * DUST_BACKWARDS + vec3(0.0f, DUST_UPWARDS, 0.0f));
     emitter.setBaseVelocity(velocity * DUST_INHERIT);
@@ -251,6 +499,11 @@ bool RV::contactFloor(const Stage &stage, double dt) {
     return stage.floorAt(x, z, height, &normal, maxY);
   });
 
+  // The timer of a frontal collision follows the speed (after the physics of this frame)
+  impact.update((float)dt, body->getForwardSpeed());
+  if (impact.violent())
+    breakWindshield();
+
   // Not a number: something went wrong, start again from the last good place
   vec3 centre = body->getCentreOfMass(), v = body->getVelocity();
   if (!(std::isfinite(centre.x + centre.y + centre.z + v.x + v.y + v.z))) {
@@ -273,6 +526,14 @@ bool RV::contactFloor(const Stage &stage, double dt) {
 
 void RV::describe(std::vector<std::string> &lines) const {
   PlayableCharacter::describe(lines);
+  if (hasWindshield)
+    lines.push_back(std::string("Parabrisas: ") + (damagedWindshield ? "ROTO" : "intacto") +
+                    (impact.timerRunning() ? "  (cronometro de choque en marcha)" : ""));
+  if (hasCockpit)
+    lines.push_back(textFormat("Combustible: %.0f %%  Llave: %s", fuel * 100.0f,
+                               occupied ? "puesta, en marcha" : "puesta, apagado"));
+  lines.push_back(std::string("Camara: ") +
+                  (cameraView == CameraView::Cockpit ? "cabina" : "exterior"));
   lines.push_back(std::string("Ocupado: ") + (occupied ? "si" : "no") +
                   textFormat("  Acelerador: %.1f  Volante: %.1f", throttle,
                              steering));

@@ -6,8 +6,10 @@
 
 #include "Camera.h"
 #include "Interactable.h"
+#include "ImpactDetector.h"
 #include "ParticleEmitter.h"
 #include "PlayableCharacter.h"
+#include "SpotLight.h"
 #include "VehicleBody.h"
 
 // The RV: W/S drive it and A/D steer its front wheels, so the camera can
@@ -20,7 +22,35 @@
 // runs the enter action (set with setEnterAction) straight away, with no
 // panel. The stage then gives it the controller and the camera. While it is
 // occupied it can't be used again.
+//
+// The camera has two views (setCameraView / toggleCameraView): from the
+// driver's seat (the default), turning with the vehicle, or the old one from
+// behind and above, orbiting it.
+//
+// The windshield breaks in a violent frontal crash (an ImpactDetector, fed by
+// applyCollision and by the speed every frame): the damagedWindshield flag goes up
+// and the cracked-glass model is shown instead of the intact one (setWindshieldModels).
+//
+// The cockpit: the dashboard, the ignition key and the two needles of the gauges
+// (speed and fuel) are models of their own, added as parts of the RV
+// (setCockpitModels): the speed needle follows the vehicle's speed, the fuel
+// needle shows the fuel level (setFuel) and falls to empty when nobody is
+// driving (ignition off), and the key turns in the lock when the driver gets in.
+// With the headlights on the dashboard lights up: the marks of the gauges, the
+// pilot lamps and the display glow (a model of its own, shown only then), the
+// needles are drawn emissive, and a small dim orange light on each glowing
+// component (getDashboardLights) gives off light on what is around it.
+//
+// It has two headlights: two spot lights at its front lamps (getHeadlights)
+// that shine forward while they are on, and the lamps' lenses glow (a part
+// that is only drawn then, see setHeadlightGlowModel).
 class RV : public PlayableCharacter, public Interactable {
+public:
+  enum class CameraView {
+    Cockpit, // the driver's eyes, inside the cab
+    Chase,   // from behind and above, orbiting the vehicle
+  };
+
 protected:
   std::unique_ptr<VehicleBody> body; // created at the first update
 
@@ -33,10 +63,38 @@ private:
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
   bool occupied = false;             // someone is driving it
+  bool headlightsOn = false;
+  // the windshield
+  ImpactDetector impact;
+  bool damagedWindshield = false;
+  bool hasWindshield = false;
+  size_t windshieldPart = 0, brokenWindshieldPart = 0;
+
+  void breakWindshield();
+  void updateWindshieldParts();
+  // the cockpit (see setCockpitModels)
+  bool hasCockpit = false;
+  size_t keyPart = 0, speedNeedlePart = 0, fuelNeedlePart = 0, dashboardGlowPart = 0;
+  float keyTurn = 0.0f;    // 0 = ignition off .. 1 = on
+  float speedShown = 0.0f; // what the needles show now, 0..1 of their scales
+  float fuelShown = 0.0f;
+  float fuel = 0.75f;      // fuel level, 0..1
+
+  void updateCockpit(double dt);
+  void updateDashboardLights(); // the dashboard glows with the headlights
+  CameraView cameraView = CameraView::Cockpit;
+  float chaseDistance = 12.0f, chaseHeight = 3.5f; // of the Chase view
+
+  void applyCameraView();
+  size_t glowPart = 0;               // lit lenses, drawn only with the lights on
+  bool hasGlow = false;
   std::function<void()> enterAction; // what using the door does
   // Dust thrown up by each wheel (same order as wheelParts) while it drives on
   // sand
   std::vector<std::shared_ptr<ParticleEmitter>> dust;
+
+  // Small, dark, opaque grains of sand flung by each wheel along with the dust
+  std::vector<std::shared_ptr<ParticleEmitter>> grains;
 
   void updateDust(const Stage &stage);
 
@@ -52,6 +110,10 @@ public:
   const std::vector<std::shared_ptr<ParticleEmitter>> &getDust() const {
     return dust;
   }
+  // The wheels' sand grain emitters (same use as getDust)
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getGrains() const {
+    return grains;
+  }
   // The body of the vehicle is moved too
   void applyCollision(const glm::vec3 &push,
                       const glm::vec3 &velocityChange) override;
@@ -64,6 +126,44 @@ public:
   // model for each side, centred on the wheel's axle (see generate_rv.py)
   void setWheelModels(std::shared_ptr<Model> negativeX,
                       std::shared_ptr<Model> positiveX);
+
+  // The lit lenses of the headlights (see headlight_glow.obj): a part drawn
+  // emissive, and only while the headlights are on
+  void setHeadlightGlowModel(std::shared_ptr<Model> model);
+  bool areHeadlightsOn() const { return headlightsOn; }
+  void setHeadlights(bool on);
+  void toggleHeadlights() { setHeadlights(!headlightsOn); }
+  // Adds the two spot lights (left and right, in the world) if they are on
+  void getHeadlights(std::vector<SpotLight> &lights) const;
+  // The dashboard's own light: with the headlights on, its glowing parts give off a dim
+  // orange light that tints what is near them (the frame of the gauges, the switches...):
+  // five small omni lights, one on each glowing component
+  void getDashboardLights(std::vector<SpotLight> &lights) const;
+
+  // The cockpit's models, in the frame of rv.obj: the dashboard, the ignition
+  // key (key.obj), a gauge needle (needle.obj; it is used for two gauges) and
+  // what glows with the headlights (dashboard_glow.obj, over the dashboard)
+  void setCockpitModels(std::shared_ptr<Model> dashboard,
+                        std::shared_ptr<Model> key,
+                        std::shared_ptr<Model> needle,
+                        std::shared_ptr<Model> dashboardGlow);
+  // The two windshields, in the frame of rv.obj: the intact one, and the broken one (cracked
+  // glass) that replaces it when the windshield is damaged
+  void setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken);
+  bool isWindshieldDamaged() const { return damagedWindshield; }
+  void repairWindshield(); // the intact windshield again
+  // Fuel level, 0 (empty) to 1 (full); it is only shown on the gauge
+  void setFuel(float level) { fuel = glm::clamp(level, 0.0f, 1.0f); }
+  float getFuel() const { return fuel; }
+
+  CameraView getCameraView() const { return cameraView; }
+  void setCameraView(CameraView view);
+  void toggleCameraView() {
+    setCameraView(cameraView == CameraView::Cockpit ? CameraView::Chase
+                                                    : CameraView::Cockpit);
+  }
+  // The driver's eyes in the world (the Cockpit camera)
+  glm::vec3 eyePosition() const;
 
   // What happens when the player uses the RV (the stage hands it the controls)
   void setEnterAction(std::function<void()> action) { enterAction = action; }

@@ -32,7 +32,7 @@ public:
   struct Surface {
     float grip = 1.0f;     // of the tyre force limit and the sideways grip
     float rolling = 1.0f;  // of the rolling drag (sand: much more)
-    float topSpeed = 1.0f; // of Params::maxSpeed (the engine's cut-off)
+    float topSpeed = 1.0f; // of Params::maxSpeed (the terminal speed)
   };
   // The surface at a place in the world (x, z)
   typedef std::function<Surface(float x, float z)> SurfaceQuery;
@@ -63,9 +63,10 @@ public:
 
     float grip = 0.8f;      // 0..1, how much sideways slip a tyre cancels
     float friction = 1.4f;  // tyre force limit, times the load on the wheel
-    float acceleration = 14.0f;  // engine, at standstill (m/s^2)
-    float maxSpeed = 20.0f;      // the engine stops pushing at this speed
-    float reverseFactor = 0.4f;  // reverse top speed, of maxSpeed
+    float acceleration = 14.0f;  // engine, the same at any speed (m/s^2)
+    float maxSpeed = 20.0f;      // terminal speed: the air drag (grows with
+                                 // the square of the speed) balances the engine
+    float reverseFactor = 0.4f;  // reverse terminal speed, of maxSpeed
     float braking = 16.0f;       // m/s^2
     float rolling = 0.15f;       // coasting drag (1/s)
     float maxSteer = 0.5f;       // front wheel angle, radians

@@ -19,6 +19,9 @@ uniform int skinned;
 uniform float breathAmp;
 uniform float breathTime;
 
+// 1 = show the skinned model in its idle pose (see idle()), 0 = skinned as usual
+uniform int idlePose;
+
 // Used by meshes that have no bone weights
 uniform mat4 meshMat;
 
@@ -64,6 +67,46 @@ vec3 breathe(vec3 p, vec3 n)
     return p + breathAmp * d;
 }
 
+// Idle pose of the penguin, done on its mesh (bind pose: a T with flat
+// flippers; x sideways, y up; 5.25 tall, body 0.6 half width, flippers from
+// x = 0.6 to 3.3 at y = 3.55): the flippers hang down along the body and
+// the penguin breathes calmly, slowly and a bit faster in than out. Every
+// change depends only on the position, so the faces of the mesh (which do not
+// share their vertices) stay together. The normal turns with the flippers.
+void idle(inout vec3 p, inout vec3 n)
+{
+    float w = 1.5 * breathTime;
+    float s = 0.5 + 0.5 * sin(w - 0.55 * sin(w));          // 0..1
+
+    // The flippers hang from the shoulder: the farther from the body, the more
+    // they turn (the first part bends like a joint), with a little sway
+    float side = p.x < 0.0 ? -1.0 : 1.0;
+    // (the flippers of the mesh are too long for a penguin: they are shortened
+    // to 62 % before they hang)
+    float ax = abs(p.x);
+    float ox = ax > 0.6 ? 0.6 + (ax - 0.6) * 0.62 : ax;
+    float k = smoothstep(0.6, 0.95, ox);
+    float chest = smoothstep(1.2, 2.0, p.y) * (1.0 - smoothstep(3.3, 3.9, p.y)) * (1.0 - k);
+    float upper = smoothstep(3.0, 4.0, p.y);
+    float a = -side * k * (1.47 + 0.04 * sin(w - 0.8));      // 1.47 rad = 84 degrees
+    float c = cos(a), sn = sin(a);
+    vec3 hinge = vec3(side * 0.6, 3.55, 0.0);
+    p.x = side * ox;
+    vec3 r = p - hinge;
+    p = hinge + vec3(r.x * c - r.y * sn, r.x * sn + r.y * c, r.z);
+    n = vec3(n.x * c - n.y * sn, n.x * sn + n.y * c, n.z);
+
+    // The rib cage swells a little (more front to back than sideways: the front
+    // is -z) and comes forward, the shoulders and head rise and go back a
+    // little, and the upper body sways very slowly on top of it
+    // (measured on the mesh, 0.343 m per unit: the chest gets 3 % wider and
+    // 6 % deeper, its front moves ~4.5 cm, the head rises ~2 cm)
+    p.x *= 1.0 + 0.03 * chest * s;
+    p.z = -0.3 + (p.z + 0.3) * (1.0 + 0.06 * chest * s) - 0.10 * chest * s;
+    p.y += 0.06 * upper * s;
+    p.z += upper * (0.05 * s + 0.04 * sin(0.35 * breathTime));
+}
+
 void main()
 {
     // ---- Skinning ----
@@ -84,8 +127,11 @@ void main()
     }
 
     vec3 local = aPos;
+    vec3 inNormal = Normal;
     if (skinned == 0 && breathAmp > 0.0)
         local = breathe(aPos, Normal);
+    else if (skinned != 0 && idlePose != 0)
+        idle(local, inNormal);
     vec4 pos = BMatrix * vec4(local, 1.0);
     vec3 fitted = skinned != 0 ? (pos.xyz - fitCenter) * fitScale : pos.xyz;
 
@@ -96,7 +142,7 @@ void main()
     frag_p = worldPos;
 
     // ---- Normals ----
-    normal = mat3(objrotation) * mat3(BMatrix) * Normal;
+    normal = mat3(objrotation) * mat3(BMatrix) * inNormal;
 
     TexCoord = aTexCoord;
 }

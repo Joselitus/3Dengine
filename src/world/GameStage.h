@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "Interactable.h"
+#include "SpotLight.h"
 #include "PlayableCharacter.h"
 #include "Stage.h"
 
@@ -16,6 +17,11 @@ struct Environment {
   glm::vec3 lightDir = glm::normalize(glm::vec3(-0.3f, 0.8f, -0.5f));
   glm::vec3 lightColor = glm::vec3(1.0f);
   glm::vec3 horizon = glm::vec3(0.5f, 0.7f, 0.9f);
+  // For a procedural sky (setSky with unlit 3): colour straight up, direction
+  // to the sun, and how visible the stars are (0..1)
+  glm::vec3 skyZenith = glm::vec3(0.2f, 0.4f, 0.8f);
+  glm::vec3 sunDir = glm::vec3(0.0f, 1.0f, 0.0f);
+  float starAlpha = 0.0f;
 };
 
 // A playable map: a Stage that also knows everything the game needs to run
@@ -54,8 +60,10 @@ protected:
     playerChanged = true;
   }
 
-  // A sky dome model (drawn unlit, with twinkling stars; see shader.frag)
-  void setSky(std::shared_ptr<Model> model);
+  // A sky dome model (drawn unlit; see shader.frag). unlit 1 = textured with
+  // twinkling stars, 3 = painted by the shader from the Environment (sun,
+  // stars, colours), so it can follow the time of day
+  void setSky(std::shared_ptr<Model> model, int unlit = 1);
   // Ground height at (x, z), or `fallback` where there is no floor
   float groundAt(float x, float z, float fallback) const;
 
@@ -72,6 +80,15 @@ public:
   // The "leave the vehicle" key was pressed (no panel open): a map where the
   // player can drive something gives the controls back to a character on foot
   virtual void leaveVehicle() {}
+  // The headlights key was pressed: a map with a vehicle the player is
+  // driving turns its lights on or off
+  virtual void toggleHeadlights() {}
+  // The camera key was pressed: a map with a vehicle the player is driving
+  // changes the point of view (inside it / from behind)
+  virtual void toggleVehicleCamera() {}
+  // Adds the spot lights that are on right now (the shader takes the first
+  // few; see the main loop)
+  virtual void getSpotLights(std::vector<SpotLight> &lights) const {}
   // False while the player can't use objects (e.g. while driving)
   virtual bool interactionsEnabled() const { return true; }
   std::shared_ptr<PlayableCharacter> getPlayer() const { return player; }

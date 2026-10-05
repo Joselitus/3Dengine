@@ -23,10 +23,11 @@ public:
   // One model of the object and how the shader must draw it
   struct Part {
     std::shared_ptr<Model> model;
-    int unlit; // 0 = lit, 2 = emissive (see shader.frag)
+    int unlit; // 0 = lit, 1/3 = sky, 2 = emissive (see shader.frag)
     // Placement of the part relative to the object (identity: where the
     // object is); e.g. a wheel that moves with the suspension
     glm::mat4 local;
+    bool visible; // false: not drawn (e.g. the lit lenses of lamps)
   };
 
 protected:
@@ -59,6 +60,11 @@ public:
   void setPartTransform(size_t part, const glm::mat4 &local) {
     parts[part].local = local;
   }
+  void setPartVisible(size_t part, bool visible) {
+    parts[part].visible = visible;
+  }
+  // How the shader draws the part: 0 lit, 2 emissive (flat colour, it glows)
+  void setPartUnlit(size_t part, int unlit) { parts[part].unlit = unlit; }
 
   void setPosition(float x, float y, float z) { position = glm::vec3(x, y, z); }
   void setRotation(const glm::mat4 &rotation) { this->rotation = rotation; }
@@ -102,7 +108,13 @@ public:
   // (position, rotation, shape and bounds...), for the debug selector.
   // Subclasses add their own lines after their parent's.
   virtual void describe(std::vector<std::string> &lines) const;
-  void Draw(Shader *shader);
+  void Draw(Shader *shader); // the opaque meshes
+  // The translucent meshes of its parts (windows...): the stage draws them
+  // after every object's opaque ones
+  void DrawTransparent(Shader *shader);
+
+private:
+  void drawParts(Shader *shader, bool translucent);
 };
 
 #endif

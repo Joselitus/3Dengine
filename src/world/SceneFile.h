@@ -29,6 +29,8 @@ struct SceneFile {
   glm::vec3 moonDir = glm::vec3(0.0f, 1.0f, 0.0f); // normalised
   glm::vec3 lightColor = glm::vec3(1.0f);
   glm::vec3 fogColor = glm::vec3(0.0f);
+  float timeOfDay = 0.0f;   // hours at the start (0 = midnight)
+  float dayDuration = 0.0f; // seconds a day lasts, 0 = the time stands still
   std::string sky;    // empty: no sky dome
   std::string floor;  // empty: no floor (nothing to walk on)
   glm::vec3 floorPosition = glm::vec3(0.0f);

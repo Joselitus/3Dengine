@@ -42,6 +42,10 @@ void Controller::setEnabled(bool enable) {
 void Controller::update() {
   if (!enabled)
     return;
+  // The camera's angles are the truth: the character it follows may turn it
+  // too (the RV's cockpit view turns with the vehicle)
+  yaw = camera->getYaw();
+  pitch = camera->getPitch();
   // The camera turns by how much the cursor moved since the last frame,
   // times the camera's sensitivity (so it can change while playing)
   double x, y;

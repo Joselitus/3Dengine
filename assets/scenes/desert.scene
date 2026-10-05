@@ -13,6 +13,11 @@ light   0.28 0.34 0.62
 # Horizon colour: clear colour and fog colour
 fog     0.035 0.055 0.110
 
+# Hour of the day at the start (0 = midnight) and real seconds a whole day
+# lasts (0 = the time stands still, as in this night map)
+time_of_day   0
+day_duration  0
+
 # Sky dome, always centred on the camera and drawn without depth
 sky     sky/skydome.obj
 

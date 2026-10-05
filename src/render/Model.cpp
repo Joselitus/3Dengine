@@ -116,10 +116,19 @@ Mesh Model::processMesh(aiMesh * mesh, const aiScene * scene) {
     }
     if (hasColor)
         result.setColor(vec3(color.r, color.g, color.b));
+    if (mesh->mMaterialIndex < scene->mNumMaterials) {
+        float opacity = 1.0f; // the .mtl's d (or Tr): 1 = solid
+        if (scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_OPACITY, opacity) == AI_SUCCESS &&
+            opacity < 1.0f) {
+            result.setOpacity(opacity);
+            transparent = true;
+        }
+    }
     return result;
 }
 
-void Model::Draw(Shader * shader) {
+void Model::Draw(Shader * shader, bool translucent) {
     for(unsigned int i = 0; i < this->meshes.size(); i++)
-        this->meshes[i].Draw(shader);
+        if (this->meshes[i].isTransparent() == translucent)
+            this->meshes[i].Draw(shader);
 }  

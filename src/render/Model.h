@@ -21,6 +21,7 @@ class Model
         std::vector<Mesh> meshes;
         std::vector<Texture> textures_loaded; 
         std::string directory;
+        bool transparent = false; // some mesh is translucent (see Draw)
 
         virtual void loadModel(std::string path);
         void processNode(aiNode *node, const aiScene *scene);
@@ -31,7 +32,10 @@ class Model
     public:
         Model() {;} // Epico default constructor
         Model(const char * path);
-        void Draw(Shader * shader); 
+        // Draws the opaque meshes, or (translucent = true) only the translucent
+        // ones, which have to be drawn after everything opaque in the scene
+        void Draw(Shader * shader, bool translucent = false);
+        bool hasTransparent() const { return transparent; }
 };
 
 #endif

@@ -14,6 +14,8 @@ enum class Action {
   MoveRight,
   Use,      // open/close the panel of the object in front (InteractionSystem)
   LeaveVehicle, // get out of the vehicle being driven (Left Shift)
+  Headlights,   // turn the lights of the vehicle being driven on/off (F)
+  VehicleCamera, // change the point of view of the vehicle being driven (C)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)
@@ -35,7 +37,7 @@ private:
   int keys[(int)Action::Count];
 
 public:
-  Controls(); // default keys (WASD, E, Left Shift, X, Z, 1, 2)
+  Controls(); // default keys (WASD, E, Left Shift, F, C, X, Z, 1, 2)
 
   int key(Action action) const { return keys[(int)action]; }
   void bind(Action action, int key) { keys[(int)action] = key; }

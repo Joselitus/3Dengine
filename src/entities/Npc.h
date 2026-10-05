@@ -23,11 +23,22 @@
 class Npc : public DynamicGameObject, public Interactable {
 private:
   std::string name;
+  glm::vec3 lastPlayerPosition = glm::vec3(0.0f);
   Voice voice;
   Dialogue dialogue; // after `voice`, which it speaks with
   float facing = 0.0f; // radians, around +y
 
 public:
+  // What happened in an interaction with the player, for onInteraction()
+  struct Interaction {
+    enum class Type {
+      Started,  // the player used the NPC: the dialogue box has just opened
+      Finished, // the dialogue box has closed, however it was closed
+    };
+    Type type;
+    glm::vec3 playerPosition; // where the player was (when it started)
+  };
+
   // Height of the mouth above the position, where the voice comes from
   static constexpr float MOUTH_HEIGHT = 1.5f;
 
@@ -37,6 +48,10 @@ public:
       const VoiceSettings &voiceSettings = VoiceSettings());
 
   void faceTowards(const glm::vec3 &point);
+  // Runs after the NPC has dealt with an interaction (turned to the player and
+  // started the dialogue, or ended it). It does nothing; a subclass overrides
+  // it to react to each one: change its animation, give something...
+  virtual void onInteraction(const Interaction &interaction) {}
   const Voice &getVoice() const { return voice; }
 
   void update(double dt) override;

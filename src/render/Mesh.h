@@ -36,6 +36,7 @@ private:
   bool hasColor = false;
   std::string materialName; // as named in the model file (e.g. the .mtl)
   glm::vec3 color = glm::vec3(1.0f);
+  float opacity = 1.0f; // < 1: translucent (see Model::Draw)
 
   //  render data
   unsigned int VAO, VBO, EBO;
@@ -50,6 +51,11 @@ public:
   void setMaterialName(const std::string &name) { materialName = name; }
   const std::string &getMaterialName() const { return materialName; }
   void setColor(const glm::vec3 &c) { color = c; hasColor = true; }
+  void setOpacity(float o) { opacity = o; }
+  float getOpacity() const { return opacity; }
+  bool isTransparent() const { return opacity < 1.0f; }
+  // A translucent mesh is blended over what is already drawn (and does not
+  // write depth), so draw those after everything opaque
   void Draw(Shader *shader);
 };
 

@@ -34,7 +34,8 @@ private:
   int screenHeight;
 
   glm::vec3 position;
-  glm::vec2 rotation; // yaw, pitch in radians
+  glm::vec2 rotation; // yaw, pitch in radians (relative to `base`)
+  glm::mat4 base = glm::mat4(1.0f); // view rotation of what carries the camera
 
   float fov = DEFAULT_FOV;          // vertical field of view, degrees
   float sensitivity = SENSIVILITY;  // radians per pixel of mouse movement
@@ -55,6 +56,11 @@ public:
   // Orientation: yaw around +y (positive turns right) and pitch around +x
   // (positive looks down), both in radians
   void setAngles(float yaw, float pitch);
+  // The camera rides on something that turns (a vehicle's cockpit): `carrier`
+  // is that thing's rotation in the world. The yaw and pitch then are relative
+  // to it, so the view follows every tilt and turn of the carrier, whichever
+  // way the camera looks. attachTo() puts it back to nothing (identity).
+  void setCarrier(const glm::mat3 &carrier);
   float getYaw() const { return rotation.x; }
   float getPitch() const { return rotation.y; }
 
@@ -74,6 +80,10 @@ public:
   void attachTo(GameObject *target, float distance, float height);
   void follow();
   glm::vec3 getPosition() { return position; }
+  // Size of the camera as a body (a sphere): the main loop keeps it this far
+  // above the stage's floor (Stage::keepAboveFloor) so it can't clip under it.
+  // Bigger than the near plane (0.1), or the floor would still cut the view.
+  static constexpr float RADIUS = 0.3f;
   // For drawing things of its own (particles) the way the world shader does:
   // gl_Position = projection * model * view * world
   glm::mat4 getViewProjection() const { return projection * model * view; }

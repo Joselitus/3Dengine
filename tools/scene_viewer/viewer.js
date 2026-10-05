@@ -71,6 +71,7 @@ function parseScene(text, path) {
       case 'moon': scene.moon.fromArray(nums(0, 3)).normalize(); break;
       case 'light': scene.light.fromArray(nums(0, 3)); break;
       case 'fog': scene.fog.fromArray(nums(0, 3)); break;
+      case 'time_of_day': case 'day_duration': break; // the viewer has no clock
       case 'sky': scene.sky = str(0); break;
       case 'floor':
         scene.floor = { model: str(0), position: new THREE.Vector3().fromArray(nums(1, 3)),
@@ -179,7 +180,7 @@ void main() {
     gl_FragColor = vec4(c * tw, 1.0);
     return;
   }
-  vec3 lightdir = normalize(lightPosition - vWorld);
+  vec3 lightdir = normalize(lightPosition);
   vec3 norm = normalize(vNormal);
   vec3 viewDir = normalize(cameraPosition - vWorld);
   vec3 reflectDir = reflect(-lightdir, norm);

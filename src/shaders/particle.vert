@@ -13,10 +13,12 @@ uniform vec3 camUp;
 
 out vec2 corner;
 out vec4 color;
+out vec3 worldPos; // the particle's centre, for the lighting
 
 void main() {
 	vec3 world = aCenter + (camRight * aCorner.x + camUp * aCorner.y) * aSize;
 	gl_Position = viewProjection * vec4(world, 1.0);
 	corner = aCorner;
 	color = aColor;
+	worldPos = aCenter;
 }

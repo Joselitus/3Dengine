@@ -44,7 +44,7 @@ GameObject::GameObject(shared_ptr<AnimatedModel> model,
     : aniModel(model), shape(shape ? shape : personShape()) {}
 
 size_t GameObject::addPart(shared_ptr<Model> model, int unlit) {
-  Part part = {model, unlit, mat4(1.0f)};
+  Part part = {model, unlit, mat4(1.0f), true};
   parts.push_back(part);
   return parts.size() - 1;
 }
@@ -80,8 +80,23 @@ void GameObject::Draw(Shader *shader) {
     aniModel->Draw(shader);
   }
 
+  drawParts(shader, false);
+  shader->setFloat("breathAmp", 0.0f);
+}
+
+void GameObject::DrawTransparent(Shader *shader) {
+  if (!visible)
+    return;
+  shader->setFloat("breathAmp", breathAmp);
+  drawParts(shader, true);
+  shader->setFloat("breathAmp", 0.0f);
+}
+
+void GameObject::drawParts(Shader *shader, bool translucent) {
   shader->setInt("skinned", 0);
   for (const Part &part : parts) {
+    if (!part.visible || (translucent && !part.model->hasTransparent()))
+      continue;
     // world = position + rotation * (scale * local * p)
     mat4 placed = rotation * part.local;
     vec3 where = position + vec3(rotation * vec4(scale * vec3(part.local[3]), 0.0f));
@@ -90,10 +105,9 @@ void GameObject::Draw(Shader *shader) {
     shader->setVector3("objposition", where.x, where.y, where.z);
     shader->setMatrix4("objrotation", value_ptr(transform));
     shader->setInt("unlit", part.unlit);
-    part.model->Draw(shader);
+    part.model->Draw(shader, translucent);
   }
   shader->setInt("unlit", 0);
-  shader->setFloat("breathAmp", 0.0f);
 }
 
 void GameObject::describe(vector<string> &lines) const {

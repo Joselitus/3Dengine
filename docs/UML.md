@@ -71,7 +71,7 @@ flowchart TB
     subgraph mundo ["world/ + entities/ (mundo)"]
         GameStage["GameStage (abstracta)<br/>TestStage · SceneStage"]
         Stage["Stage (abstracta)<br/>objetos, suelo, rejilla"]
-        Objetos["GameObject → DynamicGameObject<br/>→ PlayableCharacter (RV, Walker)<br/>Npc · Satellite · Readable"]
+        Objetos["GameObject → DynamicGameObject<br/>→ PlayableCharacter (RV, Walker)<br/>Npc → Pingu · Satellite · Readable"]
     end
 
     subgraph fisica ["physics/"]
@@ -162,7 +162,12 @@ classDiagram
         -AudioClip music
         -bool musicLoop
         -float musicVolume
+        -float timeOfDay
+        -float dayDuration
         +loadModel(path) Model
+        +getTimeOfDay() float
+        +setTimeOfDay(hours)
+        +setDayDuration(seconds)
         +setMusic(clip, loop, volume)
         +loadMusic(path, loop, volume) bool
         +add(GameObject)
@@ -177,6 +182,7 @@ classDiagram
         +update(dt)
         +Draw(shader, time)
         #apply(object, dt)*
+        #onTimeChanged()
         #collideWithFloor(object, dt)
         -resolveCollisions()
     }
@@ -201,7 +207,7 @@ classDiagram
         #PlayableCharacter player
         #float cameraDistance
         #float cameraHeight
-        #setSky(model)
+        #setSky(model, unlit)
         #groundAt(x, z, fallback) float
         +render(shader, cameraPosition, time)
         +getPlayer() PlayableCharacter
@@ -216,6 +222,9 @@ classDiagram
         +vec3 lightDir
         +vec3 lightColor
         +vec3 horizon
+        +vec3 skyZenith
+        +vec3 sunDir
+        +float starAlpha
     }
     class TestStage {
         Desierto de día, en código
@@ -223,6 +232,7 @@ classDiagram
         -Walker walker
         -bool inVehicle
         -enterRV()
+        #onTimeChanged()
         +leaveVehicle()
     }
     class SceneStage {
@@ -268,6 +278,10 @@ classDiagram
         #float maxSpeed
         #float gravity
         #bool grounded
+        -MeshOption[] meshes
+        -size_t currentMesh
+        +addMesh(model) size_t
+        +setMesh(index)
         +steerTowards(wanted, responsiveness)
         +update(dt)
         +contactFloor(stage, dt) bool
@@ -304,6 +318,11 @@ classDiagram
         -Voice voice
         -Dialogue dialogue
         +faceTowards(point)
+        +onInteraction(interaction)
+    }
+    class Pingu {
+        Baila; mientras habla, de pie respirando
+        +onInteraction(interaction)
     }
     class Satellite {
         Cabeza orientable en azimut y cénit
@@ -364,6 +383,7 @@ classDiagram
     GameObject <|-- DynamicGameObject
     DynamicGameObject <|-- PlayableCharacter
     DynamicGameObject <|-- Npc
+    Npc <|-- Pingu
     GameObject <|-- Satellite
     GameObject <|-- Readable
     PlayableCharacter <|-- RV
@@ -481,6 +501,16 @@ classDiagram
     }
     class RV {
         -VehicleBody body
+        -ImpactDetector impact
+        -bool damagedWindshield
+        +applyCollision(push, velocityChange)
+    }
+    class ImpactDetector {
+        Choque frontal violento: una parada brusca justo tras el golpe
+        +onCollision(speedBefore, speedAfter, heading, away)
+        +update(dt, forwardSpeed)
+        +violent() bool
+        +clear()
     }
     class VehicleBody {
         -quat orientation
@@ -530,6 +560,7 @@ classDiagram
     GameObject <|-- DynamicGameObject
     DynamicGameObject <|-- RV
     RV *-- VehicleBody
+    RV *-- ImpactDetector : rompe el parabrisas
     VehicleBody *-- VehicleParams
     note for VehicleParams "es VehicleBody::Params"
     VehicleParams *-- Wheel
@@ -1311,6 +1342,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | Clase | Fichero | Hereda de | Sección |
 |---|---|---|---|
 | `Npc` | `src/entities/Npc.h` | `DynamicGameObject`, `Interactable` | 2 |
+| `Pingu` | `src/entities/Pingu.h` | `Npc` | 2 |
 | `RV` | `src/entities/RV.h` | `PlayableCharacter` | 2 |
 | `Readable` | `src/entities/Readable.h` | `GameObject`, `Interactable` | 2 |
 | `Satellite` | `src/entities/Satellite.h` | `GameObject`, `Interactable` | 2 |
@@ -1332,6 +1364,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | `Capsule` | `src/physics/CollisionShape.h` | `CollisionShape` | 3 |
 | `CollisionShape` | `src/physics/CollisionShape.h` | — | 3 |
 | `Contact` | `src/physics/CollisionShape.h` | — | 3 |
+| `ImpactDetector` | `src/physics/ImpactDetector.h` | — | 3 |
 | `Pose` | `src/physics/CollisionShape.h` | — | 3 |
 | `VehicleBody` | `src/physics/VehicleBody.h` | — | 3 |
 | `AnimatedMesh` | `src/render/AnimatedMesh.h` | — | 4 |

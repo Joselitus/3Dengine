@@ -179,6 +179,10 @@ def write_dome(rings=48, sides=96):
             lines.append("f %d/%d/%d %d/%d/%d %d/%d/%d" % (a, a, a, c, c, c, b, b, b))
             lines.append("f %d/%d/%d %d/%d/%d %d/%d/%d" % (b, b, b, c, c, c, e, e, e))
     open(os.path.join(OUT, "skydome.obj"), "w").write("\n".join(lines) + "\n")
+    # The same dome without material or texture, for skies that the shader
+    # paints itself (TestStage's day/night cycle)
+    plain = [l for l in lines if not l.startswith(("mtllib", "usemtl"))]
+    open(os.path.join(OUT, "skydome_plain.obj"), "w").write("\n".join(plain) + "\n")
 
 
 if __name__ == "__main__":

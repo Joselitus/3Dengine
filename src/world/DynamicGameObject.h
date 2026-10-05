@@ -7,7 +7,25 @@ class Stage;
 
 // A GameObject that moves by itself: characters, enemies... The controller
 // (or any AI) steers it through its acceleration; update() integrates it.
+//
+// It can also change the mesh it is drawn with: the model it was made with is
+// mesh 0 and addMesh() gives it more (static or animated), all loaded from the
+// start so that setMesh() just swaps which one is drawn. Only the mesh that is
+// shown is updated, so an animation that is not on screen does not run.
 class DynamicGameObject : public GameObject {
+private:
+  // One mesh the object can be drawn with: a static model or an animated one
+  struct MeshOption {
+    std::shared_ptr<Model> model;
+    std::shared_ptr<AnimatedModel> animated;
+  };
+  std::vector<MeshOption> meshes; // empty until the second mesh is added
+  size_t currentMesh = 0;
+  bool hasMainPart = false; // the shown static model is parts[mainPart]
+  size_t mainPart = 0;
+
+  void registerFirstMesh(); // the model it was made with becomes mesh 0
+
 protected:
   glm::vec3 velocity = glm::vec3(0.0f);     // units / second
   glm::vec3 acceleration = glm::vec3(0.0f); // units / second^2
@@ -21,6 +39,16 @@ protected:
 
 public:
   using GameObject::GameObject;
+
+  // Adds a mesh the object can show; returns its index (the model it was
+  // made with is 0). It is not shown until setMesh().
+  size_t addMesh(std::shared_ptr<AnimatedModel> model);
+  size_t addMesh(std::shared_ptr<Model> model);
+  // Shows mesh `index` instead of the current one (an unknown index is
+  // ignored). The object's other parts (wheels...) are not touched.
+  void setMesh(size_t index);
+  size_t getMesh() const { return currentMesh; }
+  size_t getMeshCount() const { return meshes.empty() ? 1 : meshes.size(); }
 
   void setVelocity(const glm::vec3 &v) { velocity = v; }
   void setAcceleration(const glm::vec3 &a) { acceleration = a; }

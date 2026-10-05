@@ -61,6 +61,10 @@ bool SceneFile::load(const string &path) {
       ok = bool(fields >> lightColor.r >> lightColor.g >> lightColor.b);
     else if (command == "fog")
       ok = bool(fields >> fogColor.r >> fogColor.g >> fogColor.b);
+    else if (command == "time_of_day")
+      ok = bool(fields >> timeOfDay);
+    else if (command == "day_duration")
+      ok = bool(fields >> dayDuration);
     else if (command == "sky")
       ok = bool(fields >> sky);
     else if (command == "floor")

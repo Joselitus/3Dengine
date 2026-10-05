@@ -10,7 +10,7 @@
 using namespace std;
 
 // Groups in the order they are listed
-static const char *const GROUPS[] = {"Movimiento", "Camara", "Acciones",
+static const char *const GROUPS[] = {"Movimiento", "Acciones",
                                      "Menus"};
 
 ControlsMenu::ControlsMenu(const MenuContext &context)
@@ -70,7 +70,7 @@ void ControlsMenu::resetToDefaults() {
 }
 
 string ControlsMenu::hint() const {
-  return "Haz clic en una acción para cambiar su tecla.";
+  return "Clic en una acción: cambia su tecla.";
 }
 
 bool ControlsMenu::onKey(int key) {

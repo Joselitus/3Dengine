@@ -296,7 +296,10 @@ def circular_convolve(x, ir):
     return np.fft.irfft(np.fft.rfft(x) * np.fft.rfft(ir, len(x)), len(x))
 
 
-def main():
+def build():
+    """Mixes the piece. Returns (left, right, wind_left, wind_right, scale): the
+    finished mix and, apart, just its wind (same filters, reverb and level, so
+    wind + the rest = the mix), with the gain that normalises the mix."""
     guitar, banjo, drums = render()
     drone_l, drone_r, wind_l, wind_r = ambience()
 
@@ -321,16 +324,28 @@ def main():
     left = dry_l + 0.55 * wet_l
     right = dry_r + 0.55 * wet_r
 
-    # nothing below 35 Hz (it only costs headroom), then a normalised peak
-    left = fft_filter(left, lambda f: 1 / (1 + (35 / np.maximum(f, 1e-3)) ** 4))
-    right = fft_filter(right, lambda f: 1 / (1 + (35 / np.maximum(f, 1e-3)) ** 4))
-    peak = max(np.abs(left).max(), np.abs(right).max())
-    left, right = 0.8 * left / peak, 0.8 * right / peak
+    # the wind alone, through the same dry path and reverb send
+    wsend_l = 0.6 * WIND * wind_l
+    wsend_r = 0.6 * WIND * wind_r
+    wwet_l = circular_convolve(wsend_l, ir_l) + 0.3 * circular_convolve(wsend_r, ir_r)
+    wwet_r = circular_convolve(wsend_r, ir_r) + 0.3 * circular_convolve(wsend_l, ir_l)
+    wind_only_l = WIND * wind_l + 0.55 * wwet_l
+    wind_only_r = WIND * wind_r + 0.55 * wwet_r
 
+    # nothing below 35 Hz (it only costs headroom), then a normalised peak
+    def low_cut(x):
+        return fft_filter(x, lambda f: 1 / (1 + (35 / np.maximum(f, 1e-3)) ** 4))
+    left, right = low_cut(left), low_cut(right)
+    wind_only_l, wind_only_r = low_cut(wind_only_l), low_cut(wind_only_r)
+    peak = max(np.abs(left).max(), np.abs(right).max())
+    scale = 0.8 / peak
+    return left * scale, right * scale, wind_only_l * scale, wind_only_r * scale
+
+
+def write_wav(path, left, right):
     pcm = np.empty(2 * N, dtype="<i2")
     pcm[0::2] = np.round(left * 32767)
     pcm[1::2] = np.round(right * 32767)
-    path = os.path.join(OUT, "desert.wav")
     with wave.open(path, "wb") as w:
         w.setnchannels(2)
         w.setsampwidth(2)
@@ -338,6 +353,11 @@ def main():
         w.writeframes(pcm.tobytes())
     print("wrote %s: %.1f s, %d Hz stereo, %.1f MB" %
           (path, LOOP_SECONDS, SR, os.path.getsize(path) / 1e6))
+
+
+def main():
+    left, right, _, _ = build()
+    write_wav(os.path.join(OUT, "desert.wav"), left, right)
 
 
 if __name__ == "__main__":

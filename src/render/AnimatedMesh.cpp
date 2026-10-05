@@ -71,6 +71,7 @@ void AnimatedMesh::Draw(Shader *shader) {
   }
   glActiveTexture(GL_TEXTURE0);
   shader->setInt("useColor", 0);
+  shader->setFloat("alpha", 1.0f);
 
   // draw mesh
   glBindVertexArray(VAO);

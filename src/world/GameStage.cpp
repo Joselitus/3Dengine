@@ -3,9 +3,9 @@
 using namespace std;
 using namespace glm;
 
-void GameStage::setSky(shared_ptr<Model> model) {
+void GameStage::setSky(shared_ptr<Model> model, int unlit) {
   sky = make_shared<GameObject>();
-  sky->addPart(model, 1); // unlit = 1: sky dome
+  sky->addPart(model, unlit);
 }
 
 float GameStage::groundAt(float x, float z, float fallback) const {

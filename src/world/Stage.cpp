@@ -10,6 +10,8 @@ using namespace glm;
 // (so it follows slopes instead of hopping), and how much it may step up
 #define SNAP_DISTANCE 0.3f
 #define STEP_HEIGHT 0.6f
+// How far above a point keepAboveFloor() still looks for the floor (DownwardRay)
+#define CAMERA_REACH 3.0f
 
 shared_ptr<Model> Stage::loadModel(const string &path) {
   shared_ptr<Model> &model = models[path];
@@ -26,6 +28,17 @@ bool Stage::loadMusic(const string &path, bool loop, float volume) {
     return false;
   }
   setMusic(clip, loop, volume);
+  return true;
+}
+
+bool Stage::loadAmbience(const string &path, float volume) {
+  auto clip = make_shared<AudioClip>();
+  if (!clip->loadWavFile(path)) {
+    cerr << "Stage: could not load the ambient sound '" << path << "'" << endl;
+    ambience = nullptr;
+    return false;
+  }
+  setAmbience(clip, volume);
   return true;
 }
 
@@ -50,7 +63,17 @@ Stage::addDynamic(shared_ptr<DynamicGameObject> object) {
   return object;
 }
 
+void Stage::setTimeOfDay(float hours) {
+  timeOfDay = std::fmod(hours, 24.0f);
+  if (timeOfDay < 0.0f)
+    timeOfDay += 24.0f;
+  onTimeChanged();
+}
+
 void Stage::update(double dt) {
+  if (dayDuration > 0.0f) {
+    setTimeOfDay(timeOfDay + (float)dt * 24.0f / dayDuration);
+  }
   for (auto &object : objects)
     object->update(dt);
   for (auto &object : dynamicObjects) {
@@ -73,6 +96,11 @@ void Stage::Draw(Shader *shader, double time) {
     object->Draw(shader);
   for (auto &object : dynamicObjects)
     object->Draw(shader);
+  // translucent meshes (windows) last, over everything opaque
+  for (auto &object : objects)
+    object->DrawTransparent(shader);
+  for (auto &object : dynamicObjects)
+    object->DrawTransparent(shader);
 }
 
 // ------------------------------------------------------------------- floor
@@ -304,6 +332,19 @@ void Stage::keepInsideFloor(vec3 &p, vec3 &v, float margin) const {
   if (cz != p.z) v.z = 0.0f;
   p.x = cx;
   p.z = cz;
+}
+
+bool Stage::keepAboveFloor(vec3 &point, float radius) const {
+  float h;
+  vec3 normal(0.0f, 1.0f, 0.0f);
+  if (!floorAt(point.x, point.z, h, &normal, point.y + CAMERA_REACH))
+    return false;
+  // On a slope the sphere touches the floor higher than `radius` above it
+  float needed = h + radius / glm::max(normal.y, 0.5f);
+  if (point.y >= needed)
+    return false;
+  point.y = needed;
+  return true;
 }
 
 void Stage::collideWithFloor(DynamicGameObject &object, double dt) const {

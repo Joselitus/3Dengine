@@ -60,6 +60,15 @@ ParticleRenderer::~ParticleRenderer() {
   }
 }
 
+void ParticleRenderer::setLighting(const vec3 &color, const vec3 &direction,
+                                   const std::vector<SpotLight> &spotLights) {
+  sunColor = color;
+  sunDir = normalize(direction);
+  spots = spotLights;
+  if ((int)spots.size() > MAX_SPOTS)
+    spots.resize(MAX_SPOTS);
+}
+
 void ParticleRenderer::draw(
     const std::vector<std::shared_ptr<ParticleEmitter>> &emitters,
     Camera &camera) {
@@ -91,7 +100,8 @@ void ParticleRenderer::draw(
     const ParticleEmitter::Settings &s = *item.settings;
     float t = ParticleEmitter::lifeFraction(p);
     float size = s.sizeStart + (s.sizeEnd - s.sizeStart) * t;
-    float alpha = s.alpha * (1.0f - t) * (1.0f - t); // fades out, quickly at the end
+    float fade = t <= s.fadeStart ? 1.0f : (1.0f - t) / (1.0f - s.fadeStart);
+    float alpha = s.alpha * fade * fade; // fades out, quickly at the end
     for (const auto &c : corners)
       vertices.insert(vertices.end(),
                       {p.position.x, p.position.y, p.position.z, c[0], c[1],
@@ -116,6 +126,17 @@ void ParticleRenderer::draw(
   vec3 right = camera.getRight(), up = camera.getUp();
   shader->setVector3("camRight", right.x, right.y, right.z);
   shader->setVector3("camUp", up.x, up.y, up.z);
+  shader->setVector3("sunColor", sunColor.r, sunColor.g, sunColor.b);
+  shader->setVector3("sunDir", sunDir.x, sunDir.y, sunDir.z);
+  shader->setInt("spotCount", (int)spots.size());
+  for (size_t i = 0; i < spots.size(); i++) {
+    const SpotLight &l = spots[i];
+    std::string n = "[" + std::to_string(i) + "]";
+    shader->setVector3(("spotPosition" + n).c_str(), l.position.x, l.position.y, l.position.z);
+    shader->setVector3(("spotDirection" + n).c_str(), l.direction.x, l.direction.y, l.direction.z);
+    shader->setVector3(("spotColor" + n).c_str(), l.color.r, l.color.g, l.color.b);
+    shader->setVector3(("spotParams" + n).c_str(), l.innerCos, l.outerCos, l.range);
+  }
 
   glBindVertexArray(VAO);
   glBindBuffer(GL_ARRAY_BUFFER, VBO);

@@ -55,14 +55,25 @@ void Camera::reposition(float x, float y, float z) {
 void Camera::setAngles(float yaw, float pitch) {
 	this->model = glm::rotate(mat4(1.0), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
 	this->model = glm::rotate(this->model, yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+	this->model = this->model * this->base;
 	this->rotation = vec2(yaw, pitch);
 	this->update();
+}
+
+void Camera::setCarrier(const glm::mat3 &carrier) {
+	// the view rotation is the inverse of the carrier's (a rotation: its transpose)
+	this->base = mat4(glm::transpose(carrier));
+	this->setAngles(this->rotation.x, this->rotation.y);
 }
 
 void Camera::attachTo(GameObject *target, float distance, float height) {
 	this->target = target;
 	this->distance = distance;
 	this->height = height;
+	if (this->base != mat4(1.0f)) { // nothing carries it any more
+		this->base = mat4(1.0f);
+		this->setAngles(this->rotation.x, this->rotation.y);
+	}
 	this->follow();
 }
 

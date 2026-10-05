@@ -33,6 +33,55 @@ void DynamicGameObject::update(double dt) {
   position += velocity * (float)dt;
 }
 
+void DynamicGameObject::registerFirstMesh() {
+  if (!meshes.empty())
+    return;
+  MeshOption first;
+  first.animated = aniModel;
+  if (!aniModel && !parts.empty()) {
+    first.model = parts[0].model;
+    hasMainPart = true;
+    mainPart = 0;
+  }
+  meshes.push_back(first);
+  currentMesh = 0;
+}
+
+size_t DynamicGameObject::addMesh(std::shared_ptr<AnimatedModel> model) {
+  registerFirstMesh();
+  MeshOption option;
+  option.animated = model;
+  meshes.push_back(option);
+  return meshes.size() - 1;
+}
+
+size_t DynamicGameObject::addMesh(std::shared_ptr<Model> model) {
+  registerFirstMesh();
+  MeshOption option;
+  option.model = model;
+  meshes.push_back(option);
+  return meshes.size() - 1;
+}
+
+void DynamicGameObject::setMesh(size_t index) {
+  if (index >= meshes.size())
+    return; // (with no meshes added there is only mesh 0, already shown)
+  currentMesh = index;
+  const MeshOption &mesh = meshes[index];
+  aniModel = mesh.animated; // null for a static one: update() leaves the others alone
+  if (mesh.model) {
+    if (hasMainPart) {
+      parts[mainPart].model = mesh.model;
+      parts[mainPart].visible = true;
+    } else {
+      mainPart = addPart(mesh.model);
+      hasMainPart = true;
+    }
+  } else if (hasMainPart) {
+    parts[mainPart].visible = false; // an animated mesh is shown instead
+  }
+}
+
 void DynamicGameObject::describe(std::vector<std::string> &lines) const {
   GameObject::describe(lines);
   lines.push_back(textFormat("Velocidad: %s  %.2f m/s",
@@ -43,4 +92,7 @@ void DynamicGameObject::describe(std::vector<std::string> &lines) const {
   lines.push_back(textFormat("Vel. max: %.1f m/s  Rozamiento: %.1f /s", maxSpeed,
                              drag));
   lines.push_back(std::string("En el suelo: ") + (grounded ? "si" : "no"));
+  if (getMeshCount() > 1)
+    lines.push_back(textFormat("Malla: %d de %d", (int)currentMesh + 1,
+                               (int)getMeshCount()));
 }

@@ -27,7 +27,7 @@
 #include "Readable.h"
 #include "Satellite.h"
 #include "Model.h"
-#include "Npc.h"
+#include "Pingu.h"
 #include "AudioMenu.h"
 #include "CameraMenu.h"
 #include "PauseMenu.h"
@@ -125,10 +125,19 @@ GLFWwindow *initializeGLFW(const char *windowname) {
 // goes back to first person.
 class TestStage : public GameStage {
 private:
+  // PenguinoAnimado.fbx holds two takes of the same dance; take 0 (".002") has
+  // the right flipper detached from the body and the feet in the air, take 1
+  // (".003") is the clean one.
+  static constexpr unsigned int PENGUIN_ANIMATION = 1;
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
   static constexpr float CAR_CAMERA_DISTANCE = 12.0f;
   static constexpr float CAR_CAMERA_HEIGHT = 3.5f;
   static constexpr float EYE_HEIGHT = 1.6f; // first person, above the feet
+  static constexpr float DAY_DURATION = 360.0f; // real seconds per 24 h
+  static constexpr float START_HOUR = 21.0f;    // the game starts at night
+  // What is left of the light with no sun (it comes from straight above): very
+  // little, so that at night it is hard to see anything without the headlights
+  const vec3 NIGHT_LIGHT = vec3(0.022f, 0.025f, 0.04f);
   std::shared_ptr<RV> rv;
   std::shared_ptr<Walker> walker; // the penguin on foot
   bool inVehicle = false;         // the penguin is inside the RV
@@ -156,6 +165,46 @@ private:
   }
 
 protected:
+  // The daylight cycle: the sun crosses the sky (east at 6:00, highest at
+  // noon, west at 18:00). The sky, the fog and the light follow it: blue by
+  // day, orange at dusk and dawn, and at night dark with stars and only a
+  // minimum of light left. The music fades out as the sun sets (until only
+  // the wind remains) and comes back with the dawn.
+  void onTimeChanged() override {
+    // 0 below `a`, 1 above `b`, smooth between (also works if a > b)
+    auto ramp = [](float a, float b, float x) {
+      float t = clamp((x - a) / (b - a), 0.0f, 1.0f);
+      return t * t * (3.0f - 2.0f * t);
+    };
+    float angle = (getTimeOfDay() - 6.0f) / 24.0f * 6.2831853f;
+    vec3 sun = normalize(vec3(cos(angle), sin(angle), -0.3f));
+    float h = sun.y; // how high the sun is (negative: below the horizon)
+
+    float day = ramp(-0.1f, 0.3f, h);
+    float dusk = ramp(-0.2f, 0.0f, h) * (1.0f - ramp(0.05f, 0.35f, h));
+    vec3 horizon = mix(vec3(0.035f, 0.055f, 0.11f), vec3(0.45f, 0.68f, 0.92f), day);
+    horizon = mix(horizon, vec3(0.95f, 0.52f, 0.30f), dusk * 0.85f);
+    vec3 zenith = mix(vec3(0.003f, 0.007f, 0.028f), vec3(0.16f, 0.38f, 0.78f), day);
+    zenith = mix(zenith, vec3(0.25f, 0.22f, 0.45f), dusk * 0.5f);
+    environment.horizon = horizon;
+    environment.skyZenith = zenith;
+    environment.sunDir = sun;
+    environment.starAlpha = 1.0f - ramp(-0.2f, 0.0f, h);
+
+    // The sun lights the world while it is up; at night there is only the
+    // minimum that is always there, from straight above
+    vec3 sunColor = mix(vec3(1.0f, 0.55f, 0.25f), vec3(0.85f, 0.83f, 0.78f),
+                        ramp(0.0f, 0.45f, h));
+    float sunPower = ramp(-0.05f, 0.25f, h);
+    environment.lightColor = sunColor * sunPower + NIGHT_LIGHT;
+    // The light comes from the sun while it gives noticeable light; only the
+    // minimum that is left (NIGHT_LIGHT) comes from above, so as the sun sets
+    // its share of the light shrinks instead of the direction drifting early
+    float sunShare = sunPower / (sunPower + length(NIGHT_LIGHT));
+    environment.lightDir = normalize(mix(vec3(0.0f, 1.0f, 0.0f), sun, sunShare));
+    setMusicVolume(ramp(-0.1f, 0.5f, h)); // gone shortly after sunset
+  }
+
   // Everything dynamic stays on the dunes (the penguin inside the RV just
   // rides in it)
   void apply(DynamicGameObject &object, double dt) override {
@@ -171,6 +220,21 @@ protected:
 public:
   // Interactions are for the penguin on foot, not while driving
   bool interactionsEnabled() const override { return !inVehicle; }
+
+  // F: the headlights, only while the penguin is driving
+  void toggleHeadlights() override {
+    if (inVehicle)
+      rv->toggleHeadlights();
+  }
+  // C: inside the RV or behind it, only while the penguin is driving
+  void toggleVehicleCamera() override {
+    if (inVehicle)
+      rv->toggleCameraView();
+  }
+  void getSpotLights(std::vector<SpotLight> &lights) const override {
+    rv->getHeadlights(lights);
+    rv->getDashboardLights(lights);
+  }
 
   // The penguin gets out at the RV's door, on foot and in first person
   void leaveVehicle() override {
@@ -193,12 +257,14 @@ public:
       : GameStage(mode) {
     // The desert's background music: an arid guitar and banjo loop
     loadMusic("../assets/music/desert.wav");
+    // ...and the wind, which never stops (it is all that is left at night)
+    loadAmbience("../assets/music/wind.wav");
 
-    // Daylight: plain blue sky (the clear colour), distant geometry fades
-    // into it; warm white sunlight
-    environment.lightDir = normalize(vec3(-0.3f, 0.8f, -0.5f));
-    environment.lightColor = vec3(0.85f, 0.83f, 0.78f);
-    environment.horizon = vec3(0.45f, 0.68f, 0.92f);
+    // A day lasts DAY_DURATION seconds; the sky and the light follow the
+    // clock (see onTimeChanged)
+    setSky(loadModel("../assets/sky/skydome_plain.obj"), 3);
+    setDayDuration(DAY_DURATION);
+    setTimeOfDay(START_HOUR);
     // First person: the camera at the penguin's eyes, 1.6 above its feet
     cameraDistance = 0.0f;
     cameraHeight = EYE_HEIGHT;
@@ -309,11 +375,22 @@ public:
     // The wheels are separate models so they follow the suspension
     rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
                        loadModel("../assets/rv/wheel_posx.obj"));
+    // The windshield: intact, and the cracked one that replaces it after a crash
+    rv->setWindshieldModels(loadModel("../assets/rv/windshield.obj"),
+                            loadModel("../assets/rv/windshield_broken.obj"));
+    // The cockpit: the dashboard, the ignition key and the gauges' needle
+    rv->setCockpitModels(loadModel("../assets/rv/dashboard.obj"),
+                         loadModel("../assets/rv/key.obj"),
+                         loadModel("../assets/rv/needle.obj"),
+                         loadModel("../assets/rv/dashboard_glow.obj"));
+    rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
     addDynamic(rv);
     // The dust its wheels throw up on sand (the stage moves and removes it)
     for (const auto &emitter : rv->getDust())
+      addEmitter(emitter);
+    for (const auto &emitter : rv->getGrains())
       addEmitter(emitter);
     // Using its door gets the player in (see enterRV)
     rv->setEnterAction([this]() { enterRV(); });
@@ -324,7 +401,8 @@ public:
     // fits it to 1.8 units around the origin), which only shows if the camera
     // is moved out of first person.
     walker = make_shared<Walker>(
-        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx"));
+        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx", false,
+                                   PENGUIN_ANIMATION));
     walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
     walker->setGravity(25.0f);
     addDynamic(walker);
@@ -341,8 +419,15 @@ public:
     // Use key. Same model as the player, standing on its feet.
     VoiceSettings voice;
     voice.pitch = 62; // a bit higher than the default
-    auto guide = make_shared<Npc>(
-        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx", true),
+    // Pingu dances; while he talks to the player he stands still, breathing
+    // calmly (the same model in its idle pose): both are loaded
+    auto dancing = make_shared<AnimatedModel>(
+        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
+    auto standing = make_shared<AnimatedModel>(
+        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
+    standing->setIdle(true);
+    auto guide = make_shared<Pingu>(
+        dancing, standing,
         "Pingu", std::vector<std::string>{
             "¡Hola, viajero! Soy Pingu y vigilo esta antena en mitad del desierto.",
             "Acércate al satélite y úsalo: puedes girarlo en azimut y en cénit para apuntar a cualquier punto del cielo.",
@@ -372,6 +457,8 @@ public:
   }
 };
 
+constexpr unsigned int TestStage::PENGUIN_ANIMATION;
+
 // Shaders and assets are loaded with paths relative to src/. The binary is
 // built into test/, next to src/, so move there whatever the launch directory.
 bool enterSourceDir() {
@@ -387,11 +474,17 @@ bool enterSourceDir() {
 
 int main(int argc, char **argv) {
   FloorMode floorMode = FloorMode::HeightField; // pass --ray for DownwardRay
+  float startHour = -1.0f;   // --time H: hour a map starts at (default: its own)
+  float dayDuration = -1.0f; // --day-duration S: seconds per day (0 = stopped)
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
     else if (std::string(argv[i]) == "--ray")
       floorMode = FloorMode::DownwardRay;
+    else if (std::string(argv[i]) == "--time" && i + 1 < argc)
+      startHour = (float)atof(argv[++i]);
+    else if (std::string(argv[i]) == "--day-duration" && i + 1 < argc)
+      dayDuration = (float)atof(argv[++i]);
   if (!enterSourceDir())
     fprintf(stderr, "Could not find src/, using the current directory\n");
 
@@ -427,6 +520,7 @@ int main(int argc, char **argv) {
   SoundEngine sound;
   AudioMenu::applySettings(settings, sound); // the saved master volume
   MusicPlayer music(sound); // the current map's background music
+  MusicPlayer ambience(sound); // and its ambient sound (wind...), apart
   EspeakSynthesizer speech;
 
   // The single light (the sun or the moon, set by each map)
@@ -462,6 +556,42 @@ int main(int argc, char **argv) {
   int currentMap = -1;
   int requestedMap = 0; // switched to at a safe point of the main loop
 
+  // Hands the map's light and sky colours to the shader (they change with
+  // its time of day, so this is done every frame)
+  // Hands the spot lights that are on (the vehicle's headlights) to the shader
+  // every frame; the shader has room for MAX_SPOTS of them
+  std::vector<SpotLight> lights; // the ones on this frame (also for the particles)
+  auto applySpotLights = [&]() {
+    const int MAX_SPOTS = 8; // as in shader.frag
+    lights.clear();
+    stage->getSpotLights(lights);
+    if ((int)lights.size() > MAX_SPOTS)
+      lights.resize(MAX_SPOTS);
+    shader.use();
+    shader.setInt("spotCount", (int)lights.size());
+    for (size_t i = 0; i < lights.size(); i++) {
+      const SpotLight &l = lights[i];
+      std::string n = "[" + std::to_string(i) + "]";
+      shader.setVector3(("spotPosition" + n).c_str(), l.position.x, l.position.y, l.position.z);
+      shader.setVector3(("spotDirection" + n).c_str(), l.direction.x, l.direction.y, l.direction.z);
+      shader.setVector3(("spotColor" + n).c_str(), l.color.r, l.color.g, l.color.b);
+      shader.setVector3(("spotParams" + n).c_str(), l.innerCos, l.outerCos, l.range);
+    }
+  };
+
+  auto applyEnvironment = [&]() {
+    const Environment &env = stage->getEnvironment();
+    vec3 lightPosition = env.lightDir * 100.0f; // only its direction is used
+    shader.use();
+    light.setColor(env.lightColor.r, env.lightColor.g, env.lightColor.b);
+    light.moveTo(lightPosition.x, lightPosition.y, lightPosition.z);
+    shader.setVector3("moonDir", env.lightDir.x, env.lightDir.y, env.lightDir.z);
+    shader.setVector3("fogColor", env.horizon.r, env.horizon.g, env.horizon.b);
+    shader.setVector3("skyZenith", env.skyZenith.r, env.skyZenith.g, env.skyZenith.b);
+    shader.setVector3("sunDir", env.sunDir.x, env.sunDir.y, env.sunDir.z);
+    shader.setFloat("starAlpha", env.starAlpha);
+  };
+
   // Replaces the current map: nothing may still point into the old one (its
   // panels, the interaction targets, the controller's character)
   auto switchMap = [&](int index) {
@@ -478,17 +608,16 @@ int main(int argc, char **argv) {
     // Each map brings its own music (or none, which silences the previous)
     music.play(stage->getMusic(), stage->isMusicLooping(),
                stage->getMusicVolume());
+    ambience.play(stage->getAmbience(), true, stage->getAmbienceVolume());
     for (Interactable *object : stage->getInteractables())
       interaction.add(object);
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                       stage->getCameraHeight(), stage->getCameraYaw());
 
-    const Environment &env = stage->getEnvironment();
-    vec3 lightPosition = env.lightDir * 100.0f; // far: almost directional
-    light.setColor(env.lightColor.r, env.lightColor.g, env.lightColor.b);
-    light.moveTo(lightPosition.x, lightPosition.y, lightPosition.z);
-    shader.setVector3("moonDir", env.lightDir.x, env.lightDir.y, env.lightDir.z);
-    shader.setVector3("fogColor", env.horizon.r, env.horizon.g, env.horizon.b);
+    if (startHour >= 0.0f)
+      stage->setTimeOfDay(startHour);
+    if (dayDuration >= 0.0f)
+      stage->setDayDuration(dayDuration);
   };
 
   // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
@@ -520,6 +649,14 @@ int main(int argc, char **argv) {
                if (!selector.capturesMouse())
                  stage->leaveVehicle();
              });
+
+  // Headlights key: the map turns its vehicle's lights on or off
+  ui.bindKey([&controls]() { return controls.key(Action::Headlights); },
+             [&]() { stage->toggleHeadlights(); });
+
+  // Vehicle camera key: inside the vehicle or from behind
+  ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },
+             [&]() { stage->toggleVehicleCamera(); });
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -556,17 +693,29 @@ int main(int argc, char **argv) {
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
     stage->update(dt);
+    // a map may fade its sounds (with the time of day)
+    music.setVolume(stage->getMusicVolume());
+    ambience.setVolume(stage->getAmbienceVolume());
     stage->getPlayer()->followCamera();
+    // The camera is a body too: it can't sink into the floor (e.g. behind
+    // the RV on a dune, or when the player walks up a slope)
+    vec3 eye = camera.getPosition();
+    if (stage->keepAboveFloor(eye, Camera::RADIUS))
+      camera.reposition(eye.x, eye.y, eye.z);
     selector.update(*stage, camera, !ui.hasPanels());
     // The player hears from the camera
     sound.setListener(camera.getPosition(), camera.getForward());
     const vec3 &horizon = stage->getEnvironment().horizon;
+    applyEnvironment();
+    applySpotLights();
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Draw: the map's sky (if any) and the map, then the interface on top
     shader.setFloat("time", (float)now);
     stage->render(&shader, camera.getPosition(), now);
+    const Environment &env = stage->getEnvironment();
+    particles.setLighting(env.lightColor, env.lightDir, lights);
     particles.draw(stage->getEmitters(), camera); // over the world
     selector.draw(camera); // the selected object's outline, if any
     ui.draw(); // last, over everything

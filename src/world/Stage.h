@@ -50,6 +50,10 @@ private:
   std::shared_ptr<const AudioClip> music;
   bool musicLoop = true;
   float musicVolume = 1.0f;
+  // Ambient sound (null: none): like the music, but it stays when the music
+  // is faded out (wind...)
+  std::shared_ptr<const AudioClip> ambience;
+  float ambienceVolume = 1.0f;
 
   // The collision grid
   float gridCellSize;
@@ -105,6 +109,9 @@ private:
   std::vector<std::shared_ptr<DynamicGameObject>> dynamicObjects;
   std::vector<std::shared_ptr<ParticleEmitter>> emitters;
 
+  float timeOfDay = 12.0f;    // hours, 0 <= t < 24
+  float dayDuration = 0.0f;   // real seconds a whole day lasts, 0 = time stands still
+
 protected:
   // cellSize: side of the cells of the collision grid, in world units (a few
   // times the size of the biggest object is a good value)
@@ -114,6 +121,11 @@ protected:
   // Applied to every dynamic object each update, right after the object has
   // moved dt seconds (collisions, bounds, AI, ...)
   virtual void apply(DynamicGameObject &object, double dt) = 0;
+
+  // Called after the time of day changed (every update while the clock runs,
+  // and on setTimeOfDay). Each stage decides what the hour means: the light
+  // and the sky, who is awake, a door that opens... The default does nothing.
+  virtual void onTimeChanged() {}
 
   // Keeps a dynamic object on the floor: it can't leave the floor's bounds or
   // sink into it, and it is `grounded` while it stands on it. Meant to be
@@ -160,6 +172,17 @@ public:
   }
   // Loads a WAV file as the music; false (and no music) if it can't be read
   bool loadMusic(const std::string &path, bool loop = true, float volume = 1.0f);
+  // The music's volume can change while it plays (a stage fades it with
+  // the time of day, for instance): the main loop hands it to the MusicPlayer
+  void setMusicVolume(float volume) { musicVolume = volume; }
+  // An ambient sound, played in a loop alongside the music (nullptr: none)
+  void setAmbience(std::shared_ptr<const AudioClip> clip, float volume = 1.0f) {
+    ambience = clip;
+    ambienceVolume = volume;
+  }
+  bool loadAmbience(const std::string &path, float volume = 1.0f);
+  std::shared_ptr<const AudioClip> getAmbience() const { return ambience; }
+  float getAmbienceVolume() const { return ambienceVolume; }
   std::shared_ptr<const AudioClip> getMusic() const { return music; }
   bool isMusicLooping() const { return musicLoop; }
   float getMusicVolume() const { return musicVolume; }
@@ -186,6 +209,13 @@ public:
                        float margin = 0.0f) const;
   bool hasFloor() const { return floor_mesh != nullptr; }
 
+  // Lifts `point` (the centre of a sphere of `radius`, e.g. the camera) out
+  // of the floor if it is below it or closer than `radius`, so that it can't
+  // clip through. True if it moved it. Where there is no floor it does
+  // nothing. (A floor more than a few metres above the point is ignored in
+  // DownwardRay mode.)
+  bool keepAboveFloor(glm::vec3 &point, float radius) const;
+
   // Height of the floor at (x, z) and, optionally, its (upward) normal.
   // False if there is no floor there. In DownwardRay mode the ray starts at
   // maxY and finds the highest surface at or below it, so a floor above the
@@ -209,7 +239,16 @@ public:
 
   // Advances every object by dt seconds, applies the stage rules to the
   // dynamic ones and resolves the collisions
+  // Moves the clock (see setDayDuration), then the objects and emitters
   void update(double dt);
+
+  // The clock of the stage, common to every map. The time of day is in hours
+  // (0 = midnight, 12 = noon, wraps at 24); it advances with update() so a whole
+  // day takes `seconds` of real time (0 = stopped).
+  float getTimeOfDay() const { return timeOfDay; }
+  void setTimeOfDay(float hours);
+  float getDayDuration() const { return dayDuration; }
+  void setDayDuration(float seconds) { dayDuration = seconds > 0.0f ? seconds : 0.0f; }
   // time feeds the shader's procedural animations (breathing)
   void Draw(Shader *shader, double time);
 };

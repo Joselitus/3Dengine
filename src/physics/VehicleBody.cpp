@@ -93,15 +93,28 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
   // The ground under each wheel, and what the engine can do with it: the top
   // speed is the mean over the wheels (a vehicle half on sand is half slowed)
   std::vector<Surface> surface(params.wheels.size());
-  float topSpeed = 0.0f;
+  float topSpeed = 0.0f, rollingFactor = 0.0f;
   for (size_t i = 0; i < params.wheels.size(); i++) {
     if (surfaces) {
       vec3 anchor = origin + R * params.wheels[i].anchor;
       surface[i] = surfaces(anchor.x, anchor.z);
     }
     topSpeed += surface[i].topSpeed / params.wheels.size();
+    rollingFactor += surface[i].rolling / params.wheels.size();
   }
-  float maxSpeed = params.maxSpeed * topSpeed;
+  float maxSpeed = max(params.maxSpeed * topSpeed, 0.1f);
+
+  // maxSpeed is the terminal speed: the engine pushes with the same force at
+  // any speed and what opposes the motion grows with it, linearly (the tyres'
+  // rolling drag, in the wheels' loop) and with the square of the speed (the
+  // air). The air drag coefficient is the one that balances the engine at
+  // maxSpeed on flat ground, so the vehicle gets there asymptotically (never
+  // past it, unless it goes downhill or is pushed).
+  float rollingAtMax = params.rolling * rollingFactor * maxSpeed;
+  float airDrag = max(params.acceleration - rollingAtMax,
+                      0.1f * params.acceleration) / (maxSpeed * maxSpeed); // 1/m
+  vec3 flat(velocity.x, 0.0f, velocity.z);
+  force -= params.mass * airDrag * glm::length(flat) * flat;
 
   // Engine and brake: the total force along the heading, shared by the wheels
   // that touch the floor
@@ -110,18 +123,17 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     if (speed < -0.5f)
       drive = params.mass * params.braking * throttle; // brakes
     else
-      // (the rolling drag is made up for, so maxSpeed is the real top speed)
-      drive = params.mass * (params.acceleration *
-                                 max(0.0f, 1.0f - speed / maxSpeed) +
-                             params.rolling * max(speed, 0.0f)) * throttle;
+      drive = params.mass * params.acceleration * throttle;
   } else if (throttle < 0.0f) {
-    float reverseMax = maxSpeed * params.reverseFactor;
     if (speed > 0.5f)
       drive = params.mass * params.braking * throttle; // brakes
-    else
-      drive = params.mass * (params.acceleration *
-                                 max(0.0f, 1.0f + speed / reverseMax) +
-                             params.rolling * max(-speed, 0.0f)) * throttle;
+    else {
+      // Reverse gear: just enough force for the reverse top speed
+      float reverseMax = maxSpeed * params.reverseFactor;
+      float reverseForce = airDrag * reverseMax * reverseMax +
+                           params.rolling * rollingFactor * reverseMax;
+      drive = params.mass * reverseForce * throttle;
+    }
   }
   float perWheel = drive / params.wheels.size();
 

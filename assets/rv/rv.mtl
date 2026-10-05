@@ -97,3 +97,18 @@ Ks 0.05 0.05 0.05
 Ns 10
 illum 2
 
+newmtl glow
+Ka 1.000 0.950 0.700
+Kd 1.000 0.950 0.700
+Ks 0.05 0.05 0.05
+Ns 10
+illum 2
+
+newmtl sideglass
+Ka 0.550 0.780 0.880
+Kd 0.550 0.780 0.880
+Ks 0.05 0.05 0.05
+Ns 10
+illum 2
+d 0.15
+

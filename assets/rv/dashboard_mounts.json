@@ -1,0 +1,133 @@
+{
+  "comment": "Where other models go on dashboard.obj (same frame as rv.obj, meters). A model's own axes x, y, z map to the world vectors below; its origin to `origin`.",
+  "ignition_key": {
+    "model": "key.obj",
+    "origin": [
+      0.355,
+      1.65545,
+      2.62828
+    ],
+    "x": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "y": [
+      0.0,
+      0.86691,
+      0.49847
+    ],
+    "z": [
+      0.0,
+      0.49847,
+      -0.86691
+    ]
+  },
+  "speed_needle": {
+    "model": "needle.obj",
+    "origin": [
+      0.7,
+      1.74017,
+      2.67353
+    ],
+    "x": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "y": [
+      0.0,
+      0.86691,
+      0.49847
+    ],
+    "z": [
+      0.0,
+      0.49847,
+      -0.86691
+    ],
+    "angle_at_min_deg": 135.0,
+    "angle_at_max_deg": -135.0
+  },
+  "fuel_needle": {
+    "model": "needle.obj",
+    "origin": [
+      0.52,
+      1.74017,
+      2.67353
+    ],
+    "x": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "y": [
+      0.0,
+      0.86691,
+      0.49847
+    ],
+    "z": [
+      0.0,
+      0.49847,
+      -0.86691
+    ],
+    "angle_at_min_deg": 60.0,
+    "angle_at_max_deg": -60.0
+  },
+  "dashboard_lights": {
+    "comment": "where the lights that the glowing parts give off go (RV frame, meters), one on each glowing component, each with its range: dim, orange, short",
+    "lights": [
+      {
+        "position": [
+          0.7,
+          1.74865,
+          2.6588
+        ],
+        "range": 0.42
+      },
+      {
+        "position": [
+          0.52,
+          1.74865,
+          2.6588
+        ],
+        "range": 0.42
+      },
+      {
+        "position": [
+          0.888,
+          1.70248,
+          2.64379
+        ],
+        "range": 0.3
+      },
+      {
+        "position": [
+          0.265,
+          1.76718,
+          2.68675
+        ],
+        "range": 0.32
+      },
+      {
+        "position": [
+          0.145,
+          1.76718,
+          2.68675
+        ],
+        "range": 0.32
+      }
+    ],
+    "pod_origin": [
+      0.0,
+      1.52,
+      2.585
+    ]
+  },
+  "keyhole": {
+    "centre": [
+      0.355,
+      1.65582,
+      2.62965
+    ]
+  }
+}

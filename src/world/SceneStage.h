@@ -23,6 +23,10 @@ private:
              FloorMode mode);
 
 public:
+  // PenguinoAnimado.fbx holds two takes of the same dance; take 0 (".002") has
+  // the right flipper detached from the body and the feet in the air, take 1
+  // (".003") is the clean one.
+  static constexpr unsigned int PENGUIN_ANIMATION = 1;
   static constexpr float PROP_SINK = 0.05f;
   static constexpr float BREATH_AMPLITUDE = 2.0f;
 

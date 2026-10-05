@@ -24,6 +24,7 @@ struct ParticleSettings {
   float sizeStart = 0.15f, sizeEnd = 0.6f;  // radius of the disc (metres)
   glm::vec3 color = glm::vec3(0.82f, 0.70f, 0.50f);
   float alpha = 0.6f;                       // at birth; it fades to 0
+  float fadeStart = 0.0f;                   // life fraction where the fade begins (0 = from birth)
   float gravity = 8.0f;                     // m/s^2 downwards
   float drag = 1.0f;                        // 1/s: the air slows them
   int maxParticles = 300;                   // alive at once

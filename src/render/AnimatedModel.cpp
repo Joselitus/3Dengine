@@ -2,9 +2,10 @@
 using namespace std;
 using namespace glm;
 
-AnimatedModel::AnimatedModel(const char *path, bool feetAtOrigin)
+AnimatedModel::AnimatedModel(const char *path, bool feetAtOrigin,
+                             unsigned int animationIndex)
     : scene(nullptr), fitCenter(0.0f), fitScale(1.0f),
-      feetAtOrigin(feetAtOrigin) {
+      feetAtOrigin(feetAtOrigin), animationIndex(animationIndex) {
   loadModel(path);
 }
 
@@ -23,8 +24,7 @@ void AnimatedModel::loadModel(string path) {
   // Builds meshes, and (through processAnimatedMesh) the global bone list.
   this->processNode(scene->mRootNode, scene);
 
-  const aiAnimation *animation =
-      scene->mNumAnimations > 0 ? scene->mAnimations[0] : nullptr;
+  const aiAnimation *animation = chosenAnimation();
   skeleton.Init(scene->mRootNode, animation, std::move(pendingBones));
   pendingBones.clear();
 
@@ -172,13 +172,49 @@ vector<Texture> AnimatedModel::loadMaterialTextures(aiMaterial *mat,
   return textures;
 }
 
-void AnimatedModel::Update(double seconds) { skeleton.Update(seconds); }
+void AnimatedModel::Update(double seconds) {
+  if (!idle)
+    skeleton.Update(seconds);
+}
+
+void AnimatedModel::setIdle(bool on) {
+  if (on == idle)
+    return;
+  idle = on;
+  if (!on) {
+    skeleton.Update(0.0); // the animation again (bones from its first frame)
+    return;
+  }
+  // In the bind pose each bone's skin matrix is the same: the mesh's node
+  // transform (a bone's own pose cancels with its offset matrix)
+  skeleton.Update(0.0);
+  idleMat = skeleton.globalInverseTransform * skeleton.NodeGlobal(meshNodes[0]);
+  for (glm::mat4 &m : skeleton.boneMats)
+    m = idleMat;
+  // Bounds of the bind pose (the flippers' sway or hang don't change where it
+  // stands): centre it and, if asked, put the feet at the origin
+  glm::vec3 lo(1e30f), hi(-1e30f);
+  for (const AnimatedMesh &mesh : meshes)
+    for (const AnimatedVertex &v : mesh.getVertices()) {
+      glm::vec3 p = glm::vec3(idleMat * glm::vec4(v.Position, 1.0f));
+      lo = glm::min(lo, p);
+      hi = glm::max(hi, p);
+    }
+  fitCenter = (lo + hi) * 0.5f;
+  if (feetAtOrigin)
+    fitCenter.y = lo.y;
+}
+
+const aiAnimation *AnimatedModel::chosenAnimation() const {
+  if (scene->mNumAnimations == 0)
+    return nullptr;
+  return scene->mAnimations[std::min(animationIndex, scene->mNumAnimations - 1)];
+}
 
 void AnimatedModel::computeFit() {
   // Skin the model on the CPU at a few points of the animation just to find
   // the region it moves through.
-  const aiAnimation *anim =
-      scene->mNumAnimations > 0 ? scene->mAnimations[0] : nullptr;
+  const aiAnimation *anim = chosenAnimation();
   double length = 0.0;
   if (anim && anim->mDuration > 0)
     length = anim->mDuration /
@@ -221,6 +257,7 @@ void AnimatedModel::computeFit() {
 
 void AnimatedModel::Draw(Shader *shader) {
   shader->setInt("skinned", 1);
+  shader->setInt("idlePose", idle ? 1 : 0);
   shader->setVector3("fitCenter", fitCenter.x, fitCenter.y, fitCenter.z);
   shader->setFloat("fitScale", fitScale);
   glUniformMatrix4fv(glGetUniformLocation(shader->getID(), "gBones"),
