@@ -71,7 +71,7 @@ flowchart TB
     subgraph mundo ["world/ + entities/ (mundo)"]
         GameStage["GameStage (abstracta)<br/>TestStage · SceneStage"]
         Stage["Stage (abstracta)<br/>objetos, suelo, rejilla"]
-        Objetos["GameObject → DynamicGameObject<br/>→ PlayableCharacter (RV, Walker)<br/>Npc → Pingu · Satellite · Readable"]
+        Objetos["GameObject → DynamicGameObject<br/>→ PlayableCharacter (RV, Walker)<br/>Npc → Pingu, FollaCulos · Satellite · Readable"]
     end
 
     subgraph fisica ["physics/"]
@@ -324,6 +324,13 @@ classDiagram
         Baila; mientras habla, de pie respirando
         +onInteraction(interaction)
     }
+    class FollaCulos {
+        Criatura nocturna: corre en línea recta hacia el jugador
+        -function targetPosition
+        +setTarget(where)
+        +update(dt)
+        +getLight(lights)
+    }
     class Satellite {
         Cabeza orientable en azimut y cénit
         +getMount() GameObject
@@ -384,6 +391,7 @@ classDiagram
     DynamicGameObject <|-- PlayableCharacter
     DynamicGameObject <|-- Npc
     Npc <|-- Pingu
+    Npc <|-- FollaCulos
     GameObject <|-- Satellite
     GameObject <|-- Readable
     PlayableCharacter <|-- RV
@@ -1341,6 +1349,7 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 
 | Clase | Fichero | Hereda de | Sección |
 |---|---|---|---|
+| `FollaCulos` | `src/entities/FollaCulos.h` | `Npc` | 2 |
 | `Npc` | `src/entities/Npc.h` | `DynamicGameObject`, `Interactable` | 2 |
 | `Pingu` | `src/entities/Pingu.h` | `Npc` | 2 |
 | `RV` | `src/entities/RV.h` | `PlayableCharacter` | 2 |

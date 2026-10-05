@@ -42,6 +42,11 @@ protected:
 
   explicit GameStage(FloorMode mode) : Stage(mode) {}
 
+  // The player is always drawn, even at the edge of the floor (see setEdgeCulling)
+  bool edgeCullExempt(const GameObject &object) const override {
+    return &object == player.get();
+  }
+
   // Dynamic objects stay on the floor (override for other rules)
   void apply(DynamicGameObject &object, double dt) override {
     collideWithFloor(object, dt);

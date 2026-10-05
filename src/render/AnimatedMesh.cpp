@@ -70,11 +70,21 @@ void AnimatedMesh::Draw(Shader *shader) {
     glBindTexture(GL_TEXTURE_2D, textures[i].id);
   }
   glActiveTexture(GL_TEXTURE0);
-  shader->setInt("useColor", 0);
+  // A flat colour when there is no texture (and a glow when it is emissive)
+  bool flat = textures.empty() && (hasColor || hasEmissive);
+  shader->setInt("useColor", flat ? 1 : 0);
+  if (flat) {
+    glm::vec3 shown = hasEmissive ? emissive : color;
+    shader->setVector3("diffuseColor", shown.x, shown.y, shown.z);
+  }
+  if (hasEmissive)
+    shader->setInt("unlit", 2);
   shader->setFloat("alpha", 1.0f);
 
   // draw mesh
   glBindVertexArray(VAO);
   glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
   glBindVertexArray(0);
+  if (hasEmissive)
+    shader->setInt("unlit", 0);
 }

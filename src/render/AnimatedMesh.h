@@ -27,6 +27,10 @@ private:
   std::vector<unsigned int> indices;
   std::vector<Texture> textures;
 
+  // Flat colours for a material without a texture, and a glow (emissive) colour
+  bool hasColor = false, hasEmissive = false;
+  glm::vec3 color = glm::vec3(1.0f), emissive = glm::vec3(0.0f);
+
   //  render data
   unsigned int VAO, VBO, EBO;
   void setupMesh();
@@ -38,6 +42,10 @@ public:
                std::vector<Texture> textures);
 
   virtual ~AnimatedMesh() = default;
+  // The material has no texture: draw it with this colour; with `glowing` it is
+  // emissive (drawn flat, unaffected by the light: it glows)
+  void setColor(const glm::vec3 &c) { color = c; hasColor = true; }
+  void setEmissive(const glm::vec3 &c) { emissive = c; hasEmissive = true; }
   void Draw(Shader *shader);
 };
 

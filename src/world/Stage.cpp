@@ -92,15 +92,27 @@ void Stage::update(double dt) {
 
 void Stage::Draw(Shader *shader, double time) {
   shader->setFloat("breathTime", (float)time);
+  // Is the object too close to the edge of the floor to be drawn?
+  auto culled = [this](const GameObject &object) {
+    if (edgeCullMargin <= 0.0f || !floor_mesh || edgeCullExempt(object))
+      return false;
+    vec3 p = object.getPosition();
+    return p.x < minX + edgeCullMargin || p.x > maxX - edgeCullMargin ||
+           p.z < minZ + edgeCullMargin || p.z > maxZ - edgeCullMargin;
+  };
   for (auto &object : objects)
-    object->Draw(shader);
+    if (!culled(*object))
+      object->Draw(shader);
   for (auto &object : dynamicObjects)
-    object->Draw(shader);
+    if (!culled(*object))
+      object->Draw(shader);
   // translucent meshes (windows) last, over everything opaque
   for (auto &object : objects)
-    object->DrawTransparent(shader);
+    if (!culled(*object))
+      object->DrawTransparent(shader);
   for (auto &object : dynamicObjects)
-    object->DrawTransparent(shader);
+    if (!culled(*object))
+      object->DrawTransparent(shader);
 }
 
 // ------------------------------------------------------------------- floor

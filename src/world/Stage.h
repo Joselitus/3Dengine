@@ -80,6 +80,7 @@ private:
   std::shared_ptr<Model> floor_mesh; // what the objects stand on
   // world-space bounds of the floor in x/z
   float minX = 0, maxX = 0, minZ = 0, maxZ = 0;
+  float edgeCullMargin = 0.0f; // see setEdgeCulling
 
   // FloorMode::HeightField: heights[iz * nx + ix] at (x0 + ix*dx, z0 + iz*dz)
   int nx = 0, nz = 0;
@@ -208,6 +209,12 @@ public:
   void keepInsideFloor(glm::vec3 &position, glm::vec3 &velocity,
                        float margin = 0.0f) const;
   bool hasFloor() const { return floor_mesh != nullptr; }
+
+  // Objects whose position is closer than `margin` to the edge of the floor are not drawn
+  // (the edge of the world is not shown: what is left there is cut short). 0 = off.
+  // Objects that edgeCullExempt() says no to (the player) are always drawn.
+  void setEdgeCulling(float margin) { edgeCullMargin = margin; }
+  virtual bool edgeCullExempt(const GameObject &object) const { return false; }
 
   // Lifts `point` (the centre of a sphere of `radius`, e.g. the camera) out
   // of the floor if it is below it or closer than `radius`, so that it can't

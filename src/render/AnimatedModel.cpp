@@ -142,7 +142,18 @@ AnimatedMesh AnimatedModel::processAnimatedMesh(aiMesh *mesh,
         material, aiTextureType_SPECULAR, "texture_specular");
     textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
   }
-  return AnimatedMesh(vertices, indices, textures);
+  AnimatedMesh result(vertices, indices, textures);
+  // A material with no texture is a flat colour (and may glow)
+  if (textures.empty() && mesh->mMaterialIndex < scene->mNumMaterials) {
+    aiMaterial *material = scene->mMaterials[mesh->mMaterialIndex];
+    aiColor3D diffuse(1.0f, 1.0f, 1.0f), glow(0.0f, 0.0f, 0.0f);
+    if (material->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse) == AI_SUCCESS)
+      result.setColor(vec3(diffuse.r, diffuse.g, diffuse.b));
+    if (material->Get(AI_MATKEY_COLOR_EMISSIVE, glow) == AI_SUCCESS &&
+        (glow.r > 0.0f || glow.g > 0.0f || glow.b > 0.0f))
+      result.setEmissive(vec3(glow.r, glow.g, glow.b));
+  }
+  return result;
 }
 
 vector<Texture> AnimatedModel::loadMaterialTextures(aiMaterial *mat,
@@ -253,6 +264,12 @@ void AnimatedModel::computeFit() {
     if (feetAtOrigin)
       fitCenter.y = lo.y;
   }
+}
+
+void AnimatedModel::useRealSize() {
+  // The model is already in metres, standing on y = 0 around the origin
+  fitScale = 1.0f;
+  fitCenter = glm::vec3(0.0f);
 }
 
 void AnimatedModel::Draw(Shader *shader) {

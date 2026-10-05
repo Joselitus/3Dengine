@@ -27,6 +27,7 @@
 #include "Readable.h"
 #include "Satellite.h"
 #include "Model.h"
+#include "FollaCulos.h"
 #include "Pingu.h"
 #include "AudioMenu.h"
 #include "CameraMenu.h"
@@ -134,12 +135,15 @@ private:
   static constexpr float CAR_CAMERA_HEIGHT = 3.5f;
   static constexpr float EYE_HEIGHT = 1.6f; // first person, above the feet
   static constexpr float DAY_DURATION = 360.0f; // real seconds per 24 h
+  // What is within this many metres of the edge of the terrain is not drawn
+  static constexpr float EDGE_CULL_MARGIN = 12.0f;
   static constexpr float START_HOUR = 12.0f;    // the game starts at midday
   // What is left of the light with no sun (it comes from straight above): very
   // little, so that at night it is hard to see anything without the headlights
   const vec3 NIGHT_LIGHT = vec3(0.022f, 0.025f, 0.04f);
   std::shared_ptr<RV> rv;
   std::shared_ptr<Walker> walker; // the penguin on foot
+  std::shared_ptr<FollaCulos> creature; // the night creature: runs at the player
   bool inVehicle = false;         // the penguin is inside the RV
 
   // The penguin gets into the RV: it is hidden inside its body and goes
@@ -221,6 +225,11 @@ public:
   // Interactions are for the penguin on foot, not while driving
   bool interactionsEnabled() const override { return !inVehicle; }
 
+  // The player (the penguin or the RV) is always drawn, wherever it is
+  bool edgeCullExempt(const GameObject &object) const override {
+    return &object == rv.get() || &object == walker.get();
+  }
+
   // F: the headlights, only while the penguin is driving
   void toggleHeadlights() override {
     if (inVehicle)
@@ -234,6 +243,8 @@ public:
   void getSpotLights(std::vector<SpotLight> &lights) const override {
     rv->getHeadlights(lights);
     rv->getDashboardLights(lights);
+    if (creature)
+      creature->getLight(lights); // (last: if the shader has no room, the creature's is the one left out)
   }
 
   // The penguin gets out at the RV's door, on foot and in first person
@@ -265,6 +276,7 @@ public:
     setSky(loadModel("../assets/sky/skydome_plain.obj"), 3);
     setDayDuration(DAY_DURATION);
     setTimeOfDay(START_HOUR);
+    setEdgeCulling(EDGE_CULL_MARGIN); // (once the floor is known)
     // First person: the camera at the penguin's eyes, 1.6 above its feet
     cameraDistance = 0.0f;
     cameraHeight = EYE_HEIGHT;
@@ -439,6 +451,18 @@ public:
     guide->setGravity(25.0f);
     addDynamic(guide);
     interactables.push_back(guide.get());
+
+    // The night creature: it runs straight at whoever the player controls (the penguin on
+    // foot, or the RV when driving). The model is its own size, in metres.
+    creature = make_shared<FollaCulos>(
+        make_shared<AnimatedModel>("../assets/folla_culos/folla_culos_run.glb", true),
+        sound, speech);
+    creature->setPosition(18.0f, groundAt(18.0f, 24.0f), 24.0f);
+    creature->setGravity(25.0f);
+    creature->setTarget([this]() { return player->getPosition(); });
+    // At night it comes for you; by day it keeps away (the sun is below the horizon)
+    creature->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
+    addDynamic(creature);
 
     // A sign to read (no voice: the text types itself out), past the
     // satellite, turned towards the start

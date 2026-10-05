@@ -55,6 +55,10 @@ public:
   void setIdle(bool idle);
   bool isIdle() const { return idle; }
 
+  // Keep the model's own size and place instead of fitting it to 1.8 units around
+  // the origin: for a model made in metres with its feet on y = 0 (the creature)
+  void useRealSize();
+
   void Update(double seconds);
   void Draw(Shader *shader);
 
