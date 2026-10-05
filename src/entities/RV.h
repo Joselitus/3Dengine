@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <random>
 
 #include "Camera.h"
 #include "Interactable.h"
@@ -44,6 +45,12 @@
 // It has two headlights: two spot lights at its front lamps (getHeadlights)
 // that shine forward while they are on, and the lamps' lenses glow (a part
 // that is only drawn then, see setHeadlightGlowModel).
+//
+// The headlights are not reliable: while they are on, a fault can start at any
+// moment (lightFaultChance, percent per minute, which the player never sees).
+// Then the lamps (and the dashboard, on the same circuit) flicker for a second
+// or two, and either come back or, lightOutChance percent of the times, go out:
+// the headlights are switched off and have to be switched on again.
 class RV : public PlayableCharacter, public Interactable {
 public:
   enum class CameraView {
@@ -64,6 +71,20 @@ private:
   bool hasWheels = false;
   bool occupied = false;             // someone is driving it
   bool headlightsOn = false;
+  // headlight faults (see the class comment)
+  float lightFaultChance = 10.0f; // percent per minute with the lights on
+  float lightOutChance = 35.0f;  // percent of the faults that end with them out
+  float flickerTime = 0.0f;      // seconds left of the fault now, 0 = none
+  float flickerChange = 0.0f;    // seconds until the lamps change again
+  bool faultGoesOut = false;     // how the fault now will end
+  float lampLevel = 1.0f;        // how bright the lamps are now, 0..1
+  std::mt19937 random;
+
+  void updateHeadlights(double dt);
+  bool lampsLit() const { return headlightsOn && lampLevel > 0.5f; }
+  float uniform(float from, float to) {
+    return std::uniform_real_distribution<float>(from, to)(random);
+  }
   // the windshield
   ImpactDetector impact;
   bool damagedWindshield = false;
@@ -133,6 +154,20 @@ public:
   bool areHeadlightsOn() const { return headlightsOn; }
   void setHeadlights(bool on);
   void toggleHeadlights() { setHeadlights(!headlightsOn); }
+  // Headlight faults: the chance (percent per minute with them on) that one
+  // starts, and the share (percent) of them that leave the headlights off
+  void setLightFaultChance(float percentPerMinute) {
+    lightFaultChance = glm::clamp(percentPerMinute, 0.0f, 100.0f);
+  }
+  float getLightFaultChance() const { return lightFaultChance; }
+  void setLightOutChance(float percent) {
+    lightOutChance = glm::clamp(percent, 0.0f, 100.0f);
+  }
+  float getLightOutChance() const { return lightOutChance; }
+  // A fault right now (if the headlights are on): they flicker and then come
+  // back or go out, by lightOutChance as always
+  void startLightFault();
+  bool isLightFaulty() const { return flickerTime > 0.0f; }
   // Adds the two spot lights (left and right, in the world) if they are on
   void getHeadlights(std::vector<SpotLight> &lights) const;
   // The dashboard's own light: with the headlights on, its glowing parts give off a dim
@@ -207,6 +242,9 @@ public:
   void turn(float radians) override;
   // Adds the vehicle's own physics: speed, spin, wheels, occupied
   void describe(std::vector<std::string> &lines) const override;
+  // The speed forwards, top speed, fuel, headlights and their faults, and the
+  // windshield
+  void getProperties(std::vector<Property> &properties) override;
 };
 
 #endif

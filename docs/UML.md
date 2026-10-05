@@ -781,10 +781,13 @@ classDiagram
         MoveRight
         Use
         LeaveVehicle
+        Headlights
+        VehicleCamera
         Quit
         Maps
         DebugSelect
         DebugPlace
+        DebugInspect
     }
     class Settings {
         +load() bool
@@ -832,8 +835,10 @@ classDiagram
         -string[] info
         -vec3 target
         -LineRenderer lines
+        -weak_ptr~GameObject~ hovered
         +toggleSelect()
         +togglePlace()
+        +toggleInspect()
         +capturesMouse() bool
         +clear()
         +update(stage, camera, canPick)
@@ -848,6 +853,17 @@ classDiagram
     }
     class GameObject {
         +describe(lines)
+        +getProperties(properties)
+    }
+    class Property {
+        +Kind kind
+        +get() float
+        +set(value)
+        +valueText() string
+    }
+    class PropertyPanel {
+        -shared_ptr~GameObject~ object
+        -Property[] properties
     }
     class CollisionShape {
         +raycast(pose, origin, direction, distance)* bool
@@ -875,6 +891,11 @@ classDiagram
     DebugSelector ..> CollisionShape : raycast desde la cámara
     DebugSelector --> GameObject : el elegido (weak_ptr), describe
     DebugSelector ..> Stage : relocate y turn (modo colocación)
+    DebugSelector --> GameObject : el apuntado (weak_ptr), getProperties
+    DebugSelector ..> PropertyPanel : clic en modo propiedades
+    UIPanel <|-- PropertyPanel
+    PropertyPanel *-- Property
+    GameObject ..> Property : getProperties
     Controller ..> DebugSelector : el main desactiva la vista si capturesMouse
 ```
 
@@ -1387,6 +1408,8 @@ Generado a partir de las cabeceras de `src/`. La última columna es la sección 
 | `Controls` | `src/input/Controls.h` | — | 5 |
 | `InteractionSystem` | `src/input/InteractionSystem.h` | — | 5 |
 | `DebugSelector` | `src/debug/DebugSelector.h` | `UIOverlay` | 5 |
+| `Property` | `src/world/Property.h` | — | 5 |
+| `PropertyPanel` | `src/debug/PropertyPanel.h` | `UIPanel` | 5 |
 | `AudioClip` | `src/audio/AudioClip.h` | — | 6 |
 | `EspeakSynthesizer` | `src/audio/EspeakSynthesizer.h` | `SpeechSynthesizer` | 6 |
 | `Sound` | `src/audio/SoundEngine.h` | — | 6 |

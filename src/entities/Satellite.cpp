@@ -153,3 +153,19 @@ void Satellite::turn(float radians) {
 }
 
 float Satellite::getHeading() const { return -glm::radians(azimuth); }
+
+void Satellite::getProperties(std::vector<Property> &properties) {
+  GameObject::getProperties(properties);
+  properties.push_back(Property::info("Apunta a", [this]() {
+    return format("azimut %.1f, cenit %.1f grados", azimuth, zenith);
+  }));
+  properties.push_back(Property::number(
+      "Azimut objetivo", 0.0f, 360.0f, 1.0f, [this]() { return targetAzimuth; },
+      [this](float v) { setTargetAzimuth(v); }, "grados"));
+  properties.push_back(Property::number(
+      "Cenit objetivo", 0.0f, MAX_ZENITH, 1.0f, [this]() { return targetZenith; },
+      [this](float v) { setTargetZenith(v); }, "grados"));
+  properties.push_back(Property::number(
+      "Velocidad de giro", MIN_SLEW_RATE, MAX_SLEW_RATE, 1.0f,
+      [this]() { return slewRate; }, [this](float v) { setSlewRate(v); }, "grados/s"));
+}

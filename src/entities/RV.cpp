@@ -33,6 +33,12 @@ using namespace glm;
 #define GRAIN_BACKWARDS 0.6f
 #define GRAIN_UPWARDS 1.0f
 #define GRAIN_INHERIT 0.35f
+// Headlight faults: how long the lamps flicker, and how long each state of the
+// flicker lasts (seconds)
+#define FLICKER_MIN 0.6f
+#define FLICKER_MAX 2.2f
+#define FLICKER_STEP_MIN 0.03f
+#define FLICKER_STEP_MAX 0.16f
 // Without gravity the suspension has nothing to carry
 #define DEFAULT_GRAVITY 9.81f
 
@@ -114,7 +120,7 @@ static const float CHASSIS_BOTTOM = CHASSIS_LOW - SKIN;
 static const float CHASSIS_TOP = CHASSIS_HIGH + SKIN;
 
 RV::RV(std::shared_ptr<Model> model)
-    : PlayableCharacter(model, chassisShape()) {
+    : PlayableCharacter(model, chassisShape()), random(std::random_device()()) {
   ParticleSettings settings; // sand dust: tan, soft, heavy enough to fall
   settings.lifeMin = 1.0f;
   settings.lifeMax = 1.8f;
@@ -252,13 +258,59 @@ void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
 
 void RV::setHeadlights(bool on) {
   headlightsOn = on;
+  flickerTime = 0.0f; // switching them ends any fault
+  lampLevel = 1.0f;
   if (hasGlow)
     setPartVisible(glowPart, on);
   updateDashboardLights();
 }
 
-void RV::getHeadlights(std::vector<SpotLight> &lights) const {
+void RV::startLightFault() {
+  if (!headlightsOn || flickerTime > 0.0f)
+    return;
+  flickerTime = uniform(FLICKER_MIN, FLICKER_MAX);
+  flickerChange = 0.0f;
+  faultGoesOut = uniform(0.0f, 100.0f) < lightOutChance;
+}
+
+// A fault starts by chance; while it lasts, the lamps jump between off, dim
+// and bright at random short intervals, and at its end they come back or go out
+void RV::updateHeadlights(double dt) {
   if (!headlightsOn)
+    return;
+  if (flickerTime <= 0.0f) {
+    // The chance per minute, as a chance for this frame (the same at any FPS)
+    float perMinute = lightFaultChance / 100.0f;
+    float now = perMinute >= 1.0f ? 1.0f
+                                  : 1.0f - std::pow(1.0f - perMinute, (float)dt / 60.0f);
+    if (uniform(0.0f, 1.0f) < now)
+      startLightFault();
+    if (flickerTime <= 0.0f)
+      return;
+  }
+  flickerTime -= (float)dt;
+  if (flickerTime <= 0.0f) {
+    if (faultGoesOut)
+      setHeadlights(false);
+    else {
+      flickerTime = 0.0f;
+      lampLevel = 1.0f;
+    }
+  } else {
+    flickerChange -= (float)dt;
+    if (flickerChange <= 0.0f) {
+      flickerChange = uniform(FLICKER_STEP_MIN, FLICKER_STEP_MAX);
+      float pick = uniform(0.0f, 1.0f);
+      lampLevel = pick < 0.5f ? 0.0f : pick < 0.8f ? uniform(0.15f, 0.4f) : uniform(0.7f, 1.0f);
+    }
+  }
+  if (hasGlow)
+    setPartVisible(glowPart, lampsLit());
+  updateDashboardLights();
+}
+
+void RV::getHeadlights(std::vector<SpotLight> &lights) const {
+  if (!headlightsOn || lampLevel <= 0.0f)
     return;
   vec3 aim = normalize(vec3(rotation * vec4(0.0f, HEADLIGHT_PITCH, 1.0f, 0.0f)));
   for (float side : {-1.0f, 1.0f}) {
@@ -266,17 +318,17 @@ void RV::getHeadlights(std::vector<SpotLight> &lights) const {
     light.position = position + vec3(rotation * vec4(side * HEADLIGHT_X, HEADLIGHT_Y,
                                                     HEADLIGHT_Z, 0.0f));
     light.direction = aim;
-    light.color = vec3(1.1f, 1.0f, 0.82f); // warm white
+    light.color = vec3(1.1f, 1.0f, 0.82f) * lampLevel; // warm white
     lights.push_back(light);
   }
 }
 
 void RV::getDashboardLights(std::vector<SpotLight> &lights) const {
-  if (!headlightsOn || !hasCockpit)
+  if (!headlightsOn || lampLevel <= 0.0f || !hasCockpit)
     return;
   for (const DashLight &light : DASH_LIGHTS)
     lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(light.position, 0.0f)),
-                                     DASH_LIGHT_COLOR, light.range));
+                                     DASH_LIGHT_COLOR * lampLevel, light.range));
 }
 
 vec3 RV::seatPosition() const {
@@ -332,9 +384,9 @@ void RV::setCockpitModels(std::shared_ptr<Model> dashboard, std::shared_ptr<Mode
 void RV::updateDashboardLights() {
   if (!hasCockpit)
     return;
-  setPartVisible(dashboardGlowPart, headlightsOn);
-  setPartUnlit(speedNeedlePart, headlightsOn ? 2 : 0);
-  setPartUnlit(fuelNeedlePart, headlightsOn ? 2 : 0);
+  setPartVisible(dashboardGlowPart, lampsLit());
+  setPartUnlit(speedNeedlePart, lampsLit() ? 2 : 0);
+  setPartUnlit(fuelNeedlePart, lampsLit() ? 2 : 0);
 }
 
 // The key and the needles follow the vehicle: a little smoothed, so that they move
@@ -428,6 +480,7 @@ void RV::update(double dt) {
   // Only the input is read here: the stage moves the RV through contactFloor()
   GameObject::update(dt);
   updateCockpit(dt);
+  updateHeadlights(dt);
 }
 
 // Wheel i hangs from its anchor at the length the suspension has now
@@ -532,6 +585,11 @@ void RV::describe(std::vector<std::string> &lines) const {
   if (hasCockpit)
     lines.push_back(textFormat("Combustible: %.0f %%  Llave: %s", fuel * 100.0f,
                                occupied ? "puesta, en marcha" : "puesta, apagado"));
+  lines.push_back(textFormat("Faros: %s  Averia: %.1f %%/min, se apagan el %.0f %%",
+                             !headlightsOn ? "apagados"
+                             : flickerTime > 0.0f ? "parpadeando"
+                                                  : "encendidos",
+                             lightFaultChance, lightOutChance));
   lines.push_back(std::string("Camara: ") +
                   (cameraView == CameraView::Cockpit ? "cabina" : "exterior"));
   lines.push_back(std::string("Ocupado: ") + (occupied ? "si" : "no") +
@@ -552,6 +610,63 @@ void RV::describe(std::vector<std::string> &lines) const {
     wheels += textFormat(" %s %.2f%s", i < 4 ? names[i] : "?", states[i].length,
                          states[i].onGround ? "*" : "");
   lines.push_back(wheels);
+}
+
+void RV::getProperties(std::vector<Property> &properties) {
+  // Not DynamicGameObject's: the RV's motion is its body's
+  GameObject::getProperties(properties);
+  properties.push_back(Property::number(
+      "Velocidad (hacia delante)", -10.0f, 30.0f, 0.0f,
+      [this]() { return body ? body->getForwardSpeed() : 0.0f; },
+      [this](float speed) {
+        if (!body)
+          return;
+        vec3 forward = normalize(vec3(rotation[2]));
+        body->setVelocity(body->getVelocity() +
+                          forward * (speed - body->getForwardSpeed()));
+      },
+      "m/s"));
+  properties.push_back(Property::number(
+      "Velocidad maxima", 2.0f, 40.0f, 0.5f, [this]() { return maxSpeed; },
+      [this](float speed) {
+        maxSpeed = speed;
+        if (body)
+          body->setMaxSpeed(speed);
+      },
+      "m/s"));
+  properties.push_back(Property::number(
+      "Combustible", 0.0f, 100.0f, 1.0f, [this]() { return fuel * 100.0f; },
+      [this](float percent) { setFuel(percent / 100.0f); }, "%"));
+  properties.push_back(Property::toggle(
+      "Faros encendidos", [this]() { return headlightsOn; },
+      [this](bool on) { setHeadlights(on); }));
+  properties.push_back(Property::number(
+      "Faros: prob. de averia", 0.0f, 100.0f, 0.5f,
+      [this]() { return lightFaultChance; },
+      [this](float v) { setLightFaultChance(v); }, "%/min"));
+  properties.push_back(Property::number(
+      "Faros: prob. de apagarse", 0.0f, 100.0f, 1.0f,
+      [this]() { return lightOutChance; },
+      [this](float v) { setLightOutChance(v); }, "%"));
+  properties.push_back(Property::info("Estado de los faros", [this]() {
+    if (!headlightsOn)
+      return std::string("apagados");
+    if (flickerTime > 0.0f)
+      return std::string(faultGoesOut ? "parpadean (se apagaran)"
+                                      : "parpadean (volveran)");
+    return std::string("encendidos");
+  }));
+  properties.push_back(Property::action("Faros: provocar una averia",
+                                        [this]() { startLightFault(); }));
+  if (hasWindshield)
+    properties.push_back(Property::toggle(
+        "Parabrisas roto", [this]() { return damagedWindshield; },
+        [this](bool broken) {
+          if (broken)
+            breakWindshield();
+          else
+            repairWindshield();
+        }));
 }
 
 void RV::teleport(const vec3 &position) {

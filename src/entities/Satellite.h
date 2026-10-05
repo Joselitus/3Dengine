@@ -67,6 +67,8 @@ public:
   glm::vec3 getPointing() const;
 
   void update(double dt) override;
+  // Adds where it points and where it is turning to, and how fast
+  void getProperties(std::vector<Property> &properties) override;
 
   // Interactable
   std::string getInteractionName() const override { return "Satelite"; }

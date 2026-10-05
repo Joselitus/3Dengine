@@ -10,6 +10,7 @@
 #include "AnimatedModel.h"
 #include "CollisionShape.h"
 #include "Model.h"
+#include "Property.h"
 
 // Anything that is placed in the world. It shares the models (parts) it is
 // made of, or an AnimatedModel, plus a position, a rotation and a scale, and
@@ -17,7 +18,8 @@
 // includes the scale) and the unlit/breathAmp uniforms, then draws the parts.
 // It also has a collision shape (see CollisionShape): by default a pill
 // (Capsule) that fits its model; another shape can be given on construction.
-// describe() lists its state as text (see DebugSelector).
+// describe() lists its state as text, and getProperties() the values that
+// can be changed from the debug inspector (see DebugSelector).
 class GameObject {
 public:
   // One model of the object and how the shader must draw it
@@ -108,6 +110,10 @@ public:
   // (position, rotation, shape and bounds...), for the debug selector.
   // Subclasses add their own lines after their parent's.
   virtual void describe(std::vector<std::string> &lines) const;
+  // Appends its values that the debug inspector shows and can change (see
+  // Property). The functions are bound to this object: they must not outlive
+  // it. Subclasses add theirs after their parent's.
+  virtual void getProperties(std::vector<Property> &properties);
   void Draw(Shader *shader); // the opaque meshes
   // The translucent meshes of its parts (windows...): the stage draws them
   // after every object's opaque ones
