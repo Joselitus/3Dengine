@@ -16,6 +16,7 @@ enum class Action {
   LeaveVehicle, // get out of the vehicle being driven (Left Shift)
   Headlights,   // turn the lights of the vehicle being driven on/off (F)
   VehicleCamera, // change the point of view of the vehicle being driven (C)
+  Engine,        // switch the engine of the vehicle being driven on/off (R)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)
@@ -39,7 +40,7 @@ private:
   int keys[(int)Action::Count];
 
 public:
-  Controls(); // default keys (WASD, E, Left Shift, F, C, X, Z, 1, 2)
+  Controls(); // default keys (WASD, E, Left Shift, F, C, R, X, Z, 1, 2)
 
   int key(Action action) const { return keys[(int)action]; }
   void bind(Action action, int key) { keys[(int)action] = key; }

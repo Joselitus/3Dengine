@@ -91,6 +91,9 @@ public:
   // The camera key was pressed: a map with a vehicle the player is driving
   // changes the point of view (inside it / from behind)
   virtual void toggleVehicleCamera() {}
+  // The engine key was pressed: a map with a vehicle the player is driving switches its
+  // engine on or off
+  virtual void toggleEngine() {}
   // Adds the spot lights that are on right now (the shader takes the first
   // few; see the main loop)
   virtual void getSpotLights(std::vector<SpotLight> &lights) const {}

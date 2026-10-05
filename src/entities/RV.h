@@ -70,7 +70,9 @@ private:
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
   bool occupied = false;             // someone is driving it
-  bool headlightsOn = false;
+  bool engineOn = false;             // the key is turned (see setEngine)
+  bool headlightsOn = false;         // the light switch (what the player chose)
+  bool parkedLights = false;         // got out with the lights on: they stay on without the engine
   // headlight faults (see the class comment)
   float lightFaultChance = 10.0f; // percent per minute with the lights on
   float lightOutChance = 35.0f;  // percent of the faults that end with them out
@@ -81,7 +83,8 @@ private:
   std::mt19937 random;
 
   void updateHeadlights(double dt);
-  bool lampsLit() const { return headlightsOn && lampLevel > 0.5f; }
+  // The lamps shine: the switch is on and has power, and there is no fault that has them dark now
+  bool lampsLit() const { return lightsActive() && lampLevel > 0.5f; }
   float uniform(float from, float to) {
     return std::uniform_real_distribution<float>(from, to)(random);
   }
@@ -99,10 +102,11 @@ private:
   float keyTurn = 0.0f;    // 0 = ignition off .. 1 = on
   float speedShown = 0.0f; // what the needles show now, 0..1 of their scales
   float fuelShown = 0.0f;
-  float fuel = 0.75f;      // fuel level, 0..1
+  float fuel = 0.75f;      // fuel level, 0..1: driving burns it (FUEL_PER_METER), empty = no engine
 
   void updateCockpit(double dt);
   void updateDashboardLights(); // the dashboard glows with the headlights
+  void updateLights();          // the lenses and the dashboard follow lightsActive()
   CameraView cameraView = CameraView::Cockpit;
   float chaseDistance = 12.0f, chaseHeight = 3.5f; // of the Chase view
 
@@ -151,9 +155,14 @@ public:
   // The lit lenses of the headlights (see headlight_glow.obj): a part drawn
   // emissive, and only while the headlights are on
   void setHeadlightGlowModel(std::shared_ptr<Model> model);
+  // The switch is on (the lights shine only if the engine is on, or if it was parked with them on: lightsActive)
   bool areHeadlightsOn() const { return headlightsOn; }
+  bool lightsActive() const { return headlightsOn && (engineOn || parkedLights); }
   void setHeadlights(bool on);
-  void toggleHeadlights() { setHeadlights(!headlightsOn); }
+  void toggleHeadlights() {
+    if (engineOn) // (with the engine off the switch does nothing)
+      setHeadlights(!headlightsOn);
+  }
   // Headlight faults: the chance (percent per minute with them on) that one
   // starts, and the share (percent) of them that leave the headlights off
   void setLightFaultChance(float percentPerMinute) {
@@ -187,7 +196,8 @@ public:
   void setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken);
   bool isWindshieldDamaged() const { return damagedWindshield; }
   void repairWindshield(); // the intact windshield again
-  // Fuel level, 0 (empty) to 1 (full); it is only shown on the gauge
+  // Fuel level, 0 (empty) to 1 (full). Driving burns it in proportion to the speed; with none
+  // left the engine does not push any more (shown on the gauge)
   void setFuel(float level) { fuel = glm::clamp(level, 0.0f, 1.0f); }
   float getFuel() const { return fuel; }
 
@@ -202,7 +212,23 @@ public:
 
   // What happens when the player uses the RV (the stage hands it the controls)
   void setEnterAction(std::function<void()> action) { enterAction = action; }
-  void setOccupied(bool occupied) { this->occupied = occupied; }
+  // The engine starts off (also each time the player gets in): getting out switches it off and
+  // getting in does not start it, the Engine key does
+  // If its lights are on when the player gets out they stay on (parkedLights: the engine is off
+  // but the switch still gives them power) until somebody gets in again.
+  void setOccupied(bool occupied) {
+    parkedLights = !occupied && lightsActive();
+    this->occupied = occupied;
+    if (!occupied)
+      setEngine(false); // getting out switches it off; getting in does not start it (press R)
+  }
+  // The engine (the ignition key): off, the vehicle can't be driven (it coasts and its brake
+  // holds it), both gauge needles drop to empty whatever the real values, the key turns back
+  // and the lights go out; the light switch keeps its state, so they come back on when the
+  // engine starts again (the switch does nothing while it is off)
+  bool isEngineOn() const { return engineOn; }
+  void setEngine(bool on);
+  void toggleEngine() { setEngine(!engineOn); }
   // Which way it faces (radians around +y, 0 = towards +z; the door is on its
   // +x side). Only before the first update: after it the physics rules.
   void setHeading(float radians) {

@@ -244,6 +244,11 @@ public:
     if (inVehicle)
       rv->toggleHeadlights();
   }
+  // R: the engine, only while the penguin is driving
+  void toggleEngine() override {
+    if (inVehicle)
+      rv->toggleEngine();
+  }
   // C: inside the RV or behind it, only while the penguin is driving
   void toggleVehicleCamera() override {
     if (inVehicle)
@@ -693,6 +698,10 @@ int main(int argc, char **argv) {
   // Headlights key: the map turns its vehicle's lights on or off
   ui.bindKey([&controls]() { return controls.key(Action::Headlights); },
              [&]() { stage->toggleHeadlights(); });
+
+  // Engine key: switches the vehicle's engine on or off
+  ui.bindKey([&controls]() { return controls.key(Action::Engine); },
+             [&]() { stage->toggleEngine(); });
 
   // Vehicle camera key: inside the vehicle or from behind
   ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },
