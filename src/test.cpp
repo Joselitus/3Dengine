@@ -134,7 +134,7 @@ private:
   static constexpr float CAR_CAMERA_HEIGHT = 3.5f;
   static constexpr float EYE_HEIGHT = 1.6f; // first person, above the feet
   static constexpr float DAY_DURATION = 360.0f; // real seconds per 24 h
-  static constexpr float START_HOUR = 21.0f;    // the game starts at night
+  static constexpr float START_HOUR = 12.0f;    // the game starts at midday
   // What is left of the light with no sun (it comes from straight above): very
   // little, so that at night it is hard to see anything without the headlights
   const vec3 NIGHT_LIGHT = vec3(0.022f, 0.025f, 0.04f);
