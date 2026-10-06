@@ -13,8 +13,8 @@ enum class Action {
   MoveLeft,
   MoveRight,
   Use,      // open/close the panel of the object in front (InteractionSystem)
-  LeaveVehicle, // get out of the vehicle being driven (Left Shift)
-  Headlights,   // turn the lights of the vehicle being driven on/off (F)
+  LeaveVehicle, // get out of the vehicle being driven; held on foot: run (Left Shift)
+  Headlights,   // the flashlight on foot, the lights of the vehicle being driven (F)
   VehicleCamera, // change the point of view of the vehicle being driven (C)
   Engine,        // switch the engine of the vehicle being driven on/off (R)
   Handbrake,     // pull or release the handbrake of the vehicle being driven (Space)

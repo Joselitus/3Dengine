@@ -34,8 +34,10 @@ void Controller::setEnabled(bool enable) {
   } else {
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     // The character keeps the last input it got: let go of every key
-    if (character)
+    if (character) {
       character->control(glm::vec2(0.0f), 0.0f, yaw);
+      character->setRunning(false);
+    }
   }
 }
 
@@ -79,5 +81,8 @@ void Controller::update() {
     if (held(Action::MoveRight)) dir.x += 1.0f;
 
     character->control(dir, up, yaw);
+    // The run key is the leave-vehicle one (Shift): on foot there is no
+    // vehicle to leave, and in a vehicle running means nothing
+    character->setRunning(held(Action::LeaveVehicle));
   }
 }

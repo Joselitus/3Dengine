@@ -33,8 +33,8 @@ const char *Controls::describe(Action action) {
   case Action::MoveLeft: return "Izquierda";
   case Action::MoveRight: return "Derecha";
   case Action::Use: return "Usar objeto / hablar / cerrar";
-  case Action::LeaveVehicle: return "Bajar del vehiculo";
-  case Action::Headlights: return "Luces del vehiculo (conduciendo)";
+  case Action::LeaveVehicle: return "Correr / bajar del vehiculo";
+  case Action::Headlights: return "Linterna / luces del vehiculo";
   case Action::VehicleCamera: return "Camara del vehiculo (conduciendo)";
   case Action::Engine: return "Motor del vehiculo (conduciendo)";
   case Action::Handbrake: return "Freno de mano (conduciendo)";

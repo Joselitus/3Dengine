@@ -240,10 +240,12 @@ public:
     return &object == rv.get() || &object == walker.get();
   }
 
-  // F: the headlights, only while the penguin is driving
+  // F: the headlights while the penguin is driving, its flashlight on foot
   void toggleHeadlights() override {
     if (inVehicle)
       rv->toggleHeadlights();
+    else
+      walker->toggleFlashlight();
   }
   // R: the engine, only while the penguin is driving
   void toggleEngine() override {
@@ -261,6 +263,8 @@ public:
       rv->toggleCameraView();
   }
   void getSpotLights(std::vector<SpotLight> &lights) const override {
+    if (!inVehicle)
+      walker->getFlashlight(lights); // (first: the shader may not have room for all)
     rv->getHeadlights(lights);
     rv->getDashboardLights(lights);
     if (creature)

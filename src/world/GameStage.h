@@ -94,9 +94,12 @@ public:
   // The "leave the vehicle" key was pressed (no panel open): a map where the
   // player can drive something gives the controls back to a character on foot
   virtual void leaveVehicle() {}
-  // The headlights key was pressed: a map with a vehicle the player is
-  // driving turns its lights on or off
-  virtual void toggleHeadlights() {}
+  // The headlights key was pressed: the player's flashlight goes on or off
+  // (a map with a vehicle the player is driving turns its lights instead)
+  virtual void toggleHeadlights() {
+    if (player)
+      player->toggleFlashlight();
+  }
   // The camera key was pressed: a map with a vehicle the player is driving
   // changes the point of view (inside it / from behind)
   virtual void toggleVehicleCamera() {}
@@ -108,7 +111,10 @@ public:
   virtual void toggleHandbrake() {}
   // Adds the spot lights that are on right now (the shader takes the first
   // few; see the main loop)
-  virtual void getSpotLights(std::vector<SpotLight> &lights) const {}
+  virtual void getSpotLights(std::vector<SpotLight> &lights) const {
+    if (player)
+      player->getFlashlight(lights);
+  }
   // False while the player can't use objects (e.g. while driving)
   virtual bool interactionsEnabled() const { return true; }
   std::shared_ptr<PlayableCharacter> getPlayer() const { return player; }
