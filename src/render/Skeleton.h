@@ -43,8 +43,22 @@ public:
   void Update(double seconds);
   // Poses the skeleton from outside (a ragdoll): `globals` has, for the bones it names, their
   // object-space matrix (rotation + the position of the bone's joint, like NodeGlobal gives
-  // when a bone is animated). The bones it does not name keep their last pose.
-  void SetPose(const std::unordered_map<std::string, glm::mat4> &globals);
+  // when a bone is animated). A bone it does not name follows its nearest ancestor that it does
+  // name, as if rigidly attached to it (the fingers of a hand): only if it has none does it keep
+  // its last pose, unless `orphansFollow` names a posed bone: then those
+  // bones (the root, helper bones of the rig) follow that one.
+  void SetPose(const std::unordered_map<std::string, glm::mat4> &globals,
+               const std::string &orphansFollow = "");
+  // Tells it where every bone of the file is in the bind pose, even the ones no vertex is weighted
+  // to (and so are not in `bones`): the inverses of their offset matrices, by name. SetPose uses
+  // them so that a bone follows its nearest ancestor even through such bones.
+  void SetBindPoses(const std::unordered_map<std::string, glm::mat4> &offsets);
+  // A bone's matrix in the pose the skeleton has now (what SetPose takes), whether or not any
+  // vertex is weighted to it (then it is worked out from the nearest ancestor that is). False if
+  // the file has no such bone.
+  bool PoseGlobal(const std::string &name, glm::mat4 &matrix) const;
+  // A bone's matrix in the bind pose (false if the file has no such bone)
+  bool BindGlobal(const std::string &name, glm::mat4 &matrix) const;
   // Object-space transform of a node for the last Update().
   glm::mat4 NodeGlobal(const aiNode *node) const;
 
@@ -53,6 +67,8 @@ private:
   const aiAnimation *animation;
   std::unordered_map<std::string, const aiNodeAnim *> channels;
   std::unordered_map<const aiNode *, glm::mat4> nodeGlobals;
+  std::unordered_map<std::string, glm::mat4> bindGlobals; // each bone's matrix in the bind pose
+  std::unordered_map<std::string, std::string> boneParents; // nearest ancestor that is a bone
 
   void Traverse(const aiNode *node, const glm::mat4 &parent, double ticks);
   glm::mat4 LocalTransform(const aiNode *node, double ticks) const;

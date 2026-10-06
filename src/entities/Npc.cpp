@@ -31,7 +31,72 @@ void Npc::faceTowards(const vec3 &point) {
   setYaw(facing);
 }
 
+bool Npc::startRagdoll(Ragdoll::FloorQuery floor, function<bool(vec3 &)> holdHead) {
+  if (ragdoll || !aniModel)
+    return false;
+  unique_ptr<NpcRagdoll> body(new NpcRagdoll(aniModel));
+  if (!body->isValid())
+    return false;
+  voice.stop(); // (dead people do not talk)
+  wasIdle = aniModel->isIdle();
+  savedGravity = getGravity();
+  savedCollidable = isCollidable();
+  wasHeld = false;
+  body->start(position, mat3(rotation), velocity);
+  if (aniModel->isIdle()) // (its breathing pose is made by the shader: the ragdoll poses the bones instead)
+    aniModel->setIdle(false);
+  ragdoll = std::move(body);
+  ragdollFloor = floor;
+  headHold = holdHead;
+  // what moves it now is the ragdoll: no gravity, no collisions, and the object is where its pelvis is
+  velocity = acceleration = vec3(0.0f);
+  setGravity(0.0f);
+  setCollidable(false);
+  return true;
+}
+
+// Back from the ragdoll: standing where it fell, with its animation, its gravity and its collisions
+void Npc::endRagdoll() {
+  vec3 where = ragdoll->pelvis();
+  ragdoll.reset();
+  holdHeadNow = false;
+  wasHeld = false;
+  headHold = nullptr;
+  float ground = where.y;
+  if (ragdollFloor)
+    ragdollFloor(where.x, where.z, ground);
+  position = vec3(where.x, ground, where.z);
+  velocity = acceleration = vec3(0.0f);
+  rotation = mat4(1.0f);
+  setYaw(facing);
+  setGravity(savedGravity);
+  setCollidable(savedCollidable);
+  if (wasIdle)
+    aniModel->setIdle(true); // (its breathing pose again)
+  aniModel->usePlayedAnimation();
+  onRagdollEnded();
+}
+
 void Npc::update(double dt) {
+  if (ragdoll) {
+    vec3 hold;
+    holdHeadNow = headHold && headHold(hold);
+    if (holdHeadNow) {
+      ragdoll->holdHead(hold);
+      wasHeld = true;
+    } else {
+      if (wasHeld) { // it was held and let go (the holder is gone): it is itself again
+        endRagdoll();
+        return;
+      }
+      ragdoll->releaseHead();
+    }
+    ragdoll->step(dt, ragdollFloor, nullptr);
+    position = ragdoll->pelvis();
+    rotation = mat4(1.0f);
+    ragdoll->apply(position);
+    return;
+  }
   DynamicGameObject::update(dt);
   voice.update(dt, position + vec3(0.0f, MOUTH_HEIGHT, 0.0f));
 }

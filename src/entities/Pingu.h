@@ -27,6 +27,8 @@ public:
 
   // Talking: he stops dancing; the talk is over: he dances again
   void onInteraction(const Interaction &interaction) override;
+  // Back from being a ragdoll (see Npc::startRagdoll): he dances again
+  void onRagdollEnded() override { setMesh(Dancing); }
 };
 
 #endif

@@ -26,6 +26,7 @@ void AnimatedModel::loadModel(string path) {
 
   const aiAnimation *animation = chosenAnimation();
   skeleton.Init(scene->mRootNode, animation, std::move(pendingBones));
+  skeleton.SetBindPoses(allOffsets);
   pendingBones.clear();
 
   computeFit();
@@ -82,6 +83,7 @@ AnimatedMesh AnimatedModel::processAnimatedMesh(aiMesh *mesh,
   // what the shader uses to look the bone up in gBones.
   for (unsigned int i = 0; i < mesh->mNumBones; i++) {
     aiBone *aiBone = mesh->mBones[i];
+    allOffsets[aiBone->mName.data] = AiToGLMMat4(aiBone->mOffsetMatrix);
     if (aiBone->mNumWeights == 0) // unused bone, don't spend a gBones slot
       continue;
     unsigned int globalId = pendingBones.size();
@@ -188,10 +190,11 @@ void AnimatedModel::Update(double seconds) {
     skeleton.Update(seconds);
 }
 
-void AnimatedModel::setBoneGlobals(const std::map<std::string, glm::mat4> &globals) {
+void AnimatedModel::setBoneGlobals(const std::map<std::string, glm::mat4> &globals,
+                                   const std::string &orphansFollow) {
   externalPose = true;
   std::unordered_map<std::string, glm::mat4> byName(globals.begin(), globals.end());
-  skeleton.SetPose(byName);
+  skeleton.SetPose(byName, orphansFollow);
 }
 
 bool AnimatedModel::getBoneGlobal(const std::string &name, glm::mat4 &matrix) const {

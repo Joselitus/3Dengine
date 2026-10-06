@@ -99,6 +99,8 @@ private:
   void updateWindshieldParts();
   // the cockpit (see setCockpitModels)
   bool hasCockpit = false;
+  bool hasSteeringWheel = false;
+  size_t steeringWheelPart = 0;
   size_t keyPart = 0, speedNeedlePart = 0, fuelNeedlePart = 0, dashboardGlowPart = 0;
   float keyTurn = 0.0f;    // 0 = ignition off .. 1 = on
   float speedShown = 0.0f; // what the needles show now, 0..1 of their scales
@@ -106,6 +108,7 @@ private:
   float fuel = 0.75f;      // fuel level, 0..1: driving burns it (FUEL_PER_METER), empty = no engine
 
   void updateCockpit(double dt);
+  void placeSteeringWheel();
   void updateDashboardLights(); // the dashboard glows with the headlights
   void updateLights();          // the lenses and the dashboard follow lightsActive()
   CameraView cameraView = CameraView::Cockpit;
@@ -192,6 +195,9 @@ public:
                         std::shared_ptr<Model> key,
                         std::shared_ptr<Model> needle,
                         std::shared_ptr<Model> dashboardGlow);
+  // The steering wheel (steering_wheel.obj), in its own frame placed under the dashboard
+  // (see setSteeringWheelModel in RV.cpp); it turns with the front wheels
+  void setSteeringWheelModel(std::shared_ptr<Model> wheel);
   // The two windshields, in the frame of rv.obj: the intact one, and the broken one (cracked
   // glass) that replaces it when the windshield is damaged
   void setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken);

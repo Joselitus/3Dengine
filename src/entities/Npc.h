@@ -8,6 +8,7 @@
 #include "Dialogue.h"
 #include "DynamicGameObject.h"
 #include "Interactable.h"
+#include "NpcRagdoll.h"
 #include "Voice.h"
 
 // A character the player can talk to: a Dialogue spoken by its Voice (text
@@ -27,6 +28,15 @@ private:
   Voice voice;
   Dialogue dialogue; // after `voice`, which it speaks with
   float facing = 0.0f; // radians, around +y
+  // Once it has turned into a ragdoll (startRagdoll)
+  std::unique_ptr<NpcRagdoll> ragdoll;
+  Ragdoll::FloorQuery ragdollFloor;
+  std::function<bool(glm::vec3 &)> headHold;
+  bool wasHeld = false;       // its head was held and let go: it is itself again
+  bool wasIdle = false;       // (its model was in the breathing pose before)
+  float savedGravity = 0.0f;  // what it had before it was a ragdoll
+  bool savedCollidable = true;
+  void endRagdoll();
 
 public:
   // What happened in an interaction with the player, for onInteraction()
@@ -56,7 +66,26 @@ public:
 
   void update(double dt) override;
 
+  // Turns into a ragdoll (see NpcRagdoll) from the pose it has now, for good: it stops talking, can
+  // no longer be used, falls and lies on `floor`. While `holdHead` (asked every frame) returns true
+  // and gives a point, its head is held there (in a mouth) and the rest of it hangs from it; when
+  // that stops (the one holding it was run over...) it gets up where it fell: it is itself again, as
+  // before (standing on its feet, usable, back to its animation: onRagdollEnded). Without `holdHead`
+  // it stays a ragdoll for good.
+  // False if its model can't be made into one (or it already is).
+  bool startRagdoll(Ragdoll::FloorQuery floor, std::function<bool(glm::vec3 &)> holdHead = nullptr);
+  bool isRagdolling() const { return ragdoll != nullptr; }
+  // It stopped being a ragdoll and is itself again (see startRagdoll: its head let go): a subclass
+  // puts its animation back
+  virtual void onRagdollEnded() {}
+  // Where its head is held, if it is
+  bool isHeadHeld() const { return ragdoll && holdHeadNow; }
+private:
+  bool holdHeadNow = false;
+public:
+
   // Interactable
+  bool isInteractionAvailable() const override { return !ragdoll; }
   std::string getInteractionName() const override { return name; }
   std::string getInteractionVerb() const override { return "hablar con"; }
   glm::vec3 getInteractionPoint() const override;

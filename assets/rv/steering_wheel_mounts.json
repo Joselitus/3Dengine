@@ -1,0 +1,31 @@
+{
+  "comment": "Where steering_wheel.obj goes in rv.obj's frame (meters). The model's own axes x, y, z map to the world vectors below; its origin to `origin`. Turn the wheel about its z.",
+  "steering_wheel": {
+    "model": "steering_wheel.obj",
+    "origin": [
+      0.45,
+      1.58,
+      2.28
+    ],
+    "x": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "y": [
+      0.0,
+      0.5735764363510462,
+      0.8191520442889918
+    ],
+    "z": [
+      0.0,
+      0.8191520442889918,
+      -0.5735764363510462
+    ],
+    "column_end": [
+      0.45,
+      1.1294663756410546,
+      2.5954670399930753
+    ]
+  }
+}

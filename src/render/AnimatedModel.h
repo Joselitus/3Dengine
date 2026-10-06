@@ -21,6 +21,7 @@ public:
   Skeleton skeleton;
   std::vector<AnimatedMesh> meshes;
   std::vector<BoneInfo> pendingBones; // filled while meshes are processed
+  std::unordered_map<std::string, glm::mat4> allOffsets; // every bone's offset, weighted or not
   std::vector<aiNode *> meshNodes; // node each mesh hangs from
 
   // model data
@@ -69,7 +70,8 @@ public:
 
   // Poses the model from outside (see Skeleton::SetPose, a ragdoll): from then on the animation
   // does not move it any more (Update does nothing) until usePlayedAnimation()
-  void setBoneGlobals(const std::map<std::string, glm::mat4> &globals);
+  void setBoneGlobals(const std::map<std::string, glm::mat4> &globals,
+                      const std::string &orphansFollow = "");
   void usePlayedAnimation() { externalPose = false; }
   // The object-space matrix of a bone as the animation left it (false if it has no such bone)
   bool getBoneGlobal(const std::string &name, glm::mat4 &matrix) const;

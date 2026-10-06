@@ -15,6 +15,18 @@ void Skeleton::Init(aiNode *in_root, const aiAnimation *in_animation,
   // result (no globalInverse cancelling it).
   globalInverseTransform = glm::mat4(1.0f);
 
+  // The bind pose of each bone (the inverse of its offset) and its nearest ancestor that is a bone
+  bindGlobals.clear();
+  boneParents.clear();
+  for (const BoneInfo &bone : bones)
+    bindGlobals[bone.name] = glm::inverse(globalInverseTransform) * glm::inverse(bone.offset);
+  for (const BoneInfo &bone : bones)
+    for (const aiNode *up = bone.node ? bone.node->mParent : nullptr; up; up = up->mParent)
+      if (bindGlobals.count(up->mName.data)) {
+        boneParents[bone.name] = up->mName.data;
+        break;
+      }
+
   channels.clear();
   if (animation)
     for (unsigned int i = 0; i < animation->mNumChannels; i++)
@@ -24,10 +36,110 @@ void Skeleton::Init(aiNode *in_root, const aiAnimation *in_animation,
   Update(0.0);
 }
 
-void Skeleton::SetPose(const std::unordered_map<std::string, glm::mat4> &globals) {
+// The file's own matrix of a node in its static pose (the root's included)
+static glm::mat4 StaticGlobal(const aiNode *node) {
+  glm::mat4 m(1.0f);
+  for (; node; node = node->mParent) {
+    aiMatrix4x4 local = node->mTransformation;
+    m = AiToGLMMat4(local) * m;
+  }
+  return m;
+}
+
+void Skeleton::SetBindPoses(const std::unordered_map<std::string, glm::mat4> &offsets) {
+  // What takes the mesh's own space (where the offsets are) to the skin's (where a bone's matrix is,
+  // with the units and axes the file's root node gives): a weighted bone's static matrix times its
+  // offset. Bones are posed in the skin's space, so their bind matrices are too.
+  glm::mat4 toSkin(1.0f);
+  for (const BoneInfo &bone : bones)
+    if (bone.node) {
+      toSkin = StaticGlobal(bone.node) * bone.offset;
+      break;
+    }
+  for (const auto &entry : offsets)
+    bindGlobals[entry.first] = glm::inverse(globalInverseTransform) * toSkin * glm::inverse(entry.second);
+  boneParents.clear();
+  for (const auto &entry : bindGlobals) {
+    const aiNode *node = root ? root->FindNode(entry.first.c_str()) : nullptr;
+    for (const aiNode *up = node ? node->mParent : nullptr; up; up = up->mParent)
+      if (bindGlobals.count(up->mName.data)) {
+        boneParents[entry.first] = up->mName.data;
+        break;
+      }
+  }
+}
+
+bool Skeleton::PoseGlobal(const std::string &name, glm::mat4 &matrix) const {
+  std::string up = name;
+  for (int guard = 0; guard < 256; guard++) {
+    for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++)
+      if (bones[i].name == up) {
+        // skin = inverse-root * M * offset, so M is the matrix of a weighted bone
+        glm::mat4 skinned = glm::inverse(globalInverseTransform) * boneMats[i] * glm::inverse(bones[i].offset);
+        if (up == name) {
+          matrix = skinned;
+          return true;
+        }
+        glm::mat4 bindUp, bindMe;
+        if (!BindGlobal(up, bindUp) || !BindGlobal(name, bindMe))
+          return false;
+        matrix = skinned * glm::inverse(bindUp) * bindMe;
+        return true;
+      }
+    auto parent = boneParents.find(up);
+    if (parent == boneParents.end())
+      return false;
+    up = parent->second;
+  }
+  return false;
+}
+
+bool Skeleton::BindGlobal(const std::string &name, glm::mat4 &matrix) const {
+  auto it = bindGlobals.find(name);
+  if (it == bindGlobals.end())
+    return false;
+  matrix = it->second;
+  return true;
+}
+
+void Skeleton::SetPose(const std::unordered_map<std::string, glm::mat4> &globals,
+                       const std::string &orphansFollow) {
+  // the named bones as they are told, the rest following their nearest named ancestor
+  std::unordered_map<std::string, glm::mat4> resolved = globals;
+  std::vector<std::string> chain;
+  for (const BoneInfo &bone : bones) {
+    if (resolved.count(bone.name))
+      continue;
+    chain.clear();
+    std::string name = bone.name;
+    while (!resolved.count(name)) {
+      chain.push_back(name);
+      auto up = boneParents.find(name);
+      if (up == boneParents.end())
+        break;
+      name = up->second;
+    }
+    if (!resolved.count(name)) {
+      // no ancestor was posed: it follows `orphansFollow` if it is told to, or keeps its last pose
+      auto bind = bindGlobals.find(bone.name);
+      auto lead = resolved.find(orphansFollow);
+      auto leadBind = bindGlobals.find(orphansFollow);
+      if (orphansFollow.empty() || lead == resolved.end() || leadBind == bindGlobals.end() || bind == bindGlobals.end())
+        continue;
+      resolved[bone.name] = lead->second * glm::inverse(leadBind->second) * bind->second;
+      // (and the ones that hung from it, in the chain, were not resolved: they will be, as they come)
+      continue;
+    }
+    // from the posed ancestor down: M = M_up * bind_up^-1 * bind
+    for (size_t i = chain.size(); i-- > 0;) {
+      const std::string &child = chain[i];
+      resolved[child] = resolved[name] * glm::inverse(bindGlobals[name]) * bindGlobals[child];
+      name = child;
+    }
+  }
   for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++) {
-    auto it = globals.find(bones[i].name);
-    if (it != globals.end())
+    auto it = resolved.find(bones[i].name);
+    if (it != resolved.end())
       boneMats[i] = globalInverseTransform * it->second * bones[i].offset;
   }
 }

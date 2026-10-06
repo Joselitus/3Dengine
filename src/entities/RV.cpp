@@ -86,6 +86,14 @@ static const vec3 DASH_LIGHT_COLOR(0.55f, 0.25f, 0.05f);
 static const float SPEED_ANGLES[2] = {135.0f, -135.0f};
 static const float FUEL_ANGLES[2] = {60.0f, -60.0f};
 static const float SPEEDOMETER_MAX = 25.0f;
+// The steering wheel (assets/rv/steering_wheel_mounts.json, written by generate_steering_wheel.py:
+// keep them the same). Its axes in the RV's frame (z = the steering axis, towards the driver)
+// and its origin, the hub's centre. It turns STEERING_RATIO times the front wheels' angle.
+static const vec3 WHEEL_X(-1.0f, 0.0f, 0.0f);
+static const vec3 WHEEL_Y(0.0f, 0.57358f, 0.81915f);
+static const vec3 WHEEL_Z(0.0f, 0.81915f, -0.57358f);
+static const vec3 WHEEL_ORIGIN(0.45f, 1.58f, 2.28f);
+static const float STEERING_RATIO = 3.5f;
 static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the driver
 // Fuel (0..1 of the tank) used per metre driven: the consumption is proportional to the
 // speed (the distance covered in a frame is speed * dt). A full tank is ~1.5 km.
@@ -454,6 +462,22 @@ void RV::setCockpitModels(std::shared_ptr<Model> dashboard, std::shared_ptr<Mode
   updateCockpit(0.0);
 }
 
+void RV::setSteeringWheelModel(std::shared_ptr<Model> wheel) {
+  steeringWheelPart = addPart(wheel);
+  hasSteeringWheel = true;
+  placeSteeringWheel();
+}
+
+// The wheel is turned about its own z by the front wheels' steer angle (positive = left,
+// counterclockwise seen from the driver)
+void RV::placeSteeringWheel() {
+  if (!hasSteeringWheel)
+    return;
+  float steer = body ? body->getWheels()[0].steer : 0.0f;
+  mat4 frame(vec4(WHEEL_X, 0.0f), vec4(WHEEL_Y, 0.0f), vec4(WHEEL_Z, 0.0f), vec4(WHEEL_ORIGIN, 1.0f));
+  setPartTransform(steeringWheelPart, glm::rotate(frame, steer * STEERING_RATIO, vec3(0.0f, 0.0f, 1.0f)));
+}
+
 // With the headlights on the dashboard lights up: its lit marks, lamps and display are
 // shown, and the needles glow
 void RV::updateDashboardLights() {
@@ -556,6 +580,7 @@ void RV::update(double dt) {
   // Only the input is read here: the stage moves the RV through contactFloor()
   GameObject::update(dt);
   updateCockpit(dt);
+  placeSteeringWheel();
   updateHeadlights(dt);
 }
 

@@ -1,93 +1,21 @@
 #include "FollaCulos.h"
+#include "FollaCulosRig.h"
 
 #include <cmath>
 
 using namespace std;
 using namespace glm;
+using namespace folla_culos_rig;
 
-// Its skeleton as a ragdoll: the points (the joints of the rig, in the T-pose of the model:
-// generate_folla_culos_run.py, BIND and ENDPOINT) and what each bone joins
-namespace {
-enum Point { PELVIS, SPINE1, SPINE2, CHEST, NECK, HEAD, HEAD_TOP, SH_L, SH_R, EL_L, EL_R, WR_L, WR_R,
-             TIP_L, TIP_R, HIP_L, HIP_R, KNEE_L, KNEE_R, ANKLE_L, ANKLE_R, TOE_L, TOE_R, POINTS };
-
-vector<vec3> bindPoints() {
-  vector<vec3> p(POINTS);
-  p[PELVIS] = vec3(0.0f, 1.05f, 0.0f);   p[SPINE1] = vec3(0.0f, 1.25f, 0.0f);
-  p[SPINE2] = vec3(0.0f, 1.55f, 0.0f);   p[CHEST] = vec3(0.0f, 1.80f, 0.0f);
-  p[NECK] = vec3(0.0f, 1.93f, 0.0f);     p[HEAD] = vec3(0.0f, 2.05f, 0.02f);
-  p[HEAD_TOP] = vec3(0.0f, 2.33f, 0.03f);
-  for (float s : {1.0f, -1.0f}) {
-    int side = s > 0 ? 0 : 1; // L, R
-    p[SH_L + side] = vec3(s * 0.255f, 1.84f, 0.0f);
-    p[EL_L + side] = vec3(s * 0.82f, 1.84f, -0.02f);
-    p[WR_L + side] = vec3(s * 1.38f, 1.84f, 0.0f);
-    p[TIP_L + side] = vec3(s * 1.80f, 1.84f, 0.0f);
-    p[HIP_L + side] = vec3(s * 0.115f, 1.14f, 0.0f);
-    p[KNEE_L + side] = vec3(s * 0.150f, 0.60f, 0.03f);
-    p[ANKLE_L + side] = vec3(s * 0.170f, 0.10f, -0.012f);
-    p[TOE_L + side] = vec3(s * 0.172f, 0.04f, 0.35f);
-  }
-  return p;
-}
-
-vector<RagdollBone> bones() {
-  vector<RagdollBone> b = {
-      {"pelvis", PELVIS, SPINE1, HIP_L, HIP_R}, {"spine1", SPINE1, SPINE2, HIP_L, HIP_R},
-      {"spine2", SPINE2, CHEST, SH_L, SH_R},    {"chest", CHEST, NECK, SH_L, SH_R},
-      {"neck", NECK, HEAD, SH_L, SH_R},         {"head", HEAD, HEAD_TOP, SH_L, SH_R}};
-  const char *sides[2] = {"_L", "_R"};
-  for (int s = 0; s < 2; s++) {
-    string n = sides[s];
-    b.push_back({"upperarm" + n, SH_L + s, EL_L + s});
-    b.push_back({"forearm" + n, EL_L + s, WR_L + s});
-    b.push_back({"hand" + n, WR_L + s, TIP_L + s});
-    b.push_back({"thigh" + n, HIP_L + s, KNEE_L + s});
-    b.push_back({"shin" + n, KNEE_L + s, ANKLE_L + s});
-    b.push_back({"foot" + n, ANKLE_L + s, TOE_L + s});
-  }
-  return b;
-}
-
-vector<RagdollLink> links() {
-  vector<RagdollLink> l = {
-      // the torso is a rigid frame: hips, shoulders and the spine between them
-      {PELVIS, HIP_L, 1.0f}, {PELVIS, HIP_R, 1.0f}, {HIP_L, HIP_R, 1.0f},
-      {CHEST, SH_L, 1.0f}, {CHEST, SH_R, 1.0f}, {SH_L, SH_R, 1.0f},
-      {NECK, SH_L, 1.0f}, {NECK, SH_R, 1.0f}, {SPINE2, SH_L, 1.0f}, {SPINE2, SH_R, 1.0f},
-      {SPINE1, HIP_L, 1.0f}, {SPINE1, HIP_R, 1.0f}, {SPINE2, HIP_L, 0.7f}, {SPINE2, HIP_R, 0.7f},
-      {PELVIS, CHEST, 0.6f}, {PELVIS, SPINE2, 0.6f}, {SPINE1, CHEST, 0.6f}, {SPINE1, NECK, 0.5f},
-      // the head hangs from the neck, not floppy
-      {HEAD, CHEST, 0.5f}, {HEAD, SH_L, 0.5f}, {HEAD, SH_R, 0.5f}};
-  // arms and legs can't fold right back (a minimum reach, a third of their length)
-  l.push_back({SH_L, WR_L, 1.0f, true, 0.3f});
-  l.push_back({SH_R, WR_R, 1.0f, true, 0.3f});
-  l.push_back({HIP_L, ANKLE_L, 1.0f, true, 0.3f});
-  l.push_back({HIP_R, ANKLE_R, 1.0f, true, 0.3f});
-  return l;
-}
-
-// The bone each point belongs to (to place it from the pose of that bone)
-const char *boneOf(int point) {
-  static const char *names[POINTS] = {"pelvis", "spine1", "spine2", "chest", "neck", "head", "head",
-                                      "upperarm_L", "upperarm_R", "forearm_L", "forearm_R", "hand_L",
-                                      "hand_R", "hand_L", "hand_R", "thigh_L", "thigh_R", "shin_L",
-                                      "shin_R", "foot_L", "foot_R", "foot_L", "foot_R"};
-  return names[point];
-}
-// ...and the joint of that bone (the point it starts at)
-int jointOf(int point) {
-  static const int joints[POINTS] = {PELVIS, SPINE1, SPINE2, CHEST, NECK, HEAD, HEAD, SH_L, SH_R, EL_L,
-                                     EL_R, WR_L, WR_R, WR_L, WR_R, HIP_L, HIP_R, KNEE_L, KNEE_R,
-                                     ANKLE_L, ANKLE_R, ANKLE_L, ANKLE_R};
-  return joints[point];
-}
-} // namespace
 
 FollaCulos::FollaCulos(shared_ptr<AnimatedModel> running, shared_ptr<AnimatedModel> splat,
                        SoundEngine &engine, SpeechSynthesizer &synthesizer)
     : Npc(running, "Folla Culos", vector<string>(), engine, synthesizer),
-      ragdoll(bindPoints(), bones(), links()), runningModel(running), splatModel(splat) {
+      soundEngine(engine), screechClip(new AudioClip()), random(std::random_device()()),
+      ragdoll(bindPoints(), bones(), links()), gait(bindPoints(), bones(), spiderRig()),
+      runningModel(running), splatModel(splat) {
+  if (!screechClip->loadWavFile("../assets/folla_culos/follaculos_screech.wav"))
+    screechClip.reset(); // (no screech: the creature is just quiet)
   running->useRealSize();
   splat->useRealSize();
   addMesh(splat); // mesh 1
@@ -105,7 +33,9 @@ void FollaCulos::die() {
 void FollaCulos::kill() {
   if (dead || stuck || ragdolling)
     return;
+  devoured.clear(); // (its prey's head falls from its mouth: see devour)
   running = false;
+  screech.reset(); // dying, it stops screeching
   velocity = acceleration = vec3(0.0f);
   setCollidable(false);   // nothing bumps into the body that is not there
   if (frontHit && surfaceFrame && frontHit(*this)) {
@@ -154,6 +84,146 @@ void FollaCulos::applyCollision(const vec3 &push, const vec3 &velocityChange) {
     kill();
 }
 
+// While it chases, at any frame it may screech, if it is not screeching already
+void FollaCulos::updateScreech(double dt) {
+  if (screech && !screech->isPlaying())
+    screech.reset();
+  if (dead || stuck)
+    screech.reset(); // (a dying creature does not chase: it stops, whatever was sounding)
+  if (screech) {
+    screech->setPosition(position + vec3(0.0f, EYE_HEIGHT, 0.0f)); // it screeches where it runs
+    return;
+  }
+  if (!pursuing || !screechClip)
+    return;
+  float chance = 1.0f - std::pow(1.0f - SCREECH_CHANCE_PER_SECOND, (float)dt);
+  if (std::uniform_real_distribution<float>(0.0f, 1.0f)(random) < chance) {
+    screech = soundEngine.play(screechClip, true, position + vec3(0.0f, EYE_HEIGHT, 0.0f));
+    if (screech)
+      screech->setVolume(SCREECH_VOLUME);
+  }
+}
+
+// Which behaviour comes next (the transitions of the state machine; see the class comment)
+FollaCulos::Behavior FollaCulos::nextBehavior(float distance) const {
+  if (retreating || (playerDead && playerDead())) // it caught an NPC or killed the player: it runs away, night or day
+    return Behavior::RunAway;
+  bool night = !isNight || isNight();
+  if (!night)
+    return Behavior::RunAway; // the sun is up, whatever it was doing
+  if (prey) // (findPrey, asked before: another NPC is near)
+    return Behavior::Hunt;
+  bool inVehicle = playerInVehicle && playerInVehicle();
+  switch (behavior) {
+  case Behavior::Hunt: // it caught it, or lost it
+  case Behavior::RunAway: // night has fallen
+  case Behavior::Pursuit:
+    return inVehicle && distance <= CAUTIONARY_RANGE ? Behavior::Caution : Behavior::Pursuit;
+  case Behavior::Caution:
+    return inVehicle ? Behavior::Caution : Behavior::Pursuit; // the player got out
+  }
+  return behavior;
+}
+
+void FollaCulos::enterBehavior(Behavior next) {
+  behavior = next;
+  hasCautionGoal = false; // (a new Caution starts by choosing a place)
+  cautionPause = 0.0f;
+}
+
+// The NPC it hunts: the one it already has while it is not much further than CAUTION_MIN_RADIUS,
+// else the nearest one that is closer than that (null if there is none)
+Npc *FollaCulos::findPrey() {
+  if (!otherNpcs || retreating) // (with its prey in its mouth it hunts no more)
+    return nullptr;
+  auto distanceTo = [this](const Npc *npc) {
+    vec3 d = npc->getPosition() - position;
+    return length(vec2(d.x, d.z));
+  };
+  if (prey && !prey->isRagdolling() && distanceTo(prey) < 1.5f * CAUTION_MIN_RADIUS)
+    return prey;
+  Npc *best = nullptr;
+  float bestDistance = CAUTION_MIN_RADIUS;
+  for (Npc *npc : otherNpcs()) {
+    if (npc == this || npc->isRagdolling() || !npc->isVisible())
+      continue;
+    float d = distanceTo(npc);
+    if (d < bestDistance) {
+      best = npc;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+// Where its mouth is in the world: its place in the bind pose carried by its head bone's pose
+vec3 FollaCulos::mouthPosition() const {
+  auto head = lastPose.find("head");
+  vec3 local(0.0f, MOUTH_BIND_Y, MOUTH_BIND_Z);
+  if (head != lastPose.end())
+    local = vec3(head->second * vec4(0.0f, MOUTH_BIND_Y - HEAD_JOINT_Y, MOUTH_BIND_Z - HEAD_JOINT_Z, 1.0f));
+  return position + mat3(rotation) * local;
+}
+
+// It has caught an NPC: the NPC turns into a ragdoll whose head is held in its mouth
+void FollaCulos::devour(Npc &npc) {
+  bool done = npc.startRagdoll(floorHeight, [this](vec3 &where) {
+    if (dead || stuck || ragdolling) // (if it dies the head falls from its mouth)
+      return false;
+    where = mouthPosition();
+    return true;
+  });
+  if (done) {
+    devoured.push_back(&npc);
+    retreating = true; // it takes its prey away: whatever the time of day
+  }
+}
+
+// Caution: keeps to the edge of the circle of CAUTIONARY_RANGE round `target` (the player) and goes
+// round it by the arc, to random points, pausing at each. Returns the velocity it wants.
+vec3 FollaCulos::cautionMove(const vec3 &target, double dt) {
+  vec2 rel(position.x - target.x, position.z - target.z);
+  float r = length(rel);
+  if (r < 1e-3f) { // (right on the player: any way out)
+    rel = vec2(1.0f, 0.0f);
+    r = 1.0f;
+  }
+  float angle = atan2(rel.y, rel.x);
+  vec2 outward = rel / r, tangent(-sin(angle), cos(angle)); // (the way round that grows the angle)
+  float error = CAUTIONARY_RANGE - r;                      // > 0: inside the circle, < 0: outside it
+  bool onEdge = std::fabs(error) <= CAUTION_EDGE_TOLERANCE;
+  // always pulled to the edge: out if it is inside, in if outside (running when it is far off)
+  float radial = glm::clamp(error * 3.0f, -RUN_SPEED, RUN_SPEED);
+  vec2 move = outward * radial;
+  running = true;
+
+  if (cautionPause > 0.0f && onEdge) {
+    cautionPause -= (float)dt; // standing, watching the player
+    faceTowards(vec3(target.x, position.y, target.z));
+    running = false;
+    return vec3(move.x, 0.0f, move.y);
+  }
+  if (!hasCautionGoal) { // a point of the edge a random way round
+    uniform_real_distribution<float> unit(0.0f, 1.0f);
+    float arc = CAUTION_ARC_MIN + unit(random) * (CAUTION_ARC_MAX - CAUTION_ARC_MIN);
+    cautionAngle = angle + (unit(random) < 0.5f ? -arc : arc);
+    hasCautionGoal = true;
+  }
+  float turn = atan2(sin(cautionAngle - angle), cos(cautionAngle - angle)); // the short way round
+  if (std::fabs(turn) * CAUTIONARY_RANGE < 0.5f) { // arrived: it stops a moment
+    hasCautionGoal = false;
+    cautionPause = uniform_real_distribution<float>(CAUTION_PAUSE_MIN, CAUTION_PAUSE_MAX)(random);
+    running = false;
+    return vec3(move.x, 0.0f, move.y);
+  }
+  if (onEdge) // (far from the edge it goes back to it first, then goes round)
+    move += tangent * (turn > 0.0f ? CAUTION_WALK_SPEED : -CAUTION_WALK_SPEED);
+  float speed = length(move);
+  if (speed > 1e-3f)
+    faceTowards(position + vec3(move.x, 0.0f, move.y) / speed);
+  return vec3(move.x, 0.0f, move.y);
+}
+
 void FollaCulos::update(double dt) {
   if (dead || stuck) {
     if (stuck && surfaceFrame) {
@@ -188,41 +258,108 @@ void FollaCulos::update(double dt) {
     }
     return; // (otherwise it stays where it died)
   }
-  // A straight line towards the target, on the ground plane
+  // The state machine: which behaviour now, and what it does
   vec3 wanted(0.0f);
   running = false;
+  pursuing = false;
   if (targetPosition) {
-    vec3 d = targetPosition() - position;
+    vec3 target = targetPosition();
+    vec3 d = target - position;
     d.y = 0.0f;
     float distance = length(d);
-    bool night = !isNight || isNight();
-    // At night it goes for the target; by day it goes away from it
-    bool goes = night ? distance > STOP_DISTANCE : distance < FLEE_DISTANCE;
-    if (goes && distance > 1e-3f) {
-      vec3 direction = night ? d / distance : -d / distance;
-      wanted = direction * RUN_SPEED;
-      faceTowards(position + direction); // yaw 0 is towards +z, like the Walker
-      running = true;
+    if (retreating && distance >= FLEE_DISTANCE) // far enough: the retreat is over
+      retreating = false;
+    prey = findPrey();
+    Behavior next = nextBehavior(distance);
+    if (next != behavior)
+      enterBehavior(next);
+    switch (behavior) {
+    case Behavior::Pursuit:
+      // it goes for the target
+      if (playerCaught && distance <= PLAYER_CATCH_DISTANCE && !(playerInVehicle && playerInVehicle()) &&
+          !(playerDead && playerDead())) {
+        playerCaught(); // it has touched the player on foot: he dies, and it runs away
+        retreating = true;
+      } else if (distance > STOP_DISTANCE && distance > 1e-3f) {
+        vec3 direction = d / distance;
+        wanted = direction * RUN_SPEED;
+        faceTowards(position + direction); // yaw 0 is towards +z, like the Walker
+        running = true;
+        pursuing = true;
+      }
+      break;
+    case Behavior::RunAway:
+      // it goes away from the target
+      if (distance < FLEE_DISTANCE && distance > 1e-3f) {
+        vec3 direction = -d / distance;
+        wanted = direction * RUN_SPEED;
+        faceTowards(position + direction);
+        running = true;
+      }
+      break;
+    case Behavior::Caution:
+      wanted = cautionMove(target, dt);
+      break;
+    case Behavior::Hunt:
+      if (prey) {
+        vec3 toPrey = prey->getPosition() - position;
+        toPrey.y = 0.0f;
+        float far = length(toPrey);
+        if (far <= CATCH_DISTANCE) {
+          devour(*prey); // they collide: it is its now
+          prey = nullptr;
+        } else {
+          wanted = toPrey / far * RUN_SPEED;
+          faceTowards(position + toPrey / far);
+          running = true;
+          pursuing = true;
+        }
+      }
+      break;
     }
   }
   wanted.y = velocity.y; // (falling is not steered)
   steerTowards(wanted, 12.0f);
   DynamicGameObject::update(dt);
-  // The animation: only while it runs (it stands still in the pose it stopped in)
-  if (running)
-    runClock += dt;
-  if (aniModel)
-    aniModel->Update(runClock);
+  updateScreech(dt);
+  // The pose: made by the gait from where its body is (its feet stay where they landed)
+  // (how fast it moves is measured from where it was, not read from `velocity`: a drag, a push
+  // or a teleport moves it too, and the feet have to follow whatever moved it)
+  if (!hasLastPosition) {
+    lastPosition = position;
+    hasLastPosition = true;
+  }
+  if (dt > 0.0) {
+    vec3 moved = (position - lastPosition) / (float)dt;
+    moved.y = 0.0f;
+    float speed = length(moved);
+    if (speed > 2.0f * RUN_SPEED)
+      moved *= 2.0f * RUN_SPEED / speed;
+    gaitVelocity += (moved - gaitVelocity) * glm::min(1.0f, (float)dt * 15.0f);
+  }
+  lastPosition = position;
+  gait.setBody(position, mat3(rotation), gaitVelocity);
+  if (lookTarget)
+    gait.setLookTarget(lookTarget());
+  if (floorHeight)
+    gait.setFloor(floorHeight);
+  gait.step(dt);
+  if (aniModel) {
+    map<string, mat4> pose;
+    gait.boneGlobals(vec3(0.0f), pose);
+    aniModel->setBoneGlobals(pose);
+    lastPose = pose;
+  }
 }
 
 void FollaCulos::getLight(vector<SpotLight> &lights) const {
   if (!visible)
     return;
-  vec3 forward = vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f));
   if (dead) // (dead eyes do not shine)
     return;
-  if (!stuck)
-  lights.push_back(SpotLight::omni(position + vec3(0.0f, EYE_HEIGHT, 0.0f) + forward * 0.5f,
+  // In front of its face: running, a bit ahead of the eyes; stuck on the glass, where its head is
+  vec3 local = stuck ? vec3(0.0f, 2.17f, 0.15f) : vec3(0.0f, EYE_HEIGHT, 0.5f);
+  lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(local, 0.0f)),
                                    vec3(0.55f, 0.42f, 0.02f), EYE_LIGHT_RANGE));
 }
 
@@ -232,6 +369,11 @@ void FollaCulos::describe(vector<string> &lines) const {
   if (stuck)
     lines.push_back("Pegado al parabrisas, agonizando");
   lines.push_back(string("Estado critico: ") + (criticalCondition ? "SI" : "no"));
-  lines.push_back(string("Corriendo: ") + (running ? "si" : "no") +
-                  ((!isNight || isNight()) ? "  (de noche: hacia el jugador)" : "  (de dia: huye)"));
+  const char *state = behavior == Behavior::Pursuit ? "persecucion"
+                      : behavior == Behavior::Hunt ? "caza (va a por otro NPC)"
+                      : behavior == Behavior::Caution ? "cautela (rodea al jugador por el borde del circulo)"
+                                                       : retreating ? "retirada (con su presa)" : "huida";
+  lines.push_back(string("Comportamiento: ") + state);
+  lines.push_back("Cabezas en la boca: " + to_string(devoured.size()));
+  lines.push_back(string("En movimiento: ") + (running ? "si" : "no"));
 }

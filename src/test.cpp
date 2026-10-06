@@ -19,6 +19,7 @@
 #include "Commands.h"
 #include "TextFormat.h"
 #include "DebugSelector.h"
+#include "DeathOverlay.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
 #include "GameObject.h"
@@ -232,7 +233,7 @@ protected:
 
 public:
   // Interactions are for the penguin on foot, not while driving
-  bool interactionsEnabled() const override { return !inVehicle; }
+  bool interactionsEnabled() const override { return !inVehicle && !isPlayerDead(); }
 
   // The player (the penguin or the RV) is always drawn, wherever it is
   bool edgeCullExempt(const GameObject &object) const override {
@@ -414,6 +415,7 @@ public:
                          loadModel("../assets/rv/key.obj"),
                          loadModel("../assets/rv/needle.obj"),
                          loadModel("../assets/rv/dashboard_glow.obj"));
+    rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
     rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
@@ -493,6 +495,16 @@ public:
     creature->setPosition(18.0f, groundAt(18.0f, 24.0f), 24.0f);
     creature->setGravity(25.0f);
     creature->setTarget([this]() { return player->getPosition(); });
+    // Touching the player on foot kills him; then it runs away
+    creature->setPlayerCaughtCallback([this]() { killPlayer(); });
+    creature->setPlayerDeadQuery([this]() { return isPlayerDead(); });
+    // It is wary of the RV: when the player drives it, it keeps its distance (see FollaCulos)
+    creature->setPlayerInVehicleQuery([this]() { return inVehicle; });
+    // The other NPCs are its prey if they come near
+    Npc *pingu = guide.get();
+    creature->setPreyQuery([pingu]() { return std::vector<Npc *>{pingu}; });
+    // Its face follows the camera
+    creature->setLookTarget([this]() { return viewer; });
     // At night it comes for you; by day it keeps away (the sun is below the horizon)
     creature->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
     addDynamic(creature);
@@ -591,6 +603,13 @@ int main(int argc, char **argv) {
   // Debug: select objects, see their data, move them and change their values
   // (keys 1, 2 and 0, see DebugSelector)
   DebugSelector selector(window, ui, controls);
+  // The player's death: the screen goes red (the camera falls: see the main loop)
+  DeathOverlay deathOverlay;
+  ui.addOverlay(&deathOverlay);
+  double deathTime = -1.0;       // seconds since he died (-1: alive)
+  float deathStartPitch = 0.0f;  // where the camera was looking when it happened
+  float deathEyeHeight = 1.6f;   // ...how high it was above his feet
+  float deathAngle = 0.0f, deathSpeed = 0.0f; // the fall: how far over it is and how fast it tips (radians)
 
   // The maps, in the order the debug selector (key Z) lists them
   struct Map {
@@ -677,6 +696,7 @@ int main(int argc, char **argv) {
       stage->setTimeOfDay(startHour);
     if (dayDuration >= 0.0f)
       stage->setDayDuration(dayDuration);
+    deathTime = -1.0; // (a new map: the player is alive)
     mapLoaded = true;
   };
 
@@ -809,16 +829,54 @@ int main(int argc, char **argv) {
     if (stage->takePlayerChange())
       controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                         stage->getCameraHeight(), stage->getCameraYaw());
-    controller.setEnabled(!ui.hasPanels());
+    controller.setEnabled(!ui.hasPanels() && !stage->isPlayerDead());
     // In the debug placement mode, the right button turns the selected object
     // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
+    stage->setViewer(camera.getPosition()); // (where it was the last frame)
     stage->update(dt);
     // a map may fade its sounds (with the time of day)
     music.setVolume(stage->getMusicVolume());
     ambience.setVolume(stage->getAmbienceVolume());
     stage->getPlayer()->followCamera();
+    // The player is dead: the camera falls over backwards like an inverted pendulum (the eyes at the
+    // top of a rod standing on his feet, tipping over: slow at first, then faster and faster) and
+    // ends lying on the ground looking up at the sky, with a little roll; the screen goes red
+    if (stage->isPlayerDead()) {
+      const float G = 9.81f, FALL_BOUNCE = 0.3f, LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
+      const float START_ANGLE = 0.04f, START_SPEED = 0.3f; // (the blow that starts it)
+      const float HALF_TURN = 1.5707963f;
+      vec3 feet = stage->getPlayer()->getPosition();
+      if (deathTime < 0.0) {
+        deathTime = 0.0;
+        deathStartPitch = camera.getPitch();
+        deathEyeHeight = glm::max(camera.getPosition().y - feet.y, 0.5f);
+        deathAngle = START_ANGLE;
+        deathSpeed = START_SPEED;
+      }
+      deathTime += dt;
+      // theta'' = (3 g / 2 L) sin(theta): a rod of length L (the height of the eyes) falling over
+      float L = deathEyeHeight;
+      deathSpeed += 1.5f * G / L * std::sin(deathAngle) * (float)dt;
+      deathAngle += deathSpeed * (float)dt;
+      if (deathAngle >= HALF_TURN) { // it hits the ground: a small bounce, and it settles
+        deathAngle = HALF_TURN;
+        deathSpeed = deathSpeed > 0.0f ? -deathSpeed * FALL_BOUNCE : 0.0f;
+      }
+      float yaw = camera.getYaw();
+      vec3 flatForward(std::sin(yaw), 0.0f, -std::cos(yaw));
+      vec3 eye = feet - flatForward * (L * std::sin(deathAngle));
+      eye.y = feet.y + glm::max(L * std::cos(deathAngle), 0.25f);
+      camera.reposition(eye.x, eye.y, eye.z);
+      camera.setAngles(yaw, glm::mix(deathStartPitch, LOOK_UP, deathAngle / HALF_TURN)); // (it ends looking straight up)
+      // a little roll, most while it tips over (a turn about the way it looked)
+      float roll = ROLL * std::sin(2.0f * deathAngle);
+      camera.setCarrier(mat3(rotate(mat4(1.0f), roll, flatForward)));
+      deathOverlay.setAmount(TINT * glm::min((float)deathTime / 0.4f, 1.0f));
+    } else {
+      deathOverlay.setAmount(0.0f);
+    }
     // The camera is a body too: it can't sink into the floor (e.g. behind
     // the RV on a dune, or when the player walks up a slope)
     vec3 eye = camera.getPosition();

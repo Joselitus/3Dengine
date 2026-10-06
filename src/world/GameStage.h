@@ -39,6 +39,8 @@ protected:
   float cameraYaw = 0.0f;      // where the view starts looking (0 = towards -z)
   std::vector<Interactable *> interactables; // owned by the stage
   bool playerChanged = false; // see takePlayerChange()
+  bool playerDead = false;    // see killPlayer()
+  glm::vec3 viewer = glm::vec3(0.0f); // where the camera is (things may look at it)
 
   explicit GameStage(FloorMode mode) : Stage(mode) {}
 
@@ -73,6 +75,13 @@ protected:
   float groundAt(float x, float z, float fallback) const;
 
 public:
+  // The player dies (a creature caught him): the controls stop, nothing can be used, and the main loop
+  // shows it (the camera falls and looks up, the screen goes red). It lasts until the map is
+  // made again (the reset command).
+  void killPlayer() { playerDead = true; }
+  bool isPlayerDead() const { return playerDead; }
+  // The main loop tells the map where the camera is, every frame
+  void setViewer(const glm::vec3 &position) { viewer = position; }
   const Environment &getEnvironment() const { return environment; }
 
   // True once after the player has changed (setPlayer): then the controller
