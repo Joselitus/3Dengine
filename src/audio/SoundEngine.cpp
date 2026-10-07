@@ -108,16 +108,28 @@ void Sound::stop() {
 }
 
 // ------------------------------------------------------------ SoundEngine
-SoundEngine::SoundEngine() {
+struct SoundEngine::Groups {
+  ma_sound_group group[2]; // indexed by Channel
+  bool ready[2] = {false, false};
+};
+
+SoundEngine::SoundEngine() : groups(new Groups()) {
   engine = new ma_engine;
   if (ma_engine_init(nullptr, engine) != MA_SUCCESS) {
     cerr << "SoundEngine: no audio device, the game will be silent" << endl;
     delete engine;
     engine = nullptr;
+    return;
   }
+  for (int i = 0; i < 2; i++)
+    groups->ready[i] =
+        ma_sound_group_init(engine, 0, nullptr, &groups->group[i]) == MA_SUCCESS;
 }
 
 SoundEngine::~SoundEngine() {
+  for (int i = 0; i < 2; i++)
+    if (groups->ready[i])
+      ma_sound_group_uninit(&groups->group[i]);
   if (engine) {
     ma_engine_uninit(engine);
     delete engine;
@@ -138,9 +150,16 @@ void SoundEngine::setMasterVolume(float volume) {
     ma_engine_set_volume(engine, volume);
 }
 
+void SoundEngine::setVolume(Channel channel, float volume) {
+  int i = (int)channel;
+  channelVolume[i] = volume;
+  if (groups->ready[i])
+    ma_sound_group_set_volume(&groups->group[i], volume);
+}
+
 unique_ptr<Sound> SoundEngine::play(shared_ptr<const AudioClip> clip,
                                     bool spatial, const glm::vec3 &position,
-                                    bool loop) {
+                                    bool loop, Channel channel) {
   if (!engine || !clip || clip->frames() == 0)
     return nullptr;
 
@@ -156,8 +175,9 @@ unique_ptr<Sound> SoundEngine::play(shared_ptr<const AudioClip> clip,
     return nullptr;
   p.hasBuffer = true;
   ma_uint32 flags = spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION;
-  if (ma_sound_init_from_data_source(engine, &p.buffer, flags, nullptr,
-                                     &p.sound) != MA_SUCCESS)
+  int c = (int)channel; // mixed into its channel's group (if there is one)
+  ma_sound_group *group = groups->ready[c] ? &groups->group[c] : nullptr;
+  if (ma_sound_init_from_data_source(engine, &p.buffer, flags, group, &p.sound) != MA_SUCCESS)
     return nullptr;
   p.hasSound = true;
   if (spatial) {
@@ -172,7 +192,8 @@ unique_ptr<Sound> SoundEngine::play(shared_ptr<const AudioClip> clip,
 }
 
 unique_ptr<Sound> SoundEngine::playGenerated(shared_ptr<AudioGenerator> generator,
-                                             bool spatial, const glm::vec3 &position) {
+                                             bool spatial, const glm::vec3 &position,
+                                             Channel channel) {
   if (!engine || !generator)
     return nullptr;
   unique_ptr<Sound> s(new Sound());
@@ -185,7 +206,9 @@ unique_ptr<Sound> SoundEngine::playGenerated(shared_ptr<AudioGenerator> generato
   p.source.generator = generator.get();
   p.hasSource = true;
   ma_uint32 flags = spatial ? 0 : MA_SOUND_FLAG_NO_SPATIALIZATION;
-  if (ma_sound_init_from_data_source(engine, &p.source, flags, nullptr, &p.sound) != MA_SUCCESS)
+  int c = (int)channel;
+  ma_sound_group *group = groups->ready[c] ? &groups->group[c] : nullptr;
+  if (ma_sound_init_from_data_source(engine, &p.source, flags, group, &p.sound) != MA_SUCCESS)
     return nullptr;
   p.hasSound = true;
   if (spatial) {

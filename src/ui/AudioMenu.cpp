@@ -6,43 +6,60 @@
 
 using namespace std;
 
+typedef SoundEngine::Channel Channel;
+
 void AudioMenu::applySettings(const Settings &settings, SoundEngine &sound) {
-  float volume = settings.getFloat(VOLUME_KEY, DEFAULT_VOLUME);
-  sound.setMasterVolume(glm::clamp(volume, MIN_VOLUME, MAX_VOLUME));
+  float old = settings.getFloat(OLD_VOLUME_KEY, DEFAULT_VOLUME);
+  float music = settings.getFloat(MUSIC_KEY, old);
+  float game = settings.getFloat(GAME_KEY, old);
+  sound.setVolume(Channel::Music, glm::clamp(music, MIN_VOLUME, MAX_VOLUME));
+  sound.setVolume(Channel::Game, glm::clamp(game, MIN_VOLUME, MAX_VOLUME));
 }
 
 void AudioMenu::storeSettings(Settings &settings, const SoundEngine &sound) {
-  settings.setFloat(VOLUME_KEY, sound.getMasterVolume());
+  settings.setFloat(MUSIC_KEY, sound.getVolume(Channel::Music));
+  settings.setFloat(GAME_KEY, sound.getVolume(Channel::Game));
+}
+
+// A slider for one channel's volume: shown as a percentage, the engine takes a fraction
+static UISlider *volumeSlider(const string &label, SoundEngine &sound, Channel channel) {
+  return new UISlider(
+      label, AudioMenu::MIN_VOLUME * 100.0f, AudioMenu::MAX_VOLUME * 100.0f, 5.0f,
+      [&sound, channel]() { return sound.getVolume(channel) * 100.0f; },
+      [&sound, channel](float v) { sound.setVolume(channel, v / 100.0f); }, "%");
 }
 
 AudioMenu::AudioMenu(const MenuContext &context)
     : SettingsMenu("Audio", 440.0f, context),
-      savedVolume(context.sound.getMasterVolume()) {
-  SoundEngine &sound = context.sound;
-  // Shown as a percentage; the engine takes a fraction
-  add(new UISlider(
-      "Volumen general", MIN_VOLUME * 100.0f, MAX_VOLUME * 100.0f, 5.0f,
-      [&sound]() { return sound.getMasterVolume() * 100.0f; },
-      [&sound](float v) { sound.setMasterVolume(v / 100.0f); }, "%"));
+      savedMusic(context.sound.getVolume(Channel::Music)),
+      savedGame(context.sound.getVolume(Channel::Game)) {
+  add(volumeSlider("Música", context.sound, Channel::Music));
+  add(volumeSlider("Sonidos del juego", context.sound, Channel::Game));
   addFooter();
 }
 
 bool AudioMenu::hasUnsavedChanges() const {
-  return context.sound.getMasterVolume() != savedVolume;
+  return context.sound.getVolume(Channel::Music) != savedMusic ||
+         context.sound.getVolume(Channel::Game) != savedGame;
 }
 
 bool AudioMenu::apply() {
   storeSettings(context.settings, context.sound);
   if (!context.settings.save())
     return false;
-  savedVolume = context.sound.getMasterVolume();
+  savedMusic = context.sound.getVolume(Channel::Music);
+  savedGame = context.sound.getVolume(Channel::Game);
   return true;
 }
 
-void AudioMenu::discard() { context.sound.setMasterVolume(savedVolume); }
+void AudioMenu::discard() {
+  context.sound.setVolume(Channel::Music, savedMusic);
+  context.sound.setVolume(Channel::Game, savedGame);
+}
 
 void AudioMenu::resetToDefaults() {
-  context.sound.setMasterVolume(DEFAULT_VOLUME);
+  context.sound.setVolume(Channel::Music, DEFAULT_VOLUME);
+  context.sound.setVolume(Channel::Game, DEFAULT_VOLUME);
 }
 
 string AudioMenu::hint() const { return "Los cambios se oyen al momento."; }

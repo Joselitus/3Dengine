@@ -32,6 +32,8 @@
 #include "Satellite.h"
 #include "Model.h"
 #include "FollaCulos.h"
+#include "Mosquito.h"
+#include "MosquitoEgg.h"
 #include "Pingu.h"
 #include "AudioMenu.h"
 #include "CameraMenu.h"
@@ -154,6 +156,76 @@ private:
   std::shared_ptr<RV> rv;
   std::shared_ptr<Walker> walker; // the penguin on foot
   std::shared_ptr<FollaCulos> creature; // the night creature: runs at the player
+  // The giant mosquitoes: the first one and those born of its eggs, the eggs waiting to hatch, the
+  // pool they are laid in, and how many there may be at most (eggs included)
+  std::vector<std::shared_ptr<Mosquito>> mosquitoes;
+  int eggsWaiting = 0;
+  vec3 pool = vec3(0.0f);
+  static constexpr int MAX_MOSQUITOES = 8;
+  SoundEngine *soundEngine = nullptr;
+  // The places round the player's head where young mosquitoes bite (shared by all of them)
+  std::shared_ptr<Mosquito::BiteSlots> biteSlots = std::make_shared<Mosquito::BiteSlots>();
+
+  // A mosquito at `where`, roaming round `home`, `growth` grown (0 = just hatched). `later`: while
+  // the stage is updating (a hatching egg), it joins at the end of the frame
+  std::shared_ptr<Mosquito> addMosquito(const vec3 &where, const vec3 &home, float growth, bool later) {
+    std::vector<std::shared_ptr<Model>> legSegments;
+    for (int pair = 0; pair < 3; pair++)
+      for (const char *side : {"L", "R"})
+        for (int segment = 0; segment < 4; segment++)
+          legSegments.push_back(loadModel("../assets/mosquito/mosquito_leg_" + std::string(side) +
+                                          std::to_string(pair) + "_" + std::to_string(segment) + ".obj"));
+    auto mosquito = make_shared<Mosquito>(loadModel("../assets/mosquito/mosquito.obj"),
+                                          loadModel("../assets/mosquito/mosquito_abdomen.obj"),
+                                          loadModel("../assets/mosquito/mosquito_wing_l.obj"),
+                                          loadModel("../assets/mosquito/mosquito_wing_r.obj"),
+                                          legSegments, *soundEngine);
+    mosquito->setGrowth(growth);
+    mosquito->setWaterSpots({pool});
+    // It sucks the RV's fuel while the player is away from it, and bursts its tyres now and then
+    // while he drives (and blows up doing it)
+    mosquito->setVehicle(rv.get());
+    mosquito->setHourQuery([this]() { return getTimeOfDay(); });
+    mosquito->setHome(home);
+    mosquito->setPosition(where.x, where.y, where.z);
+    mosquito->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
+    mosquito->setTarget([this]() { return player->getPosition(); });
+    mosquito->setPlayerInVehicleQuery([this]() { return inVehicle; });
+    mosquito->setPlayerCaughtCallback([this]() { killPlayer(); });
+    mosquito->setPlayerDeadQuery([this]() { return isPlayerDead(); });
+    mosquito->setEggLayer([this](const vec3 &at) { return layEgg(at); });
+    mosquito->setBiteSlots(biteSlots); // (several can bite the player at once)
+    for (const auto &emitter : mosquito->getEmitters())
+      addEmitter(emitter);
+    mosquitoes.push_back(mosquito);
+    if (later)
+      addDynamicLater(mosquito);
+    else
+      addDynamic(mosquito);
+    return mosquito;
+  }
+
+  // An egg floating on the water at `at`; in a few seconds it hatches into a young mosquito. False
+  // if there are as many mosquitoes and eggs as there may be
+  bool layEgg(const vec3 &at) {
+    int alive = eggsWaiting;
+    for (const auto &m : mosquitoes)
+      if (!m->isDead())
+        alive++;
+    if (alive >= MAX_MOSQUITOES)
+      return false;
+    eggsWaiting++;
+    auto egg = make_shared<MosquitoEgg>(loadModel("../assets/mosquito/mosquito_egg.obj"), [this](MosquitoEgg &e) {
+      eggsWaiting--;
+      vec3 p = e.getPosition();
+      addMosquito(p + vec3(0.0f, Mosquito::MIN_CLEARANCE * Mosquito::BABY_SCALE + 0.05f, 0.0f), p, 0.0f, true);
+      removeLater(&e);
+    });
+    egg->setPosition(at.x, pool.y + 0.04f, at.z);
+    egg->setYaw((float)std::fmod(at.x * 12.9898f + at.z * 78.233f, 6.2831853f)); // (any way round)
+    addDynamicLater(egg);
+    return true;
+  }
   bool inVehicle = false;         // the penguin is inside the RV
 
   // The penguin gets into the RV: it is hidden inside its body and goes
@@ -265,6 +337,8 @@ public:
   void getSpotLights(std::vector<SpotLight> &lights) const override {
     if (!inVehicle)
       walker->getFlashlight(lights); // (first: the shader may not have room for all)
+    for (const auto &mosquito : mosquitoes) // the flash of an explosion (only for a moment)
+      mosquito->getLight(lights);
     rv->getHeadlights(lights);
     rv->getDashboardLights(lights);
     if (creature)
@@ -290,6 +364,7 @@ public:
   // The NPCs speak through `sound` with voices made by `speech`
   TestStage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer &speech)
       : GameStage(mode) {
+    soundEngine = &sound;
     // The desert's background music: an arid guitar and banjo loop
     loadMusic("../assets/music/desert.wav");
     // ...and the wind, which never stops (it is all that is left at night)
@@ -514,6 +589,24 @@ public:
     creature->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
     addDynamic(creature);
 
+    // A pool of water (for now a blue square, flat on a flat bit of sand): the mosquito lays its
+    // eggs in it
+    pool = vec3(-44.0f, 0.0f, 67.0f);
+    pool.y = std::max(std::max(groundAt(pool.x - 2.0f, pool.z - 2.0f), groundAt(pool.x + 2.0f, pool.z - 2.0f)),
+                      std::max(groundAt(pool.x - 2.0f, pool.z + 2.0f), groundAt(pool.x + 2.0f, pool.z + 2.0f)));
+    auto puddle = make_shared<GameObject>(loadModel("../assets/water/puddle.obj"));
+    puddle->setPosition(pool.x, pool.y + 0.03f, pool.z);
+    puddle->setCollidable(false); // (before add: a static is registered when added)
+    add(puddle);
+
+    // A giant mosquito: it roams its corner of the desert looking for water to lay its eggs in,
+    // and at dawn and at dusk, when the player comes near, it circles him and dives to bite (see
+    // Mosquito). Running it over with the RV kills it. Its eggs hatch into more (layEgg).
+    vec3 nest(-35.0f, 0.0f, 40.0f);
+    nest.y = groundAt(nest.x, nest.z);
+    // (it starts with blood in its stomach: it can lay its eggs)
+    addMosquito(nest + vec3(0.0f, 5.0f, 0.0f), nest, 1.0f, false)->setBlood(1.0f);
+
     // A sign to read (no voice: the text types itself out), past the
     // satellite, turned towards the start
     auto sign = make_shared<Readable>(
@@ -592,9 +685,10 @@ int main(int argc, char **argv) {
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
-  AudioMenu::applySettings(settings, sound); // the saved master volume
+  AudioMenu::applySettings(settings, sound); // the saved volumes
   MusicPlayer music(sound); // the current map's background music
-  MusicPlayer ambience(sound); // and its ambient sound (wind...), apart
+  // and its ambient sound (wind...), apart: it is one of the game's sounds, not music
+  MusicPlayer ambience(sound, SoundEngine::Channel::Game);
   EspeakSynthesizer speech;
 
   // The single light (the sun or the moon, set by each map)

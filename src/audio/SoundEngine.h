@@ -50,10 +50,20 @@ public:
 //
 // The listener (the player's ears) follows the camera: call setListener
 // every frame.
+//
+// Each sound belongs to a Channel, with its own volume (the Audio screen):
+// the music, or the game's sounds (everything else: the engine, voices,
+// creatures, the wind...).
 class SoundEngine {
+public:
+  enum class Channel { Game, Music };
+
 private:
+  struct Groups; // miniaudio's sound group of each Channel (SoundEngine.cpp)
   ma_engine *engine = nullptr;
+  std::unique_ptr<Groups> groups;
   float masterVolume = 1.0f;
+  float channelVolume[2] = {1.0f, 1.0f};
 
 public:
   SoundEngine();
@@ -67,6 +77,9 @@ public:
   // The volume of everything that sounds (music, voices): 1 = as recorded
   void setMasterVolume(float volume);
   float getMasterVolume() const { return masterVolume; }
+  // The volume of one Channel (1 = as recorded), on top of the master volume
+  void setVolume(Channel channel, float volume);
+  float getVolume(Channel channel) const { return channelVolume[(int)channel]; }
 
   // Starts playing `clip`. Spatial: heard from `position` in the world (mono
   // clips); otherwise straight to both ears (music, interface). `loop`: it
@@ -74,11 +87,12 @@ public:
   std::unique_ptr<Sound> play(std::shared_ptr<const AudioClip> clip,
                               bool spatial = false,
                               const glm::vec3 &position = glm::vec3(0.0f),
-                              bool loop = false);
+                              bool loop = false, Channel channel = Channel::Game);
   // Plays a sound made on the fly (see AudioGenerator), until the Sound is destroyed
   std::unique_ptr<Sound> playGenerated(std::shared_ptr<AudioGenerator> generator,
                                        bool spatial = false,
-                                       const glm::vec3 &position = glm::vec3(0.0f));
+                                       const glm::vec3 &position = glm::vec3(0.0f),
+                                       Channel channel = Channel::Game);
 };
 
 #endif

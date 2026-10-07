@@ -50,6 +50,7 @@ static const float HEADLIGHT_X = 1.0f;
 static const float HEADLIGHT_Y = 0.99f;
 static const float HEADLIGHT_Z = 3.6f;
 static const float HEADLIGHT_PITCH = -0.06f; // aims a little downwards
+static const char *START_SOUND = "../assets/rv/engine_start.wav"; // the starter cranking
 
 // The driver's eyes (Cockpit view): left-hand drive, on the door's side
 static const float EYE_X = 0.45f, EYE_Y = 2.4f, EYE_Z = 1.7f;
@@ -324,6 +325,9 @@ void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
 
 void RV::setEngineSound(SoundEngine &sound) {
   engineSound.reset(new EngineSound(sound));
+  // the starter is a recording; the running engine, the synth
+  if (engineSound->setStartClip(START_SOUND))
+    engineSim.setCrankTime((float)engineSound->getStartClipLength());
 }
 
 // Revs follow the road speed and the pedal; the sound follows the revs
@@ -339,7 +343,8 @@ void RV::updateEngineSound(double dt, float speed) {
     setEngineRunning(true);
   if (engineSound)
     engineSound->update(position + vec3(0.0f, 1.0f, 0.0f), engineSim.getRpm(),
-                        engineSim.getLoad(), engineSim.getStarter(), engineSim.getFire());
+                        engineSim.getLoad(), engineSim.getStarter(), engineSim.getFire(),
+                        engineSim.getPhase() == EngineSimulator::Phase::Cranking);
 }
 
 void RV::setEngineRunning(bool on) {
@@ -632,8 +637,44 @@ void RV::placeWheels() {
     const vec3 &anchor = p.wheels[i].anchor;
     mat4 local = glm::translate(mat4(1.0f), vec3(anchor.x, anchor.y - length, anchor.z));
     local = glm::rotate(local, steer, vec3(0.0f, 1.0f, 0.0f));
+    if (flatTires[i]) // squashed down to the smaller radius it rolls on
+      local = glm::scale(local, vec3(1.0f, (WHEEL_RADIUS - p.flatDrop) / WHEEL_RADIUS, 1.0f));
     setPartTransform(wheelParts[i], local);
   }
+}
+
+vec3 RV::wheelHub(int wheel) const {
+  const VehicleBody::Params &p = body ? body->getParams() : vehicleParams(0, 0);
+  int i = glm::clamp(wheel, 0, 3);
+  float length = body ? body->getWheels()[i].length : p.restLength;
+  const vec3 &anchor = p.wheels[i].anchor;
+  return position + vec3(rotation * vec4(anchor.x, anchor.y - length, anchor.z, 0.0f));
+}
+
+void RV::punctureTire(int wheel) {
+  if (wheel < 0 || wheel > 3)
+    return;
+  flatTires[wheel] = true;
+  if (body)
+    body->setFlat(wheel, true);
+  placeWheels();
+}
+
+void RV::repairTires() {
+  for (int i = 0; i < 4; i++) {
+    flatTires[i] = false;
+    if (body)
+      body->setFlat(i, false);
+  }
+  placeWheels();
+}
+
+// The cap of the tank: on the -x side (the door is on +x), above and behind the rear wheel
+static const vec3 FUEL_CAP(-1.2f, 1.25f, -3.05f);
+
+void RV::fuelCap(vec3 &where, vec3 &normal) const {
+  where = position + vec3(rotation * vec4(FUEL_CAP, 0.0f));
+  normal = vec3(rotation * vec4(-1.0f, 0.0f, 0.0f, 0.0f));
 }
 
 // Each wheel that is on sand and moving throws dust up and back from where
@@ -674,6 +715,8 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   if (!body) {
     body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
     body->place(position, facing);
+    for (int i = 0; i < 4; i++)
+      body->setFlat(i, flatTires[i]);
   }
   // What each wheel drives on, from the stage's floor
   body->setSurfaceQuery([&stage](float x, float z) {
@@ -752,8 +795,8 @@ void RV::describe(std::vector<std::string> &lines) const {
   const char *names[] = {"DD", "DI", "TD", "TI"};
   const std::vector<VehicleBody::WheelState> &states = body->getWheels();
   for (size_t i = 0; i < states.size(); i++)
-    wheels += textFormat(" %s %.2f%s", i < 4 ? names[i] : "?", states[i].length,
-                         states[i].onGround ? "*" : "");
+    wheels += textFormat(" %s %.2f%s%s", i < 4 ? names[i] : "?", states[i].length,
+                         states[i].onGround ? "*" : "", isTireFlat((int)i) ? " PINCHADA" : "");
   lines.push_back(wheels);
 }
 
@@ -809,6 +852,18 @@ void RV::getProperties(std::vector<Property> &properties) {
   }));
   properties.push_back(Property::action("Faros: provocar una averia",
                                         [this]() { startLightFault(); }));
+  properties.push_back(Property::info("Ruedas pinchadas", [this]() {
+    const char *names[] = {"DD", "DI", "TD", "TI"};
+    std::string flat;
+    for (int i = 0; i < 4; i++)
+      if (flatTires[i])
+        flat += std::string(flat.empty() ? "" : " ") + names[i];
+    return flat.empty() ? std::string("ninguna") : flat;
+  }));
+  properties.push_back(Property::action("Pinchar una rueda al azar", [this]() {
+    punctureTire(std::uniform_int_distribution<int>(0, 3)(random));
+  }));
+  properties.push_back(Property::action("Reparar las ruedas", [this]() { repairTires(); }));
   if (hasWindshield)
     properties.push_back(Property::toggle(
         "Parabrisas roto", [this]() { return damagedWindshield; },

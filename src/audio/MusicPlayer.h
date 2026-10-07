@@ -7,17 +7,20 @@
 
 // Plays a background track of the current map (its music, or its ambient
 // sound): one track at a time, heard straight in both ears (not from a place
-// in the world). play() replaces
+// in the world), in its SoundEngine::Channel. play() replaces
 // whatever was playing; a null clip means silence. Create it after the
 // SoundEngine (it must be destroyed before it).
 class MusicPlayer {
 private:
   SoundEngine &engine;
+  SoundEngine::Channel channel;
   std::shared_ptr<const AudioClip> clip; // what is playing now
   std::unique_ptr<Sound> sound;
 
 public:
-  explicit MusicPlayer(SoundEngine &engine) : engine(engine) {}
+  explicit MusicPlayer(SoundEngine &engine,
+                       SoundEngine::Channel channel = SoundEngine::Channel::Music)
+      : engine(engine), channel(channel) {}
 
   // Starts `music` from the beginning (stopping the previous track), looping
   // if `loop`, at `volume` (1 = as recorded). nullptr stops the music.

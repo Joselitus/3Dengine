@@ -76,6 +76,8 @@ public:
     ground = g;
   }
 
+  // Sends out `count` particles at once (an explosion), as many as fit
+  void burst(int count);
   // Emits what is owed and moves the particles dt seconds
   void update(double dt);
   void clear() { particles.clear(); owed = 0.0f; }

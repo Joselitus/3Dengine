@@ -8,7 +8,7 @@ void MusicPlayer::play(shared_ptr<const AudioClip> music, bool loop,
   clip = music;
   if (!music)
     return;
-  sound = engine.play(music, false, glm::vec3(0.0f), loop);
+  sound = engine.play(music, false, glm::vec3(0.0f), loop, channel);
   if (sound)
     sound->setVolume(volume);
 }

@@ -44,7 +44,24 @@ void EngineSimulator::start(bool fuel) {
   // an old engine: often it does not catch the first time
   float r = random01();
   failures = r < 0.35f ? 0 : (r < 0.75f ? 1 : 2);
-  enter(Phase::KeyDelay, random(0.45f, 0.8f)); // the key, the solenoid
+  // the key, the solenoid (a recording already has its pause)
+  enter(Phase::KeyDelay, crankTime > 0.0f ? 0.0f : random(0.45f, 0.8f));
+}
+
+float EngineSimulator::crankLength(bool fails) {
+  if (crankTime > 0.0f)
+    return crankTime;
+  return fails ? random(1.6f, 2.6f) : random(1.1f, 2.0f);
+}
+
+// A failed attempt is over: the driver tries again after a pause, or gives up
+void EngineSimulator::endAttempt() {
+  if (failAll && attempt >= 2) { // enough: the driver lets the key go
+    gaveUp = true;
+    stop();
+  } else {
+    enter(Phase::Pause, random(0.7f, 1.3f));
+  }
 }
 
 void EngineSimulator::stop() {
@@ -66,7 +83,7 @@ void EngineSimulator::updateStart(double dt, bool fuel) {
     fire = 0.0f;
     if (t >= phaseLength) {
       bool fails = failAll || attempt < failures;
-      enter(Phase::Cranking, fails ? random(1.6f, 2.6f) : random(1.1f, 2.0f));
+      enter(Phase::Cranking, crankLength(fails));
     }
     break;
   case Phase::Cranking: {
@@ -78,7 +95,9 @@ void EngineSimulator::updateStart(double dt, bool fuel) {
     rpm = CRANK_RPM * battery * spin * sag * (1.0f + 0.04f * (random01() - 0.5f));
     if (t >= phaseLength) {
       bool fails = failAll || attempt < failures;
-      if (fails)
+      if (fails && crankTime > 0.0f)
+        endAttempt(); // the recording has no sputter
+      else if (fails)
         enter(Phase::Sputter, random(0.5f, 0.9f)); // it almost starts and dies
       else
         enter(Phase::Catching, CATCH_TIME);
@@ -91,14 +110,8 @@ void EngineSimulator::updateStart(double dt, bool fuel) {
     float left = 1.0f - t / phaseLength;
     fire = failAll ? 0.0f : std::max(0.0f, 0.55f * left * (0.4f + random01()));
     rpm = CRANK_RPM * battery * (1.0f + 0.5f * fire * random01());
-    if (t >= phaseLength) {
-      if (failAll && attempt >= 2) { // enough: the driver lets the key go
-        gaveUp = true;
-        stop();
-      } else {
-        enter(Phase::Pause, random(0.7f, 1.3f));
-      }
-    }
+    if (t >= phaseLength)
+      endAttempt();
     break;
   }
   case Phase::Pause:
@@ -108,7 +121,7 @@ void EngineSimulator::updateStart(double dt, bool fuel) {
     if (t >= phaseLength) {
       attempt++;
       bool fails = failAll || attempt < failures;
-      enter(Phase::Cranking, fails ? random(1.6f, 2.6f) : random(1.1f, 2.0f));
+      enter(Phase::Cranking, crankLength(fails));
     }
     break;
   default:

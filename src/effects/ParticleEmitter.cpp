@@ -38,6 +38,11 @@ void ParticleEmitter::spawn() {
   particles.push_back(p);
 }
 
+void ParticleEmitter::burst(int count) {
+  for (int i = 0; i < count && (int)particles.size() < settings.maxParticles; i++)
+    spawn();
+}
+
 void ParticleEmitter::update(double dtd) {
   float dt = (float)dtd;
   if (dt <= 0.0f)

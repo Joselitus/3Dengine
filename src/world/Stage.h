@@ -110,6 +110,9 @@ private:
   std::vector<std::shared_ptr<GameObject>> objects;
   std::vector<std::shared_ptr<DynamicGameObject>> dynamicObjects;
   std::vector<std::shared_ptr<ParticleEmitter>> emitters;
+  std::vector<std::shared_ptr<DynamicGameObject>> pendingAdd; // see addDynamicLater
+  std::vector<const GameObject *> pendingRemove;
+  void flushPending();
 
   float timeOfDay = 12.0f;    // hours, 0 <= t < 24
   float dayDuration = 0.0f;   // real seconds a whole day lasts, 0 = time stands still
@@ -142,6 +145,10 @@ public:
 
   // Loads a model, or returns it if the stage already loaded that file
   std::shared_ptr<Model> loadModel(const std::string &path);
+  // Adds or takes away an object while the stage is updating (from an object's update: an egg
+  // that hatches...): it is done at the end of update(), when nothing is going through the lists
+  void addDynamicLater(std::shared_ptr<DynamicGameObject> object) { pendingAdd.push_back(object); }
+  void removeLater(const GameObject *object) { pendingRemove.push_back(object); }
 
   std::shared_ptr<GameObject> add(std::shared_ptr<GameObject> object);
   std::shared_ptr<DynamicGameObject>

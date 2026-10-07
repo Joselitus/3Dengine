@@ -23,6 +23,7 @@ VehicleBody::VehicleBody(const Params &p) : params(p) {
   bumpDamping = 6.0f * damping;
   wheelStates.assign(params.wheels.size(),
                      WheelState{params.restLength, 0.0f, false});
+  flatTyre.assign(params.wheels.size(), false);
 }
 
 void VehicleBody::place(const vec3 &origin, float yaw) {
@@ -153,8 +154,9 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     float upDot = dot(up, n);
     if (upDot < MIN_UP_DOT)
       continue;
-    // Suspension length at which the wheel just touches the floor
-    float touch = (height - params.wheelRadius) / upDot;
+    // Suspension length at which the wheel just touches the floor (a flat tyre is smaller)
+    float radius = params.wheelRadius - (flatTyre[i] ? params.flatDrop : 0.0f);
+    float touch = (height - radius) / upDot;
     if (touch >= params.fullDroop)
       continue; // in the air, hanging from the spring
 
@@ -164,7 +166,7 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     state.onGround = true;
     touching = true;
 
-    vec3 contact = anchor - up * length - n * params.wheelRadius;
+    vec3 contact = anchor - up * length - n * radius;
     vec3 pointVelocity = velocity + cross(angular, contact - com);
     float approach = -dot(pointVelocity, n);
     float load = stiffness * (params.fullDroop - length) + damping * approach;
@@ -174,14 +176,24 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
 
     // Tyre: along the wheel's heading and sideways, in the floor's plane
     vec3 heading = fwd;
-    if (wheel.steered)
-      heading = angleAxis(state.steer, up) * fwd;
+    float turned = wheel.steered ? state.steer : 0.0f;
+    if (flatTyre[i]) { // the vehicle drifts towards the flat's side (+x is its left): a front
+                       // wheel turns that way, a rear one the other (it steers the tail)
+      float towards = wheel.anchor.x > 0.0f ? 1.0f : -1.0f;
+      turned += (wheel.anchor.z > 0.0f ? towards : -towards) * params.flatSteer;
+    }
+    if (turned != 0.0f)
+      heading = angleAxis(turned, up) * fwd;
     heading -= n * dot(heading, n);
     heading = normalize(heading);
     vec3 side = normalize(cross(n, heading));
     float along = dot(pointVelocity, heading);
     float across = dot(pointVelocity, side);
-    const Surface &ground = surface[i];
+    Surface ground = surface[i];
+    if (flatTyre[i]) {
+      ground.rolling *= params.flatRolling;
+      ground.grip *= params.flatGrip;
+    }
     float alongForce =
         perWheel - params.rolling * ground.rolling * wheelMass * along;
     if (handbrake) // proportional so it stops the wheel instead of reversing it

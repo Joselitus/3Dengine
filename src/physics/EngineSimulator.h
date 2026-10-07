@@ -45,16 +45,23 @@ private:
   float hunt = 0.0f;        // phase of the idle's hunting
   int gear = 0;             // index into the gear table (reverse uses the first one)
   uint32_t seed = 2463534242u;
+  float crankTime = 0.0f;   // fixed cranking length (a recorded starter sound), 0 = random
 
   float random01();
   float random(float from, float to) { return from + (to - from) * random01(); }
   void enter(Phase next, float length);
   void updateStart(double dt, bool fuel);
   void updateDriving(double dt, float speed, float throttle);
+  float crankLength(bool fails);
+  void endAttempt();
 
 public:
   // Turns the key: the starting sequence begins (from Off only)
   void start(bool fuel);
+  // Makes every attempt crank exactly `seconds` (the length of a recorded starter
+  // sound, which includes the key's pause) with no sputter after a failed one: the
+  // sound of the start is then the recording. 0 = the synthesized start (default).
+  void setCrankTime(float seconds) { crankTime = seconds; }
   // Switches the engine off
   void stop();
   // fuel: there is some left. speed: m/s along the vehicle (negative =

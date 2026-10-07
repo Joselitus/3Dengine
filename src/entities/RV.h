@@ -72,6 +72,7 @@ private:
 
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
+  bool flatTires[4] = {false, false, false, false}; // same order (see punctureTire)
   bool occupied = false;             // someone is driving it
   bool keyOn = false;                // the key is turned: the engine is starting or running
   bool engineOn = false;             // the engine has caught and runs (see setEngine)
@@ -233,6 +234,18 @@ public:
   // left the engine does not push any more (shown on the gauge)
   void setFuel(float level) { fuel = glm::clamp(level, 0.0f, 1.0f); }
   float getFuel() const { return fuel; }
+  // The cap of the fuel tank, in the world (on the -x side, behind the rear wheel), and the
+  // outward normal of the wall it is on (something that sucks fuel out goes there)
+  void fuelCap(glm::vec3 &position, glm::vec3 &normal) const;
+
+  // The tyres: wheel i (0 front -x, 1 front +x, 2 rear -x, 3 rear +x; -x is the right-hand side)
+  // can be burst. A flat tyre sinks that corner and drags, so the RV pulls towards that side
+  // (VehicleBody::setFlat), and it is drawn squashed. They stay flat until repairTires.
+  void punctureTire(int wheel);
+  bool isTireFlat(int wheel) const { return wheel >= 0 && wheel < 4 && flatTires[wheel]; }
+  void repairTires();
+  // The middle of wheel i (its hub) in the world
+  glm::vec3 wheelHub(int wheel) const;
 
   CameraView getCameraView() const { return cameraView; }
   void setCameraView(CameraView view);

@@ -88,6 +88,30 @@ void Stage::update(double dt) {
   // The emitters, once their owners have moved them
   for (auto &emitter : emitters)
     emitter->update(dt);
+  flushPending();
+}
+
+void Stage::flushPending() {
+  if (!pendingRemove.empty()) {
+    auto gone = [this](const GameObject *o) {
+      return std::find(pendingRemove.begin(), pendingRemove.end(), o) != pendingRemove.end();
+    };
+    objects.erase(std::remove_if(objects.begin(), objects.end(),
+                                 [&](const shared_ptr<GameObject> &o) { return gone(o.get()); }),
+                  objects.end());
+    dynamicObjects.erase(std::remove_if(dynamicObjects.begin(), dynamicObjects.end(),
+                                        [&](const shared_ptr<DynamicGameObject> &o) { return gone(o.get()); }),
+                         dynamicObjects.end());
+    bodies.erase(std::remove_if(bodies.begin(), bodies.end(),
+                                [&](const Body &b) { return gone(b.object); }),
+                 bodies.end());
+    pendingRemove.clear();
+    rebuildStaticGrid(); // (the indexes of the bodies have changed)
+  }
+  std::vector<shared_ptr<DynamicGameObject>> adding;
+  adding.swap(pendingAdd);
+  for (auto &object : adding)
+    addDynamic(object);
 }
 
 void Stage::Draw(Shader *shader, double time) {
