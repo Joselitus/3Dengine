@@ -17,7 +17,8 @@ enum class Action {
   Headlights,   // the flashlight on foot, the lights of the vehicle being driven (F)
   VehicleCamera, // change the point of view of the vehicle being driven (C)
   Engine,        // switch the engine of the vehicle being driven on/off (R)
-  Handbrake,     // pull or release the handbrake of the vehicle being driven (Space)
+  Handbrake,     // pull or release the handbrake of the vehicle being driven; up in the ship (Space)
+  ShipLegs,      // flying Bob's ship: draw its landing legs in or put them out (Q)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)

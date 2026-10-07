@@ -117,9 +117,9 @@ public:
   static constexpr float SIPHON_RATE = 0.01f;
   static constexpr float SIPHON_REACH = 0.8f;
   // The tyres: how often (s) it thinks of going for one while the player drives, the chance each
-  // time (50 % for now; it was 5 %), how near it must get to the wheel's hub (m) and when it gives up (s)
+  // time (5 %), how near it must get to the wheel's hub (m) and when it gives up (s)
   static constexpr float TIRE_CHECK_INTERVAL = 10.0f;
-  static constexpr float TIRE_ATTACK_CHANCE = 0.5f;
+  static constexpr float TIRE_ATTACK_CHANCE = 0.05f;
   static constexpr float TIRE_REACH = 2.8f;
   static constexpr float TIRE_TIMEOUT = 8.0f;
   static constexpr float TIRE_SENSE = 60.0f; // the vehicle must be this near (m) to try
@@ -184,7 +184,7 @@ public:
   static constexpr float JUVENILE_ROAM = 8.0f;
   // The stomach: a full one holds this share of a tank (it never empties). Full, the abdomen is (1 + ABDOMEN_SWELL_*) times as
   // thick and long, about where it joins the thorax (generate_mosquito.py, ABDOMEN_PIVOT)
-  static constexpr float STOMACH_CAPACITY = 0.25f;
+  static constexpr float STOMACH_CAPACITY = 0.125f;
   static constexpr float ABDOMEN_SWELL_XY = 0.9f, ABDOMEN_SWELL_Z = 0.35f;
   static constexpr float ABDOMEN_PIVOT_Y = -0.05f, ABDOMEN_PIVOT_Z = -0.30f;
   // The explosion: how long the flash lasts (s), how far it lights (m), how hard the pieces fly

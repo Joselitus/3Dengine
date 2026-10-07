@@ -71,10 +71,12 @@ void Controller::update() {
 
   if (character) {
     glm::vec2 dir(0.0f);
-    float up = 0.0f; // no key for it (everything walks under gravity now)
     auto held = [this](Action action) {
       return glfwGetKey(window, controls.key(action)) == GLFW_PRESS;
     };
+    // Up and down, for what flies (Bob's ship): the handbrake key (Space) up, the leave-vehicle
+    // one (Shift) down; whatever walks or drives ignores it
+    float up = (held(Action::Handbrake) ? 1.0f : 0.0f) - (held(Action::LeaveVehicle) ? 1.0f : 0.0f);
     if (held(Action::MoveBack)) dir.y += 1.0f;
     if (held(Action::MoveForward)) dir.y -= 1.0f;
     if (held(Action::MoveLeft)) dir.x -= 1.0f;

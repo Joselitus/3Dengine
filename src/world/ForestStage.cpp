@@ -258,5 +258,9 @@ ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : VehicleStage(mode
     return;
   }
   buildWalls();
+  // Bob's ship lands on the road, a stretch ahead of the RV, its ramp towards it
+  const PathPoint &landing = path[(size_t)START_Z_INDEX + 70];
+  createAlienVisit(vec3(landing.x, groundAt(landing.x, landing.z), landing.z),
+                   std::atan2(start.x - landing.x, start.z - landing.z));
   valid = true;
 }

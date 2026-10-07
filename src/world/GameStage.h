@@ -56,6 +56,8 @@ protected:
   std::vector<Interactable *> interactables; // owned by the stage
   bool playerChanged = false; // see takePlayerChange()
   bool playerDead = false;    // see killPlayer()
+  bool playerAbducted = false; // see abductPlayer()
+  glm::vec3 abductPoint = glm::vec3(0.0f);
   glm::vec3 viewer = glm::vec3(0.0f); // where the camera is (things may look at it)
 
   explicit GameStage(FloorMode mode) : Stage(mode) {}
@@ -96,6 +98,23 @@ public:
   // made again (the reset command).
   void killPlayer() { playerDead = true; }
   bool isPlayerDead() const { return playerDead; }
+  // The player is taken (Bob caught him): the same end as dying (isPlayerDead), but the main loop
+  // shows it differently: he rises in the beam of light towards `into` (the ship's hatch) while
+  // the screen goes white, then black
+  void abductPlayer(const glm::vec3 &into) {
+    playerDead = true;
+    playerAbducted = true;
+    abductPoint = into;
+  }
+  bool isPlayerAbducted() const { return playerAbducted; }
+  // The player can't move or look (paralysed by Bob's ray, held by Bob): the main loop stops the
+  // controller (nothing by default)
+  virtual bool playerImmobilized() const { return false; }
+  // How paralysed he is (0 = not .. 1 = just hit), for the yellow tint of the screen
+  virtual float playerParalysis() const { return 0.0f; }
+  // Bob holds him: how near he is to getting free (0..1), or < 0 if nobody holds him
+  virtual float struggleProgress() const { return -1.0f; }
+  const glm::vec3 &getAbductPoint() const { return abductPoint; }
   // The main loop tells the map where the camera is, every frame
   void setViewer(const glm::vec3 &position) { viewer = position; }
   const Environment &getEnvironment() const { return environment; }
@@ -119,6 +138,8 @@ public:
   // The camera key was pressed: a map with a vehicle the player is driving
   // changes the point of view (inside it / from behind)
   virtual void toggleVehicleCamera() {}
+  // The ship-legs key (Q): flying Bob's ship, its landing legs go in or out
+  virtual void toggleShipLegs() {}
   // The engine key was pressed: a map with a vehicle the player is driving switches its
   // engine on or off
   virtual void toggleEngine() {}

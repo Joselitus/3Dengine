@@ -20,6 +20,7 @@
 #include "TextFormat.h"
 #include "DebugSelector.h"
 #include "DeathOverlay.h"
+#include "StruggleOverlay.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
 #include "GameObject.h"
@@ -503,7 +504,15 @@ int main(int argc, char **argv) {
   // The player's death: the screen goes red (the camera falls: see the main loop)
   DeathOverlay deathOverlay;
   ui.addOverlay(&deathOverlay);
+  // Paralysed by Bob's ray: the screen goes yellow for a while (the same kind of tint)
+  DeathOverlay paralysisOverlay;
+  paralysisOverlay.setColor(vec3(1.0f, 0.9f, 0.15f));
+  ui.addOverlay(&paralysisOverlay);
+  // Held by Bob: which key to hammer to get free, and how near he is
+  StruggleOverlay struggleOverlay([&controls]() { return controls.keyName(Action::LeaveVehicle); });
+  ui.addOverlay(&struggleOverlay);
   double deathTime = -1.0;       // seconds since he died (-1: alive)
+  vec3 abductFrom = vec3(0.0f);  // (abducted) where the camera was when Bob took him
   float deathStartPitch = 0.0f;  // where the camera was looking when it happened
   float deathEyeHeight = 1.6f;   // ...how high it was above his feet
   float deathAngle = 0.0f, deathSpeed = 0.0f; // the fall: how far over it is and how fast it tips (radians)
@@ -685,6 +694,10 @@ int main(int argc, char **argv) {
   ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },
              [&]() { stage->toggleVehicleCamera(); });
 
+  // Ship-legs key: flying Bob's ship, its legs go in or out
+  ui.bindKey([&controls]() { return controls.key(Action::ShipLegs); },
+             [&]() { stage->toggleShipLegs(); });
+
   // The command console (key T): the commands it knows, and what has been
   // typed in it (kept while the game runs)
   Commands commands;
@@ -764,7 +777,9 @@ int main(int argc, char **argv) {
     if (stage->takePlayerChange())
       controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                         stage->getCameraHeight(), stage->getCameraYaw());
-    controller.setEnabled(!ui.hasPanels() && !stage->isPlayerDead());
+    controller.setEnabled(!ui.hasPanels() && !stage->isPlayerDead() && !stage->playerImmobilized());
+    paralysisOverlay.setAmount(0.35f * stage->playerParalysis() * (0.8f + 0.2f * (float)std::sin(now * 9.0)));
+    struggleOverlay.setProgress(stage->struggleProgress());
     // In the debug placement mode, the right button turns the selected object
     // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
@@ -780,7 +795,32 @@ int main(int argc, char **argv) {
     // The player is dead: the camera falls over backwards like an inverted pendulum (the eyes at the
     // top of a rod standing on his feet, tipping over: slow at first, then faster and faster) and
     // ends lying on the ground looking up at the sky, with a little roll; the screen goes red
-    if (stage->isPlayerDead()) {
+    if (stage->isPlayerDead() && stage->isPlayerAbducted()) {
+      // Abducted (Bob caught him): he floats up in the ship's beam towards its hatch, turning
+      // slowly and looking up into the light; the screen goes white, then black
+      const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f;
+      if (deathTime < 0.0) {
+        deathTime = 0.0;
+        abductFrom = camera.getPosition();
+        deathStartPitch = camera.getPitch();
+      }
+      deathTime += dt;
+      float t = glm::min((float)deathTime / RISE_TIME, 1.0f);
+      vec3 into = stage->getAbductPoint() - vec3(0.0f, 0.4f, 0.0f);
+      vec3 eye = glm::mix(abductFrom, into, t * t * (3.0f - 2.0f * t));
+      camera.reposition(eye.x, eye.y, eye.z);
+      camera.setAngles(camera.getYaw() + 0.5f * (float)dt, glm::mix(deathStartPitch, -1.3f, glm::min(t * 2.0f, 1.0f)));
+      camera.setCarrier(mat3(1.0f));
+      float time = (float)deathTime;
+      if (time < BLACK_FROM) {
+        deathOverlay.setColor(vec3(0.85f, 0.95f, 1.0f));
+        deathOverlay.setAmount(0.85f * glm::clamp((time - WHITE_FROM) / (BLACK_FROM - WHITE_FROM), 0.0f, 1.0f));
+      } else {
+        deathOverlay.setColor(vec3(0.0f));
+        deathOverlay.setAmount(glm::min((time - BLACK_FROM) / BLACK_TIME, 1.0f));
+      }
+    } else if (stage->isPlayerDead()) {
+      deathOverlay.setColor(vec3(0.7f, 0.0f, 0.02f));
       const float G = 9.81f, FALL_BOUNCE = 0.3f, LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
       const float START_ANGLE = 0.04f, START_SPEED = 0.3f; // (the blow that starts it)
       const float HALF_TURN = 1.5707963f;

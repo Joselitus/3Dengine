@@ -21,6 +21,8 @@ It can be launched from any directory: at startup it moves to `src/` (found next
 
 Controls: mouse looks around, WASD walks (the floor keeps you on the dunes; in the RV, W/S drive and A/D steer; Left Shift gets out of the RV; keys can be changed in Options > Controls), E uses the object in front (the satellite: its panel sets azimuth and zenith; Pingu, an NPC who talks to you out loud with subtitles; a sign you can read), Esc closes a panel, or opens the pause menu (Resume; Options: Camera — mouse sensitivity and field of view —, Controls — rebind the keys — and Audio — master volume —, each with Save/Exit; Exit, or the X key, quits). Saved options go to `~/.config/3dengine/settings.cfg`. Z opens the debug map selector.
 
+In the two forest maps ("Bosque" and "Bosque de pinos"), at night, a flying saucer lands and **Bob**, a grey alien with glowing white eyes, comes out of it. Keep away from him on foot: his eyes shoot a yellow ray that paralyses you, and if he catches you paralysed he takes you to his ship; if he catches you otherwise, hammer Left Shift to break free (he falls over). The ramp of the landed saucer comes down when Bob is near it: then you can get in (E) and fly it (R starts the engine, WASD moves, Space goes up, Left Shift goes down, Q draws the legs in or out; Left Shift gets you out only when it stands on its legs). At dawn Bob goes back aboard and the saucer flies away.
+
 ## View a scene without running the game
 
 The viewer shows maps written as `.scene` files (the night desert, `assets/scenes/desert.scene`); maps built in code (the day desert) are not shown.

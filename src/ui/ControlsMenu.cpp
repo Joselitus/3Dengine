@@ -70,7 +70,7 @@ void ControlsMenu::resetToDefaults() {
 }
 
 string ControlsMenu::hint() const {
-  return "Clic en una acción: cambia su tecla.";
+  return "Clic en una acción: cambia su tecla. Esc: menú / atrás.";
 }
 
 bool ControlsMenu::onKey(int key) {

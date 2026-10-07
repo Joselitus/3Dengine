@@ -18,6 +18,7 @@ Controls::Controls() {
   bind(Action::VehicleCamera, GLFW_KEY_C);
   bind(Action::Engine, GLFW_KEY_R);
   bind(Action::Handbrake, GLFW_KEY_SPACE);
+  bind(Action::ShipLegs, GLFW_KEY_Q);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
   bind(Action::DebugSelect, GLFW_KEY_1);
@@ -33,11 +34,12 @@ const char *Controls::describe(Action action) {
   case Action::MoveLeft: return "Izquierda";
   case Action::MoveRight: return "Derecha";
   case Action::Use: return "Usar objeto / hablar / cerrar";
-  case Action::LeaveVehicle: return "Correr / bajar del vehiculo";
+  case Action::LeaveVehicle: return "Correr / bajar / soltarse";
   case Action::Headlights: return "Linterna / luces del vehiculo";
   case Action::VehicleCamera: return "Camara del vehiculo (conduciendo)";
   case Action::Engine: return "Motor del vehiculo (conduciendo)";
-  case Action::Handbrake: return "Freno de mano (conduciendo)";
+  case Action::Handbrake: return "Freno de mano / subir (nave)";
+  case Action::ShipLegs: return "Patas de la nave (volando)";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::DebugSelect: return "Modo seleccion de objetos (debug)";
@@ -61,6 +63,7 @@ const char *Controls::id(Action action) {
   case Action::VehicleCamera: return "vehicle_camera";
   case Action::Engine: return "engine";
   case Action::Handbrake: return "handbrake";
+  case Action::ShipLegs: return "ship_legs";
   case Action::Quit: return "quit";
   case Action::Maps: return "maps";
   case Action::DebugSelect: return "debug_select";
@@ -131,7 +134,8 @@ const char *Controls::group(Action action) {
   case Action::Headlights:
   case Action::VehicleCamera:
   case Action::Engine:
-  case Action::Handbrake: return "Acciones";
+  case Action::Handbrake:
+  case Action::ShipLegs: return "Acciones";
   case Action::Quit:
   case Action::Maps:
   case Action::DebugSelect:
@@ -169,8 +173,8 @@ string Controls::keyName(int key) {
 }
 
 const vector<Controls::Fixed> &Controls::fixedControls() {
-  static const vector<Fixed> fixed = {
-      {"Menus", "Menu de pausa / atras / cerrar panel", "Esc"},
-  };
+  // (Esc, the menu / back key, is told in the Controls screen's hint line instead: with a row of
+  // its own the screen no longer fits in 600 pixels)
+  static const vector<Fixed> fixed = {};
   return fixed;
 }

@@ -22,9 +22,40 @@ void VehicleStage::enterRV() {
   setPlayer(rv, CAR_CAMERA_DISTANCE, CAR_CAMERA_HEIGHT, rv->headingYaw());
 }
 
-void VehicleStage::leaveVehicle() {
-  if (!inVehicle)
+void VehicleStage::enterSaucer() {
+  if (inVehicle || inSaucer || !alien.saucer)
     return;
+  inSaucer = true;
+  walker->control(vec2(0.0f), 0.0f, 0.0f);
+  walker->setVelocity(vec3(0.0f));
+  walker->setGravity(0.0f);
+  walker->setCollidable(false);
+  walker->setVisible(false);
+  alien.saucer->setPiloted(true);
+  vec3 to = alien.saucer->getPosition() - walker->getPosition();
+  setPlayer(alien.saucer, Saucer::CAMERA_DISTANCE, Saucer::CAMERA_HEIGHT, std::atan2(to.x, -to.z));
+}
+
+void VehicleStage::leaveVehicle() {
+  if (inSaucer) {
+    if (!alien.saucer->canDisembark())
+      return; // (in the air, or on its belly: the key brings it down)
+    inSaucer = false;
+    alien.saucer->setPiloted(false);
+    vec3 foot = alien.saucer->rampFoot();
+    walker->setPosition(foot.x, groundAt(foot.x, foot.z), foot.z);
+    walker->setVelocity(vec3(0.0f));
+    walker->setGravity(25.0f);
+    walker->setCollidable(true);
+    vec3 away = foot - alien.saucer->getPosition();
+    setPlayer(walker, 0.0f, EYE_HEIGHT, std::atan2(away.x, -away.z)); // (looking away from it)
+    return;
+  }
+  if (!inVehicle) {
+    if (alien.bob)
+      alien.bob->struggleOnce(); // (held by Bob: he fights to get free)
+    return;
+  }
   inVehicle = false;
   rv->control(vec2(0.0f), 0.0f, 0.0f); // the RV stops being driven
   rv->setOccupied(false);
@@ -38,8 +69,10 @@ void VehicleStage::leaveVehicle() {
 }
 
 void VehicleStage::apply(DynamicGameObject &object, double dt) {
-  if (inVehicle && &object == walker.get()) {
-    vec3 seat = rv->seatPosition();
+  if (&object == walker.get())
+    paralysis = std::max(0.0f, paralysis - (float)dt); // (it wears off)
+  if ((inVehicle || inSaucer) && &object == walker.get()) {
+    vec3 seat = inSaucer ? alien.saucer->hatch() : rv->seatPosition();
     object.setPosition(seat.x, seat.y, seat.z);
     object.setVelocity(vec3(0.0f));
     return;
@@ -48,6 +81,8 @@ void VehicleStage::apply(DynamicGameObject &object, double dt) {
 }
 
 void VehicleStage::toggleHeadlights() {
+  if (inSaucer)
+    return;
   if (inVehicle)
     rv->toggleHeadlights();
   else
@@ -57,6 +92,23 @@ void VehicleStage::toggleHeadlights() {
 void VehicleStage::toggleEngine() {
   if (inVehicle)
     rv->toggleEngine();
+  else if (inSaucer)
+    alien.saucer->toggleEngine();
+}
+
+void VehicleStage::toggleShipLegs() {
+  if (inSaucer)
+    alien.saucer->toggleLegs();
+}
+
+bool VehicleStage::playerImmobilized() const {
+  return paralysis > 0.0f || (alien.bob && alien.bob->isHolding());
+}
+
+float VehicleStage::playerParalysis() const { return std::min(1.0f, paralysis / Bob::PARALYSIS_TIME); }
+
+float VehicleStage::struggleProgress() const {
+  return alien.bob ? alien.bob->struggleProgress() : -1.0f;
 }
 
 void VehicleStage::toggleHandbrake() {
@@ -70,8 +122,12 @@ void VehicleStage::toggleVehicleCamera() {
 }
 
 void VehicleStage::getSpotLights(std::vector<SpotLight> &lights) const {
-  if (!inVehicle)
+  if (!inVehicle && !inSaucer)
     walker->getFlashlight(lights); // (first: the shader may not have room for all)
+  if (alien.saucer)
+    alien.saucer->getLights(lights); // (Bob's ship: its beam)
+  if (alien.bob)
+    alien.bob->getLight(lights);     // (his ray)
   rv->getHeadlights(lights);
   rv->getDashboardLights(lights);
   for (const auto &c : creatures)
@@ -200,4 +256,14 @@ void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech,
   creature->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
   addDynamic(creature);
   creatures.push_back(creature);
+}
+
+void VehicleStage::createAlienVisit(const vec3 &landing, float rampYaw) {
+  alien = AlienVisit::create(
+      *this, landing, rampYaw, [this]() { return environment.sunDir.y < 0.0f; },
+      [this]() { return player->getPosition(); }, [this]() { return inVehicle || inSaucer; },
+      [this]() { return isPlayerDead(); }, [this](const vec3 &into) { abductPlayer(into); },
+      [this](float seconds) { paralysis = std::max(paralysis, seconds); },
+      [this]() { return paralysis > 0.0f; }, [this]() { enterSaucer(); });
+  interactables.push_back(alien.saucer.get()); // (its ramp: get in)
 }

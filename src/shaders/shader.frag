@@ -222,7 +222,8 @@ void main() {
 		return;
 	}
 	if (unlit == 2) {
-		FragColor = vec4(useColor == 1 ? diffuseColor : texture(texture_diffuse1, TexCoord).rgb, 1.0);
+		// (a translucent glowing mesh, like a beam of light, keeps its opacity)
+		FragColor = vec4(useColor == 1 ? diffuseColor : texture(texture_diffuse1, TexCoord).rgb, alpha);
 		return;
 	}
 	if (unlit == 1) {
