@@ -52,7 +52,8 @@ class RV;
 //    its legs reaching for it and bursts the tyre when it gets within TIRE_REACH
 //    (RV::punctureTire: the vehicle pulls towards that side), then leaves (Retreat). It gives
 //    up after TIRE_TIMEOUT.
-//  Priority: attacking the player (at dawn and dusk) > the tyres > the fuel > water.
+//  Priority: laying its eggs (an adult with blood that senses water: nothing interrupts it) >
+//  attacking the player (at dawn and dusk) > the tyres > the fuel > roaming.
 //  - Dead: it falls, rolls onto its back and lies there with its legs curled up, silent (it stays
 //    in the stage as a GameObject). A blow that changes its velocity by more than
 //    DEATH_SPEED_CHANGE kills it (not its own flight stopped against something).
@@ -71,8 +72,8 @@ class RV;
 // laying, and its bites do not kill).
 //
 // Its stomach: the fuel it sucks fills it (STOMACH_CAPACITY of a tank fills it up) and its abdomen
-// (a part of its own) swells with it; full, it leaves, and it digests it in DIGEST_TIME. It goes for
-// fuel again only once it is below STOMACH_HUNGRY.
+// (a part of its own) swells with it; full, it leaves. It does not digest fuel: full, it stays full
+// (and dives at the player as a bomb: KAMIKAZE_FUEL) until it blows up.
 //
 // Bursting a tyre blows it up (explode): its legs, wings and body fly apart and fall (debris with
 // their own physics), its abdomen bursts in a splash, there is a ball of fire and smoke (three
@@ -181,12 +182,9 @@ public:
   // young, it flutters within JUVENILE_ROAM (m) of where it was born
   static constexpr float BABY_SCALE = 0.05f;
   static constexpr float JUVENILE_ROAM = 8.0f;
-  // The stomach: a full one holds this share of a tank; it is hungry again below STOMACH_HUNGRY
-  // (of full) and empties in DIGEST_TIME (s). Full, the abdomen is (1 + ABDOMEN_SWELL_*) times as
+  // The stomach: a full one holds this share of a tank (it never empties). Full, the abdomen is (1 + ABDOMEN_SWELL_*) times as
   // thick and long, about where it joins the thorax (generate_mosquito.py, ABDOMEN_PIVOT)
   static constexpr float STOMACH_CAPACITY = 0.25f;
-  static constexpr float STOMACH_HUNGRY = 0.3f;
-  static constexpr float DIGEST_TIME = 180.0f;
   static constexpr float ABDOMEN_SWELL_XY = 0.9f, ABDOMEN_SWELL_Z = 0.35f;
   static constexpr float ABDOMEN_PIVOT_Y = -0.05f, ABDOMEN_PIVOT_Z = -0.30f;
   // The explosion: how long the flash lasts (s), how far it lights (m), how hard the pieces fly

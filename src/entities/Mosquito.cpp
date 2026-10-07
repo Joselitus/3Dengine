@@ -255,8 +255,8 @@ bool Mosquito::isAttackTime() const {
 bool Mosquito::wantsFuel() const {
   if (!vehicle || vehicle->getFuel() <= 0.0f || !targetPosition || !isGrown())
     return false;
-  // (full, it leaves; it comes back once it is hungry again)
-  if (stomach >= (behavior == Behavior::Siphon ? 1.0f : STOMACH_HUNGRY))
+  // (full, it leaves for good: it does not digest fuel; if it was sent off half full it comes back)
+  if (stomach >= 1.0f)
     return false;
   if (playerInVehicle && playerInVehicle())
     return false;
@@ -352,9 +352,7 @@ void Mosquito::update(double dt) {
   // what to do
   bool grown = isGrown(); // (a young one only flutters about)
   bool hunts = grown && targetPosition && !dead && attack && distance < DETECT_RANGE;
-  bool fuel = wantsFuel();
-  if (!sucking) // it digests what it sucked
-    stomach = std::max(0.0f, stomach - dtf / DIGEST_TIME);
+  bool fuel = wantsFuel(); // (fuel is not digested: once full it stays full, a bomb)
   // a young one wants blood: it bites the player on foot, at any hour
   feedCooldown = std::max(0.0f, feedCooldown - dtf);
   bool feeds = !grown && targetPosition && !dead && !inVehicle && distance < YOUNG_DETECT &&
@@ -365,8 +363,22 @@ void Mosquito::update(double dt) {
     updateBite(dt);
     return;
   }
+  // Laying its eggs comes first: an adult with blood that senses water goes to it, whatever it
+  // was doing (a dive or a go at a tyre, a couple of seconds, it finishes first), and nothing
+  // stops it while it goes and lays
+  bool laying = behavior == Behavior::ToWater || behavior == Behavior::Lay;
+  if (grown && blood >= BLOOD_TO_LAY && !laying && behavior != Behavior::Dive &&
+      behavior != Behavior::TireAttack) {
+    int found = senseWater();
+    if (found >= 0) {
+      water = found;
+      enterBehavior(Behavior::ToWater);
+      laying = true;
+    }
+  }
   // the tyres: now and then, while the player drives near it
-  if (grown && vehicle && inVehicle && length(vehicle->getPosition() - position) < TIRE_SENSE) {
+  if (grown && !laying && vehicle && inVehicle &&
+      length(vehicle->getPosition() - position) < TIRE_SENSE) {
     if ((tireCheck -= dtf) <= 0.0f) {
       tireCheck = TIRE_CHECK_INTERVAL;
       if (behavior != Behavior::Dive && behavior != Behavior::TireAttack &&
@@ -388,17 +400,11 @@ void Mosquito::update(double dt) {
       enterBehavior(Behavior::Stalk);
     } else if (fuel) {
       enterBehavior(Behavior::Siphon);
-    } else if (grown && blood >= BLOOD_TO_LAY && (water = senseWater()) >= 0) {
-      enterBehavior(Behavior::ToWater);
     }
     break;
   case Behavior::ToWater: {
     vec3 spot = waterSpots[water];
-    if (hunts)
-      enterBehavior(Behavior::Stalk);
-    else if (fuel)
-      enterBehavior(Behavior::Siphon);
-    else if (length(vec2(spot.x - position.x, spot.z - position.z)) < 1.0f)
+    if (length(vec2(spot.x - position.x, spot.z - position.z)) < 1.0f)
       enterBehavior(Behavior::Lay);
     break;
   }
@@ -438,11 +444,7 @@ void Mosquito::update(double dt) {
     }
     break;
   case Behavior::Lay:
-    if (hunts) {
-      enterBehavior(Behavior::Stalk);
-    } else if (fuel) {
-      enterBehavior(Behavior::Siphon);
-    } else if (stateTime > LAY_TIME) {
+    if (stateTime > LAY_TIME) {
       waterCooldown[water] = LAY_COOLDOWN;
       blood = 0.0f; // (the eggs took it)
       enterBehavior(Behavior::Wander);
