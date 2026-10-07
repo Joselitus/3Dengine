@@ -117,9 +117,9 @@ public:
   static constexpr float SIPHON_RATE = 0.01f;
   static constexpr float SIPHON_REACH = 0.8f;
   // The tyres: how often (s) it thinks of going for one while the player drives, the chance each
-  // time (5 %), how near it must get to the wheel's hub (m) and when it gives up (s)
+  // time (50 % for now; it was 5 %), how near it must get to the wheel's hub (m) and when it gives up (s)
   static constexpr float TIRE_CHECK_INTERVAL = 10.0f;
-  static constexpr float TIRE_ATTACK_CHANCE = 0.05f;
+  static constexpr float TIRE_ATTACK_CHANCE = 0.5f;
   static constexpr float TIRE_REACH = 2.8f;
   static constexpr float TIRE_TIMEOUT = 8.0f;
   static constexpr float TIRE_SENSE = 60.0f; // the vehicle must be this near (m) to try

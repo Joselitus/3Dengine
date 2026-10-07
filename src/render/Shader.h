@@ -24,6 +24,7 @@ public:
     void setBool(const char * name, bool value);  
     void setInt(const char * name, int value);   
     void setFloat(const char * name, float value);
+    void setVector2(const char * name, float x, float y);
     void setVector3(const char * name, float x, float y, float z);
     void setMatrix4(const char * name, float * matrix);
 };

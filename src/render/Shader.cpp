@@ -20,6 +20,10 @@ void Shader::setFloat(const char * name, float value) {
 	glUniform1f(glGetUniformLocation(this->ID, name), value);
 }
 
+void Shader::setVector2(const char * name, float x, float y) {
+	glUniform2f(glGetUniformLocation(this->ID, name), x, y);
+}
+
 void Shader::setVector3(const char * name, float x, float y, float z) {
 	glUniform3f(glGetUniformLocation(this->ID, name), x, y, z);
 }

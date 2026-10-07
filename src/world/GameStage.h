@@ -22,6 +22,19 @@ struct Environment {
   glm::vec3 skyZenith = glm::vec3(0.2f, 0.4f, 0.8f);
   glm::vec3 sunDir = glm::vec3(0.0f, 1.0f, 0.0f);
   float starAlpha = 0.0f;
+  // The procedural sky paints dunes along the horizon (the desert); off for other landscapes
+  bool skyDunes = true;
+  // A canopy: an invisible mask of leaves above the map that shades the light of the sun (or of
+  // whatever lights the map from far away). Each point is lit as much as the mask lets through
+  // where the ray from it towards the light crosses the canopy's planes, at the heights
+  // canopyHeights (one per channel of the texture, R G B: so a tall crown casts a long shadow).
+  // The texture (GL; 0 = no canopy) covers the square from canopyMin, canopySize metres a side;
+  // 255 = open, 0 = leaves. canopyStrength: how dark the leaves make it (0..1).
+  unsigned int canopyMask = 0;
+  glm::vec2 canopyMin = glm::vec2(0.0f);
+  float canopySize = 1.0f;
+  glm::vec3 canopyHeights = glm::vec3(0.0f);
+  float canopyStrength = 0.85f;
 };
 
 // A playable map: a Stage that also knows everything the game needs to run

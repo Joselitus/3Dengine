@@ -35,6 +35,18 @@ uniform vec3 spotDirection[MAX_SPOTS];
 uniform vec3 spotColor[MAX_SPOTS];
 uniform vec3 spotParams[MAX_SPOTS];
 
+// The procedural sky draws dunes along the horizon (1) or not (0)
+uniform int skyDunes;
+// A canopy of leaves above the map (see Environment::canopyMask): 0 = none. The mask's channels
+// R, G and B are its planes at canopyHeights.x, .y and .z (1 = open sky, 0 = leaves); it covers the
+// square from canopyMin, canopySize a side
+uniform int canopyOn;
+uniform sampler2D canopyMask;
+uniform vec2 canopyMin;
+uniform float canopySize;
+uniform vec3 canopyHeights;
+uniform float canopyStrength;
+
 // 1 = use diffuseColor instead of texture_diffuse1 (untextured materials)
 uniform int useColor;
 // Opacity of the mesh being drawn (1 = solid); less than 1 is blended
@@ -131,6 +143,26 @@ vec3 dunes(vec3 c, vec3 dir) {
 	return c;
 }
 
+// How much of the far light reaches the point p through the canopy (1 = all): the ray from p
+// towards the light crosses each of its planes, and each one lets through what its mask says
+float canopyLight(vec3 p, vec3 toLight) {
+	if (canopyOn == 0)
+		return 1.0;
+	vec3 l = toLight;
+	l.y = max(l.y, 0.08); // (with the light low, the shadows stretch, but not for ever)
+	float through = 1.0;
+	for (int i = 0; i < 3; i++) {
+		float t = (canopyHeights[i] - p.y) / l.y;
+		if (t <= 0.0)
+			continue; // the point is above this plane
+		vec2 uv = ((p + l * t).xz - canopyMin) / canopySize;
+		if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0)
+			continue; // beyond the canopy: open sky
+		through *= texture(canopyMask, uv)[i];
+	}
+	return mix(1.0, through, canopyStrength);
+}
+
 void main() {
 	if (unlit == 3) {
 		vec3 dir = normalize(frag_p - viewPosition);
@@ -146,7 +178,8 @@ void main() {
 		             pow(max(sunCos, 0.0), 400.0) * 0.6) * sunVisible;
 		c = mix(c, vec3(1.0, 0.97, 0.88), smoothstep(0.99955, 0.99975, sunCos) * above);
 		c += vec3(0.9, 0.95, 1.0) * stars(dir) * starAlpha * above;
-		c = dunes(c, dir); // over the sun and the stars: they set behind them
+		if (skyDunes == 1)
+			c = dunes(c, dir); // over the sun and the stars: they set behind them
 		FragColor = vec4(c, 1.0);
 		return;
 	}
@@ -175,7 +208,8 @@ void main() {
 	float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128);
 	vec3 specular = specularStrength * spec * lightColor;
 	float diff = max(dot(norm, lightdir), 0.0);
-	vec3 diffuse = diff * lightColor;
+	float leaves = canopyLight(frag_p, lightdir); // (the shadows of a canopy, if there is one)
+	vec3 diffuse = diff * lightColor * leaves;
 	vec3 ambient = ambientStrength*lightColor;
 	// (a texture with transparency, e.g. cracked glass, makes the mesh as transparent as it
 	// is, on top of the material's own opacity: it only shows for a translucent mesh)
@@ -195,7 +229,7 @@ void main() {
 		float ss = pow(max(dot(viewDir, reflect(-l, norm)), 0.0), 64);
 		spots += k * (sd + specularStrength * ss) * spotColor[i];
 	}
-	vec3 lit = base*(ambient+diffuse+specular+spots);
+	vec3 lit = base*(ambient+diffuse+specular*leaves+spots);
 	float fog = smoothstep(80.0, 140.0, distance(frag_p, viewPosition));
 	FragColor = vec4(mix(lit, fogColor, fog), outAlpha);
 }

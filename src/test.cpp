@@ -32,6 +32,7 @@
 #include "Satellite.h"
 #include "Model.h"
 #include "FollaCulos.h"
+#include "ForestStage.h"
 #include "Mosquito.h"
 #include "MosquitoEgg.h"
 #include "Pingu.h"
@@ -643,6 +644,7 @@ int main(int argc, char **argv) {
   FloorMode floorMode = FloorMode::HeightField; // pass --ray for DownwardRay
   float startHour = -1.0f;   // --time H: hour a map starts at (default: its own)
   float dayDuration = -1.0f; // --day-duration S: seconds per day (0 = stopped)
+  std::string startMap;      // --map N|NAME: the map to start in (number in the list from 0, or name)
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
@@ -652,6 +654,8 @@ int main(int argc, char **argv) {
       startHour = (float)atof(argv[++i]);
     else if (std::string(argv[i]) == "--day-duration" && i + 1 < argc)
       dayDuration = (float)atof(argv[++i]);
+    else if (std::string(argv[i]) == "--map" && i + 1 < argc)
+      startMap = argv[++i];
   if (!enterSourceDir())
     fprintf(stderr, "Could not find src/, using the current directory\n");
 
@@ -726,10 +730,17 @@ int main(int argc, char **argv) {
          return SceneStage::load("../assets/scenes/desert.scene",
                                  "../assets", floorMode);
        }},
+      {"Bosque",
+       [floorMode, &sound]() {
+         return std::unique_ptr<GameStage>(new ForestStage(floorMode, sound));
+       }},
   };
   std::unique_ptr<GameStage> stage;
   int currentMap = -1;
   int requestedMap = 0; // switched to at a safe point of the main loop
+  for (size_t i = 0; i < maps.size() && !startMap.empty(); i++)
+    if (startMap == maps[i].name || startMap == std::to_string(i))
+      requestedMap = (int)i;
   bool resetRequested = false; // start the current map again, there too
 
   // Hands the map's light and sky colours to the shader (they change with
@@ -755,6 +766,8 @@ int main(int argc, char **argv) {
     }
   };
 
+  // The texture unit of a canopy's mask (Environment::canopyMask): far from the models' (0, 1...)
+  const int CANOPY_TEXTURE_UNIT = 7;
   auto applyEnvironment = [&]() {
     const Environment &env = stage->getEnvironment();
     vec3 lightPosition = env.lightDir * 100.0f; // only its direction is used
@@ -766,6 +779,19 @@ int main(int argc, char **argv) {
     shader.setVector3("skyZenith", env.skyZenith.r, env.skyZenith.g, env.skyZenith.b);
     shader.setVector3("sunDir", env.sunDir.x, env.sunDir.y, env.sunDir.z);
     shader.setFloat("starAlpha", env.starAlpha);
+    shader.setInt("skyDunes", env.skyDunes ? 1 : 0);
+    // the canopy's mask (a forest) on a texture unit of its own, past the models' ones
+    shader.setInt("canopyOn", env.canopyMask ? 1 : 0);
+    shader.setInt("canopyMask", CANOPY_TEXTURE_UNIT);
+    glActiveTexture(GL_TEXTURE0 + CANOPY_TEXTURE_UNIT);
+    glBindTexture(GL_TEXTURE_2D, env.canopyMask);
+    glActiveTexture(GL_TEXTURE0);
+    if (env.canopyMask) {
+      shader.setVector2("canopyMin", env.canopyMin.x, env.canopyMin.y);
+      shader.setFloat("canopySize", env.canopySize);
+      shader.setVector3("canopyHeights", env.canopyHeights.x, env.canopyHeights.y, env.canopyHeights.z);
+      shader.setFloat("canopyStrength", env.canopyStrength);
+    }
   };
 
   // Replaces the current map: nothing may still point into the old one (its
