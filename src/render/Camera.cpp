@@ -35,7 +35,7 @@ void Camera::resize() {
 void Camera::setFov(float degrees) {
 	this->fov = degrees;
 	float aspect = this->screenHeight > 0 ? (float)this->screenWidth / this->screenHeight : 1.0f;
-	this->projection = perspective(radians(degrees), aspect, 0.1f, 300.0f);
+	this->projection = perspective(radians(degrees), aspect, 0.1f, farPlane);
 	this->update();
 }
 

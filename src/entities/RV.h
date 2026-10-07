@@ -109,6 +109,7 @@ private:
   float keyTurn = 0.0f;    // 0 = ignition off .. 1 = on
   float speedShown = 0.0f; // what the needles show now, 0..1 of their scales
   float fuelShown = 0.0f;
+  float fuelPerMeter = 1.0f / 12000.0f; // see setFuelPerMeter
   float fuel = 0.75f;      // fuel level, 0..1: driving burns it (FUEL_PER_METER), empty = no engine
 
   // the engine: its speed (rpm) and its sound (see setEngineSound)
@@ -246,6 +247,8 @@ public:
   void repairTires();
   // The middle of wheel i (its hub) in the world
   glm::vec3 wheelHub(int wheel) const;
+  // How much of the tank a metre costs (default 1/12000: a full tank is 12 km)
+  void setFuelPerMeter(float amount) { fuelPerMeter = amount; }
 
   CameraView getCameraView() const { return cameraView; }
   void setCameraView(CameraView view);

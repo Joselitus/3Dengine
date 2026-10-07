@@ -24,6 +24,7 @@ uniform vec3 fogColor;
 uniform vec3 skyZenith;
 uniform vec3 sunDir;
 uniform float starAlpha;
+uniform float forestHorizon; // 1: the procedural sky has a line of trees on the horizon, not dunes
 
 // Spot lights (e.g. the RV's headlights), on top of the directional light:
 // position, unit direction it points to, colour, and params = (cos of the
@@ -163,6 +164,41 @@ float canopyLight(vec3 p, vec3 toLight) {
 	return mix(1.0, through, canopyStrength);
 }
 
+// ---- A forest on the horizon of the procedural sky ----
+// Layers of conifer tops, one behind the other (far = lower and hazier): each
+// layer has trees of random heights, every tree a pointed triangle, painted by
+// azimuth. The cells are an integer number per turn, so there is no seam.
+float treeHeight(float az, float period, float seed, float base, float amp) {
+	float u = az / 6.2831853 * period;
+	float cell = floor(u);
+	float tri = 1.0 - abs(fract(u) * 2.0 - 1.0);
+	float tall = hash(vec2(mod(cell, period), seed));
+	float broad = duneNoise(az / 6.2831853 * 12.0, 12.0, seed + 5.0);
+	return base + amp * (0.35 + 0.65 * tall) * pow(tri, 0.9) + 0.012 * broad;
+}
+
+vec3 forest(vec3 c, vec3 dir) {
+	const vec3 GREEN = vec3(0.07, 0.17, 0.08);
+	float az = atan(dir.z, dir.x);
+	float e = dir.y;
+	float top = 0.3 + 0.9 * clamp(sunDir.y, 0.0, 1.0);
+	// far -> near: trees around the circle, seed, base, amplitude, haze
+	const int LAYERS = 3;
+	float period[LAYERS] = float[](420.0, 300.0, 210.0);
+	float seed[LAYERS]   = float[](21.0, 57.0, 93.0);
+	float base[LAYERS]   = float[](0.006, 0.003, 0.0);
+	float amp[LAYERS]    = float[](0.030, 0.034, 0.040);
+	float haze[LAYERS]   = float[](0.65, 0.42, 0.22);
+	for (int i = 0; i < LAYERS; i++) {
+		float h = treeHeight(az, period[i], seed[i], base[i], amp[i]);
+		vec3 col = GREEN * (0.55 + 0.45 * float(i + 1) / float(LAYERS)) * top * lightColor * 1.5;
+		col = mix(col, mix(fogColor, GREEN * top * lightColor, 0.35), haze[i]);
+		float cover = 1.0 - smoothstep(h - 0.0008, h + 0.0008, e);
+		c = mix(c, col, cover);
+	}
+	return c;
+}
+
 void main() {
 	if (unlit == 3) {
 		vec3 dir = normalize(frag_p - viewPosition);
@@ -178,7 +214,9 @@ void main() {
 		             pow(max(sunCos, 0.0), 400.0) * 0.6) * sunVisible;
 		c = mix(c, vec3(1.0, 0.97, 0.88), smoothstep(0.99955, 0.99975, sunCos) * above);
 		c += vec3(0.9, 0.95, 1.0) * stars(dir) * starAlpha * above;
-		if (skyDunes == 1)
+		if (forestHorizon > 0.5)
+			c = forest(c, dir);
+		else if (skyDunes == 1)
 			c = dunes(c, dir); // over the sun and the stars: they set behind them
 		FragColor = vec4(c, 1.0);
 		return;
@@ -214,6 +252,9 @@ void main() {
 	// (a texture with transparency, e.g. cracked glass, makes the mesh as transparent as it
 	// is, on top of the material's own opacity: it only shows for a translucent mesh)
 	vec4 texel = texture(texture_diffuse1, TexCoord);
+	// (a texture with holes, like a leaf card, cuts them out of an opaque mesh)
+	if (useColor == 0 && alpha >= 1.0 && texel.a < 0.35)
+		discard;
 	vec3 base = useColor == 1 ? diffuseColor : texel.rgb;
 	float outAlpha = alpha * (useColor == 1 ? 1.0 : texel.a);
 	vec3 spots = vec3(0.0);
@@ -230,6 +271,6 @@ void main() {
 		spots += k * (sd + specularStrength * ss) * spotColor[i];
 	}
 	vec3 lit = base*(ambient+diffuse+specular*leaves+spots);
-	float fog = smoothstep(80.0, 140.0, distance(frag_p, viewPosition));
-	FragColor = vec4(mix(lit, fogColor, fog), outAlpha);
+	// (no distance fog: the sky is only fogColor at the horizon)
+	FragColor = vec4(lit, outAlpha);
 }

@@ -118,18 +118,39 @@ void Stage::Draw(Shader *shader, double time) {
   shader->setFloat("breathTime", (float)time);
   // Is the object too close to the edge of the floor to be drawn?
   auto culled = [this](const GameObject &object) {
-    if (edgeCullMargin <= 0.0f || !floor_mesh || edgeCullExempt(object))
+    if (edgeCullExempt(object))
       return false;
     vec3 p = object.getPosition();
+    // too far from the camera to be seen (what is beyond is lost in the fog)
+    if (drawDistance > 0.0f) {
+      float dx = p.x - drawOrigin.x, dz = p.z - drawOrigin.z;
+      float reach = drawDistance + object.getCullRadius();
+      if (dx * dx + dz * dz > reach * reach)
+        return true;
+    }
+    if (edgeCullMargin <= 0.0f || !floor_mesh)
+      return false;
     return p.x < minX + edgeCullMargin || p.x > maxX - edgeCullMargin ||
            p.z < minZ + edgeCullMargin || p.z > maxZ - edgeCullMargin;
   };
+  // (an object with simpler models for the distance takes the one that suits it)
+  auto detail = [this](GameObject &object) {
+    if (!object.hasDetails())
+      return;
+    vec3 p = object.getPosition();
+    float dx = p.x - drawOrigin.x, dz = p.z - drawOrigin.z;
+    object.selectDetail(std::sqrt(dx * dx + dz * dz));
+  };
   for (auto &object : objects)
-    if (!culled(*object))
+    if (!culled(*object)) {
+      detail(*object);
       object->Draw(shader);
+    }
   for (auto &object : dynamicObjects)
-    if (!culled(*object))
+    if (!culled(*object)) {
+      detail(*object);
       object->Draw(shader);
+    }
   // translucent meshes (windows) last, over everything opaque
   for (auto &object : objects)
     if (!culled(*object))

@@ -16,6 +16,7 @@ Options:
                  (default assets/scenes/desert.scene)
   --port N       HTTP port (default 8000; 0 = any free port)
   --view V       orbit | top | player   initial camera
+  --hour H       time of day (0-24), for the maps with a day cycle
   --size WxH     size of the --shot image (default 1280x720)
 
 Only the standard library is needed. three.js is loaded from a CDN, so the
@@ -91,6 +92,7 @@ def main():
     parser.add_argument('--scene', default='assets/scenes/desert.scene')
     parser.add_argument('--port', type=int, default=8000)
     parser.add_argument('--view', choices=['orbit', 'top', 'player'], default='orbit')
+    parser.add_argument('--hour', type=float, default=None)
     parser.add_argument('--no-browser', action='store_true')
     parser.add_argument('--shot', metavar='PNG')
     parser.add_argument('--size', default='1280x720')
@@ -107,7 +109,10 @@ def main():
     server = http.server.ThreadingHTTPServer(
         ('127.0.0.1', args.port), functools.partial(Handler, directory=ROOT))
     port = server.server_address[1]
-    query = urllib.parse.urlencode({'scene': args.scene, 'view': args.view})
+    query = {'scene': args.scene, 'view': args.view}
+    if args.hour is not None:
+        query['hour'] = args.hour
+    query = urllib.parse.urlencode(query)
     url = f'http://127.0.0.1:{port}/tools/scene_viewer/index.html?{query}'
 
     if args.shot:

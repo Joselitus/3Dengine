@@ -13,6 +13,8 @@ static bool parseEffect(const string &name, Effect &effect) {
     effect = Effect::Emissive;
   else if (name == "breathe")
     effect = Effect::Breathe;
+  else if (name == "sway")
+    effect = Effect::Sway;
   else
     return false;
   return true;
@@ -67,6 +69,10 @@ bool SceneFile::load(const string &path) {
       ok = bool(fields >> dayDuration);
     else if (command == "sky")
       ok = bool(fields >> sky);
+    else if (command == "procedural_sky")
+      ok = bool(fields >> proceduralSky) &&
+           (proceduralSky == "dunes" || proceduralSky == "forest");
+
     else if (command == "floor")
       ok = bool(fields >> floor >> floorPosition.x >> floorPosition.y >>
                 floorPosition.z);

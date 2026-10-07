@@ -22,5 +22,6 @@ void GameStage::render(Shader *shader, const vec3 &cameraPosition,
     sky->Draw(shader);
     glEnable(GL_DEPTH_TEST);
   }
+  setDrawOrigin(cameraPosition);
   Draw(shader, time);
 }

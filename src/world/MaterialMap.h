@@ -14,7 +14,7 @@
 // It is described over the unit square: (u, v) = (0, 0) is the floor's
 // minimum x and z corner and (1, 1) the maximum; the Stage turns world
 // positions into that. In an image, a pixel's value is its material (0 sand,
-// 1 asphalt: the FloorMaterial numbers), the columns go along +x and the rows
+// 1 asphalt, 2 grass: the FloorMaterial numbers), the columns go along +x and the rows
 // along +z, so the first row is the minimum z edge.
 class MaterialMap {
 private:

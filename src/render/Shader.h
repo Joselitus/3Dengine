@@ -1,6 +1,9 @@
 #ifndef SHADER_H
 #define SHADER_H
 
+#include <string>
+#include <unordered_map>
+
 #include "myopengl.h"
   
 
@@ -12,6 +15,10 @@ class Shader
 private:
     // the program ID
     unsigned int ID;
+    // where each uniform is, asked to the driver only once (a lookup by name is slow, and a
+    // map of a few thousand objects asks for dozens of uniforms each)
+    std::unordered_map<std::string, int> locations;
+    int location(const char * name);
   
 public:
     // constructor reads and builds the shader

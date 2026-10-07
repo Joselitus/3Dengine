@@ -31,6 +31,7 @@ const char *materialName(FloorMaterial material) {
   switch (material) {
   case FloorMaterial::Sand: return "arena";
   case FloorMaterial::Asphalt: return "asfalto";
+  case FloorMaterial::Grass: return "hierba";
   case FloorMaterial::Count: break;
   }
   return "?";
@@ -402,6 +403,7 @@ void DebugSelector::draw(UIRenderer &renderer, float width,
                    ": salir, " + controls.keyName(Action::DebugPlace) +
                    ": colocar)");
     text.push_back("Clic izq.: objeto del centro   Clic der.: jugador");
+    text.push_back(textFormat("FPS: %.0f", fps));
   }
   if (!name.empty())
     text.push_back(name);

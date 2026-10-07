@@ -7,6 +7,7 @@
 // Query parameters:
 //   scene=<path from the repo root>   default assets/scenes/desert.scene
 //   view=orbit|top|player             initial camera
+//   hour=<0..24>                      time of day, for scenes with a procedural sky
 //   shot=1                            render once everything is loaded and
 //                                     POST the PNG to /__shot (serve.py --shot)
 
@@ -24,6 +25,12 @@ const ROOT = '../../';
 const SCENE_PATH = params.get('scene') || 'assets/scenes/desert.scene';
 const ASSETS = ROOT + 'assets/';
 const SHOT = params.has('shot');
+// The maps of the game the viewer can show (the scene files describe them)
+const SCENES = [
+  ['Desierto de día', 'assets/scenes/desert_day.scene'],
+  ['Bosque', 'assets/scenes/forest.scene'],
+  ['Desierto de noche', 'assets/scenes/desert.scene'],
+];
 
 // Same constants as the engine
 const FOV = 45;                  // Camera.cpp, perspective()
@@ -40,6 +47,7 @@ function parseScene(text, path) {
   const scene = {
     moon: new THREE.Vector3(0, 1, 0), light: new THREE.Vector3(1, 1, 1),
     fog: new THREE.Vector3(0, 0, 0), sky: '', player: '', floor: null,
+    proceduralSky: '', timeOfDay: 0, dayDuration: 0,
     playerPosition: new THREE.Vector3(), playerOnGround: false,
     cameraDistance: 4, cameraHeight: 0.8, objects: [],
   };
@@ -71,8 +79,14 @@ function parseScene(text, path) {
       case 'moon': scene.moon.fromArray(nums(0, 3)).normalize(); break;
       case 'light': scene.light.fromArray(nums(0, 3)); break;
       case 'fog': scene.fog.fromArray(nums(0, 3)); break;
-      case 'time_of_day': case 'day_duration': break; // the viewer has no clock
+      case 'time_of_day': scene.timeOfDay = nums(0, 1)[0]; break;
+      case 'day_duration': scene.dayDuration = nums(0, 1)[0]; break;
       case 'sky': scene.sky = str(0); break;
+      case 'procedural_sky':
+        scene.proceduralSky = str(0);
+        if (!['dunes', 'forest'].includes(scene.proceduralSky))
+          throw new Error(`${where}: wrong arguments for '${command}'`);
+        break;
       case 'floor':
         scene.floor = { model: str(0), position: new THREE.Vector3().fromArray(nums(1, 3)),
           yaw: 0, scale: 1, effect: 'lit', onGround: false, line: n + 1 };
@@ -90,7 +104,7 @@ function parseScene(text, path) {
         const { y, onGround } = height(2);
         const [z, yaw, scale] = nums(3, 3);
         const effect = args[6] || 'lit';
-        if (!['lit', 'emissive', 'breathe'].includes(effect))
+        if (!['lit', 'emissive', 'breathe', 'sway'].includes(effect))
           throw new Error(`${where}: unknown effect '${effect}'`);
         scene.objects.push({ model: str(0), position: new THREE.Vector3(x, y, z),
           onGround, yaw, scale, effect, line: n + 1 });
@@ -110,7 +124,11 @@ const globals = {
   fogColor: { value: new THREE.Vector3() },
   moonDir: { value: new THREE.Vector3() },
   time: { value: 0 },
-  fogOn: { value: 1 },
+  // the procedural sky (see updateClock)
+  skyZenith: { value: new THREE.Vector3() },
+  sunDir: { value: new THREE.Vector3(0, 1, 0) },
+  starAlpha: { value: 0 },
+  forestHorizon: { value: 0 },
 };
 
 // Port of src/shaders/animatedshader.vert. The skinning comes from three.js; the
@@ -120,6 +138,7 @@ const vertexShader = /* glsl */`
 #include <skinning_pars_vertex>
 uniform float breathAmp;
 uniform float breathTime;
+uniform float swayAmp;
 varying vec3 vNormal;
 varying vec3 vWorld;
 varying vec2 vUv;
@@ -138,6 +157,20 @@ vec3 breathe(vec3 p, vec3 n) {
   return p + breathAmp * d;
 }
 
+// Port of sway() in animatedshader.vert: wind on a tree
+vec3 sway(vec3 worldPos, vec3 local, float scale, vec3 objPos) {
+  float h = max(local.y, 0.0) * scale;
+  float r = length(local.xz) * scale;
+  float phase = objPos.x * 0.37 + objPos.z * 0.23;
+  float gust = sin(breathTime * 0.8 + phase) + 0.5 * sin(breathTime * 1.9 + phase * 1.7) + 0.35;
+  float bend = (h * h) / 196.0;
+  vec3 wind = normalize(vec3(1.0, 0.0, 0.35));
+  vec3 d = wind * (0.35 * gust * bend);
+  float flutter = sin(breathTime * 4.0 + dot(worldPos, vec3(1.3, 1.9, 0.7)) + phase);
+  d += vec3(0.4, 1.0, 0.25) * (0.045 * flutter * smoothstep(2.0, 7.0, h) * min(r, 3.0));
+  return worldPos + swayAmp * d;
+}
+
 void main() {
   #include <beginnormal_vertex>
   #include <skinbase_vertex>
@@ -146,6 +179,8 @@ void main() {
   #include <skinning_vertex>
   if (breathAmp > 0.0) transformed = breathe(position, normal);
   vec4 world = modelMatrix * vec4(transformed, 1.0);
+  if (swayAmp > 0.0)
+    world.xyz = sway(world.xyz, transformed, length(modelMatrix[1].xyz), modelMatrix[3].xyz);
   vWorld = world.xyz;
   vNormal = mat3(modelMatrix) * objectNormal;
   vUv = uv;
@@ -155,21 +190,138 @@ void main() {
 // Port of src/shaders/shader.frag (mode = the `unlit` uniform)
 const fragmentShader = /* glsl */`
 uniform sampler2D map;
+uniform int useColor;      // 1: the material has a flat colour and no texture
+uniform vec3 diffuseColor;
 uniform int mode;
 uniform vec3 lightColor;
 uniform vec3 lightPosition;
 uniform vec3 fogColor;
 uniform vec3 moonDir;
 uniform float time;
-uniform int fogOn;
+uniform vec3 skyZenith;
+uniform vec3 sunDir;
+uniform float starAlpha;
+uniform float forestHorizon;
 varying vec3 vNormal;
 varying vec3 vWorld;
 varying vec2 vUv;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
+// ---- The procedural sky (port of the unlit = 3 part of src/shaders/shader.frag) ----
+float stars(vec3 dir) {
+  float el = asin(clamp(dir.y, -1.0, 1.0));
+  float az = atan(dir.z, dir.x);
+  vec2 g = vec2(az * cos(el), el) * 420.0;
+  vec2 cell = floor(g);
+  float h = hash(cell);
+  if (h < 0.965) return 0.0;
+  vec2 centre = vec2(hash(cell + 7.1), hash(cell + 3.7)) * 0.6 + 0.2;
+  float d = length(fract(g) - centre);
+  float size = 0.18 + 0.22 * hash(cell + 1.3);
+  float bright = 0.45 + 0.55 * hash(cell + 9.9);
+  float twinkle = 1.0 - 0.4 * (0.5 + 0.5 * sin(time * 2.5 + h * 400.0));
+  return smoothstep(size, 0.0, d) * bright * twinkle;
+}
+
+float duneNoise(float u, float period, float seed) {
+  float i = floor(u);
+  float f = fract(u);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash(vec2(mod(i, period), seed));
+  float b = hash(vec2(mod(i + 1.0, period), seed));
+  return mix(a, b, f);
+}
+
+float duneHeight(float az, float period, float seed, float base, float amp) {
+  float u = az / 6.2831853 * period;
+  float broad = duneNoise(u, period, seed);
+  float soft = duneNoise(u * 2.0, period * 2.0, seed + 3.0);
+  return base + amp * (0.75 * broad + 0.25 * soft);
+}
+
+vec3 dunes(vec3 c, vec3 dir) {
+  const vec3 SAND = vec3(0.78, 0.62, 0.40);
+  float az = atan(dir.z, dir.x);
+  float e = dir.y;
+  vec2 vd = normalize(dir.xz + vec2(1e-5));
+  vec2 sh = sunDir.xz;
+  float sunAz = atan(sh.y, sh.x);
+  float sunSide = length(sh) > 1e-4 ? dot(vd, normalize(sh)) * length(sh) : 0.0;
+  float top = 0.3 + 0.9 * clamp(sunDir.y, 0.0, 1.0);
+  const int LAYERS = 3;
+  float period[LAYERS] = float[](9.0, 15.0, 25.0);
+  float seed[LAYERS]   = float[](11.0, 47.0, 83.0);
+  float base[LAYERS]   = float[](0.036, 0.024, 0.014);
+  float amp[LAYERS]    = float[](0.040, 0.030, 0.020);
+  float haze[LAYERS]   = float[](0.60, 0.42, 0.25);
+  for (int i = 0; i < LAYERS; i++) {
+    float h = duneHeight(az, period[i], seed[i], base[i], amp[i]);
+    float d = 0.03;
+    float slope = (duneHeight(az + d, period[i], seed[i], base[i], amp[i]) -
+                   duneHeight(az - d, period[i], seed[i], base[i], amp[i])) / (2.0 * d);
+    float facing = clamp(-slope * 4.0 * sign(sin(sunAz - az)), -1.0, 1.0);
+    float shade = clamp(0.8 * top * (1.0 - 0.10 * sunSide + 0.08 * facing), 0.0, 1.2);
+    vec3 col = SAND * shade * lightColor;
+    col = mix(col, mix(fogColor, SAND * top * lightColor * 1.1, 0.4), haze[i]);
+    float cover = 1.0 - smoothstep(h - 0.0010, h + 0.0010, e);
+    c = mix(c, col, cover);
+  }
+  return c;
+}
+
+float treeHeight(float az, float period, float seed, float base, float amp) {
+  float u = az / 6.2831853 * period;
+  float cell = floor(u);
+  float tri = 1.0 - abs(fract(u) * 2.0 - 1.0);
+  float tall = hash(vec2(mod(cell, period), seed));
+  float broad = duneNoise(az / 6.2831853 * 12.0, 12.0, seed + 5.0);
+  return base + amp * (0.35 + 0.65 * tall) * pow(tri, 0.9) + 0.012 * broad;
+}
+
+vec3 forest(vec3 c, vec3 dir) {
+  const vec3 GREEN = vec3(0.07, 0.17, 0.08);
+  float az = atan(dir.z, dir.x);
+  float e = dir.y;
+  float top = 0.3 + 0.9 * clamp(sunDir.y, 0.0, 1.0);
+  const int LAYERS = 3;
+  float period[LAYERS] = float[](420.0, 300.0, 210.0);
+  float seed[LAYERS]   = float[](21.0, 57.0, 93.0);
+  float base[LAYERS]   = float[](0.006, 0.003, 0.0);
+  float amp[LAYERS]    = float[](0.030, 0.034, 0.040);
+  float haze[LAYERS]   = float[](0.65, 0.42, 0.22);
+  for (int i = 0; i < LAYERS; i++) {
+    float h = treeHeight(az, period[i], seed[i], base[i], amp[i]);
+    vec3 col = GREEN * (0.55 + 0.45 * float(i + 1) / float(LAYERS)) * top * lightColor * 1.5;
+    col = mix(col, mix(fogColor, GREEN * top * lightColor, 0.35), haze[i]);
+    float cover = 1.0 - smoothstep(h - 0.0008, h + 0.0008, e);
+    c = mix(c, col, cover);
+  }
+  return c;
+}
+
+vec3 proceduralSky(vec3 dir) {
+  float up = clamp(dir.y, 0.0, 1.0);
+  vec3 c = mix(fogColor, skyZenith, pow(up, 0.6));
+  float above = smoothstep(-0.01, 0.06, dir.y);
+  float sunCos = dot(dir, sunDir);
+  vec3 warm = mix(vec3(1.0, 0.45, 0.15), vec3(1.0, 0.95, 0.8), smoothstep(0.0, 0.45, sunDir.y));
+  float sunVisible = smoothstep(-0.12, 0.0, sunDir.y);
+  c += warm * (pow(max(sunCos, 0.0), 24.0) * 0.35 + pow(max(sunCos, 0.0), 400.0) * 0.6) * sunVisible;
+  c = mix(c, vec3(1.0, 0.97, 0.88), smoothstep(0.99955, 0.99975, sunCos) * above);
+  c += vec3(0.9, 0.95, 1.0) * stars(dir) * starAlpha * above;
+  return forestHorizon > 0.5 ? forest(c, dir) : dunes(c, dir);
+}
+
 void main() {
-  vec3 c = texture2D(map, vUv).rgb;
+  if (mode == 3) {
+    gl_FragColor = vec4(proceduralSky(normalize(vWorld - cameraPosition)), 1.0);
+    return;
+  }
+  vec4 texel = texture2D(map, vUv);
+  vec3 c = useColor == 1 ? diffuseColor : texel.rgb;
+  // (a texture with holes, like a leaf card, is cut out)
+  if (mode == 0 && useColor == 0 && texel.a < 0.35) discard;
   if (mode == 2) { gl_FragColor = vec4(c, 1.0); return; }
   if (mode == 1) {
     vec3 dir = normalize(vWorld - cameraPosition);
@@ -187,27 +339,30 @@ void main() {
   float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128.0);
   vec3 light = 0.3 * lightColor + max(dot(norm, lightdir), 0.0) * lightColor
              + 0.15 * spec * lightColor;
-  vec3 lit = c * light;
-  float fog = fogOn == 1 ? smoothstep(30.0, 70.0, distance(vWorld, cameraPosition)) : 0.0;
-  gl_FragColor = vec4(mix(lit, fogColor, fog), 1.0);
+  // (no distance fog, as in the game)
+  gl_FragColor = vec4(c * light, 1.0);
 }`;
 
-const MODES = { lit: 0, sky: 1, emissive: 2, breathe: 0 };
+const MODES = { lit: 0, sky: 1, emissive: 2, breathe: 0, sway: 0, procedural: 3 };
 const whiteTexture = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
 whiteTexture.needsUpdate = true;
 
-function makeMaterial(map, effect) {
+function makeMaterial(map, effect, color) {
   if (map) {
     map.colorSpace = THREE.NoColorSpace; // sample raw values, like the engine
     map.needsUpdate = true;
   }
   return new THREE.ShaderMaterial({
     vertexShader, fragmentShader,
+    side: THREE.DoubleSide, // (the engine does not cull faces)
     uniforms: {
       ...globals,
       map: { value: map || whiteTexture },
+      useColor: { value: !map && color ? 1 : 0 },
+      diffuseColor: { value: color ? new THREE.Vector3(color.r, color.g, color.b) : new THREE.Vector3(1, 1, 1) },
       mode: { value: MODES[effect] },
       breathAmp: { value: effect === 'breathe' ? BREATH_AMPLITUDE : 0 },
+      swayAmp: { value: effect === 'sway' ? 1 : 0 },
       breathTime: globals.time,
     },
   });
@@ -241,7 +396,7 @@ function loadObj(path) {
 
 // Replaces the loader's materials (one or an array) by the engine's shading
 function replaceMaterials(mesh, effect) {
-  const convert = (m) => makeMaterial(m && m.map, effect);
+  const convert = (m) => makeMaterial(m && m.map, effect, m && m.color);
   mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
 }
 const materialsOf = (mesh) => [].concat(mesh.material);
@@ -293,6 +448,38 @@ async function loadPlayer(path) {
   return { group, mixer };
 }
 
+// The time of day: the sun, the light and the colours of the sky, as in the game
+// (VehicleStage::onTimeChanged). Only for scenes with a procedural sky.
+const NIGHT_LIGHT = new THREE.Vector3(0.022, 0.025, 0.04);
+const mixV = (a, b, t) => a.clone().lerp(b, t);
+function ramp(a, b, x) {
+  const t = THREE.MathUtils.clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+function updateClock(hour) {
+  const angle = (hour - 6) / 24 * 2 * Math.PI;
+  const sun = new THREE.Vector3(Math.cos(angle), Math.sin(angle), -0.3).normalize();
+  const h = sun.y;
+  const day = ramp(-0.1, 0.3, h);
+  const dusk = ramp(-0.2, 0, h) * (1 - ramp(0.05, 0.35, h));
+  let horizon = mixV(new THREE.Vector3(0.035, 0.055, 0.11), new THREE.Vector3(0.45, 0.68, 0.92), day);
+  horizon = mixV(horizon, new THREE.Vector3(0.95, 0.52, 0.30), dusk * 0.85);
+  let zenith = mixV(new THREE.Vector3(0.003, 0.007, 0.028), new THREE.Vector3(0.16, 0.38, 0.78), day);
+  zenith = mixV(zenith, new THREE.Vector3(0.25, 0.22, 0.45), dusk * 0.5);
+  const sunColor = mixV(new THREE.Vector3(1, 0.55, 0.25), new THREE.Vector3(0.85, 0.83, 0.78),
+    ramp(0, 0.45, h));
+  const sunPower = ramp(-0.05, 0.25, h);
+  globals.lightColor.value.copy(sunColor).multiplyScalar(sunPower).add(NIGHT_LIGHT);
+  const sunShare = sunPower / (sunPower + NIGHT_LIGHT.length());
+  const lightDir = mixV(new THREE.Vector3(0, 1, 0), sun, sunShare).normalize();
+  globals.lightPosition.value.copy(lightDir).multiplyScalar(LIGHT_DISTANCE);
+  globals.fogColor.value.copy(horizon);
+  globals.skyZenith.value.copy(zenith);
+  globals.sunDir.value.copy(sun);
+  globals.starAlpha.value = 1 - ramp(-0.2, 0, h);
+  renderer.setClearColor(new THREE.Color(horizon.x, horizon.y, horizon.z));
+}
+
 // ------------------------------------------------------------ three.js setup
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: SHOT });
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
@@ -342,7 +529,7 @@ async function build(text) {
 
   let sky = null;
   if (desc.sky) pending.push(loadObj(desc.sky).then(t => {
-    sky = instantiate(t, 'sky');
+    sky = instantiate(t, desc.proceduralSky ? 'procedural' : 'sky');
     sky.traverse(m => {
       if (!m.isMesh) return;
       materialsOf(m).forEach(mat => { mat.depthTest = mat.depthWrite = false; });
@@ -388,18 +575,37 @@ function apply(next) {
   world.add(state.root);
   globals.moonDir.value.copy(state.desc.moon);
   globals.lightPosition.value.copy(state.desc.moon).multiplyScalar(LIGHT_DISTANCE);
+  globals.forestHorizon.value = state.desc.proceduralSky === 'forest' ? 1 : 0;
+  const clocked = !!state.desc.proceduralSky;
+  $('clock').hidden = !clocked;
+  $('row-lit').hidden = clocked;
+  if (clocked && !hourSet) {
+    hour = params.has('hour') ? Number(params.get('hour')) : state.desc.timeOfDay;
+    $('hour').value = hour;
+    hourSet = true;
+  }
   updateLighting();
-  $('title').textContent = SCENE_PATH.split('/').pop();
+  const known = SCENES.find(([, path]) => path === SCENE_PATH);
+  $('title').textContent = known ? known[0] : SCENE_PATH.split('/').pop();
+  if (!cameraPlaced) { cameraPlaced = true; setView(view); }
   fillTable();
   select(selected ? selected.index : null);
 }
 
+let hour = 12, hourSet = false, cameraPlaced = false;
+
 function updateLighting() {
   if (!state) return;
+  if (state.desc.proceduralSky) {
+    updateClock(hour);
+    $('hour-label').textContent = `${String(Math.floor(hour)).padStart(2, '0')}:` +
+      String(Math.floor((hour % 1) * 60)).padStart(2, '0');
+    if (state.sky) state.sky.visible = $('opt-sky').checked;
+    return;
+  }
   const day = $('opt-lit').checked;
   globals.lightColor.value.copy(day ? new THREE.Vector3(1, 0.97, 0.9) : state.desc.light);
   globals.fogColor.value.copy(state.desc.fog);
-  globals.fogOn.value = $('opt-fog').checked ? 1 : 0;
   const bg = day ? new THREE.Vector3(0.45, 0.55, 0.7) : state.desc.fog;
   renderer.setClearColor(new THREE.Color(bg.x, bg.y, bg.z));
   if (state.sky) state.sky.visible = $('opt-sky').checked && !day;
@@ -446,15 +652,16 @@ function setView(name) {
   document.querySelectorAll('[data-view]').forEach(b =>
     b.classList.toggle('active', b.dataset.view === name));
   controls.enabled = name !== 'player';
-  // From high above, the fog (30 to 70 units from the camera) hides everything
-  $('opt-fog').checked = name !== 'top';
   updateLighting();
+  // The orbit and top views look at the place where the player starts
+  const at = state ? state.desc.playerPosition : new THREE.Vector3();
+  const ground = state && state.player ? state.player.group.position.y : at.y;
   if (name === 'top') {
-    controls.target.set(0, 0, -14);
-    camera.position.set(0, 48, -13.99);
+    controls.target.set(at.x, ground, at.z - 14);
+    camera.position.set(at.x, ground + 48, at.z - 13.99);
   } else if (name === 'orbit') {
-    controls.target.set(0, 0, -10);
-    camera.position.set(22, 16, 14);
+    controls.target.set(at.x, ground, at.z - 10);
+    camera.position.set(at.x + 22, ground + 16, at.z + 14);
   } else {
     look.phi = look.theta = 0;
   }
@@ -524,7 +731,21 @@ function updateHover() {
 // ------------------------------------------------------------ UI
 document.querySelectorAll('[data-view]').forEach(b =>
   b.addEventListener('click', () => setView(b.dataset.view)));
-['opt-fog', 'opt-sky', 'opt-lit'].forEach(id => $(id).addEventListener('change', updateLighting));
+['opt-sky', 'opt-lit'].forEach(id => $(id).addEventListener('change', updateLighting));
+$('hour').addEventListener('input', () => { hour = Number($('hour').value); updateLighting(); });
+// The scene selector: the page is loaded again with the other scene
+for (const [name, path] of SCENES) {
+  const option = new Option(name, path, false, path === SCENE_PATH);
+  $('scene-select').add(option);
+}
+if (!SCENES.some(([, path]) => path === SCENE_PATH))
+  $('scene-select').add(new Option(SCENE_PATH, SCENE_PATH, true, true));
+$('scene-select').addEventListener('change', () => {
+  const next = new URLSearchParams(location.search);
+  next.set('scene', $('scene-select').value);
+  next.delete('hour');
+  location.search = next.toString();
+});
 $('opt-grid').addEventListener('change', () => { helpers.visible = $('opt-grid').checked; });
 $('object-table').addEventListener('click', e => {
   const tr = e.target.closest('tr[data-index]');
@@ -568,6 +789,12 @@ function frame() {
   const dt = clock.getDelta();
   const animate = $('opt-anim').checked;
   if (animate) globals.time.value += dt;
+  // the day goes by (the game's day lasts day_duration seconds)
+  if (state && state.desc.proceduralSky && $('opt-day').checked) {
+    hour = (hour + dt * 24 / (state.desc.dayDuration || 360)) % 24;
+    $('hour').value = hour;
+    updateLighting();
+  }
   if (state && state.player && animate) state.player.mixer.update(dt);
   if (view === 'player') updatePlayerCamera(); else controls.update();
   // In first person the game doesn't draw the player (see Walker::attachCamera)
@@ -579,7 +806,7 @@ function frame() {
   renderer.render(world, camera);
 }
 
-setView(params.get('view') || 'orbit');
+view = params.get('view') || 'orbit';
 await reload(true);
 $('loading').remove();
 showStatus();

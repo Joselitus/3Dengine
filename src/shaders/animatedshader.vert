@@ -19,6 +19,10 @@ uniform int skinned;
 uniform float breathAmp;
 uniform float breathTime;
 
+// Wind for static meshes (trees); 0 = off, 1 = a normal breeze. Needs the mesh
+// to stand on y = 0 with its trunk on the y axis (see sway()).
+uniform float swayAmp;
+
 // 1 = show the skinned model in its idle pose (see idle()), 0 = skinned as usual
 uniform int idlePose;
 
@@ -107,6 +111,25 @@ void idle(inout vec3 p, inout vec3 n)
     p.z += upper * (0.05 * s + 0.04 * sin(0.35 * breathTime));
 }
 
+// Wind on a tree, done on the world position of a vertex: the whole tree leans
+// with the gusts (more the higher the vertex is: the trunk is stiff at the
+// base) and its leaves, far from the trunk, flutter. `local` is the vertex in
+// the mesh's own space, `scale` the object's scale. Every tree moves a little
+// differently (the phase comes from where it stands). Normals are not changed.
+vec3 sway(vec3 worldPos, vec3 local, float scale)
+{
+    float h = max(local.y, 0.0) * scale;                // metres over the foot
+    float r = length(local.xz) * scale;                 // metres from the trunk
+    float phase = objposition.x * 0.37 + objposition.z * 0.23;
+    float gust = sin(breathTime * 0.8 + phase) + 0.5 * sin(breathTime * 1.9 + phase * 1.7) + 0.35;
+    float bend = (h * h) / 196.0;                       // 14 m tall: 1
+    vec3 wind = normalize(vec3(1.0, 0.0, 0.35));
+    vec3 d = wind * (0.35 * gust * bend);
+    float flutter = sin(breathTime * 4.0 + dot(worldPos, vec3(1.3, 1.9, 0.7)) + phase);
+    d += vec3(0.4, 1.0, 0.25) * (0.045 * flutter * smoothstep(2.0, 7.0, h) * min(r, 3.0));
+    return worldPos + swayAmp * d;
+}
+
 void main()
 {
     // ---- Skinning ----
@@ -138,6 +161,8 @@ void main()
     // ---- Object transform (same convention as shader.vert) ----
     vec3 worldPos = vec3(objrotation * vec4(fitted, 1.0)) + objposition;
 
+    if (skinned == 0 && swayAmp > 0.0)
+        worldPos = sway(worldPos, fitted, length(objrotation[1].xyz));
     gl_Position = projection * model * view * vec4(worldPos, 1.0);
     frag_p = worldPos;
 

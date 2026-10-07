@@ -56,6 +56,8 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
     object->setScale(o.scale);
     if (o.effect == Effect::Breathe)
       object->setBreathAmp(BREATH_AMPLITUDE);
+    if (o.effect == Effect::Sway)
+      object->setSwayAmp(1.0f);
     add(object);
   }
 

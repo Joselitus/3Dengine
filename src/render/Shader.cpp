@@ -1,7 +1,17 @@
 #include "Shader.h"
+#include "RenderStats.h"
 
 Shader::Shader(const char* vertexShaderFile, const char* fragmentShaderFile) {
 	this->ID = initializeShaders(vertexShaderFile, fragmentShaderFile);
+}
+
+int Shader::location(const char * name) {
+	auto found = locations.find(name);
+	if (found != locations.end())
+		return found->second;
+	int where = glGetUniformLocation(this->ID, name);
+	locations[name] = where;
+	return where;
 }
 
 void Shader::use() {
@@ -9,15 +19,18 @@ void Shader::use() {
 }
 
 void Shader::setBool(const char * name, bool value) {
-	glUniform1i(glGetUniformLocation(this->ID, name), (int)value);
+	RenderStats::uniformCalls()++;
+	glUniform1i(location(name), (int)value);
 }  
 
 void Shader::setInt(const char * name, int value) {
-	glUniform1i(glGetUniformLocation(this->ID, name), value);
+	RenderStats::uniformCalls()++;
+	glUniform1i(location(name), value);
 }  
 
 void Shader::setFloat(const char * name, float value) {
-	glUniform1f(glGetUniformLocation(this->ID, name), value);
+	RenderStats::uniformCalls()++;
+	glUniform1f(location(name), value);
 }
 
 void Shader::setVector2(const char * name, float x, float y) {
@@ -25,10 +38,12 @@ void Shader::setVector2(const char * name, float x, float y) {
 }
 
 void Shader::setVector3(const char * name, float x, float y, float z) {
-	glUniform3f(glGetUniformLocation(this->ID, name), x, y, z);
+	RenderStats::uniformCalls()++;
+	glUniform3f(location(name), x, y, z);
 }
 
 
 void Shader::setMatrix4(const char * name, float * matrix) {
-	glUniformMatrix4fv(glGetUniformLocation(this->ID, name), 1, GL_FALSE, matrix);
+	RenderStats::uniformCalls()++;
+	glUniformMatrix4fv(location(name), 1, GL_FALSE, matrix);
 }

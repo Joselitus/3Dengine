@@ -82,6 +82,8 @@ private:
   // world-space bounds of the floor in x/z
   float minX = 0, maxX = 0, minZ = 0, maxZ = 0;
   float edgeCullMargin = 0.0f; // see setEdgeCulling
+  float drawDistance = 0.0f;   // see setDrawDistance
+  glm::vec3 drawOrigin = glm::vec3(0.0f);
 
   // FloorMode::HeightField: heights[iz * nx + ix] at (x0 + ix*dx, z0 + iz*dz)
   int nx = 0, nz = 0;
@@ -224,6 +226,12 @@ public:
   // Objects that edgeCullExempt() says no to (the player) are always drawn.
   void setEdgeCulling(float margin) { edgeCullMargin = margin; }
   virtual bool edgeCullExempt(const GameObject &object) const { return false; }
+  // Objects farther than `distance` (in x/z, minus their cull radius, see
+  // GameObject::setCullRadius) from the camera are not drawn; 0 = no limit.
+  // For maps with far more scenery than can be seen (the fog hides the rest).
+  // The camera is told with setDrawOrigin (GameStage::render does it).
+  void setDrawDistance(float distance) { drawDistance = distance; }
+  void setDrawOrigin(const glm::vec3 &origin) { drawOrigin = origin; }
 
   // Lifts `point` (the centre of a sphere of `radius`, e.g. the camera) out
   // of the floor if it is below it or closer than `radius`, so that it can't

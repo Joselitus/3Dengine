@@ -1,4 +1,5 @@
 #include "GameObject.h"
+#include "RenderStats.h"
 
 #include <cmath>
 
@@ -49,6 +50,22 @@ size_t GameObject::addPart(shared_ptr<Model> model, int unlit) {
   return parts.size() - 1;
 }
 
+void GameObject::addDetail(shared_ptr<Model> model, float distance) {
+  if (details.empty() && !parts.empty())
+    nearModel = parts[0].model;
+  details.push_back({distance, model});
+}
+
+void GameObject::selectDetail(float distance) {
+  if (details.empty() || parts.empty())
+    return;
+  shared_ptr<Model> chosen = nearModel;
+  for (const Detail &d : details)
+    if (distance >= d.from)
+      chosen = d.model;
+  parts[0].model = chosen;
+}
+
 void GameObject::setYaw(float radians) {
   rotation = glm::rotate(mat4(1.0f), radians, vec3(0.0f, 1.0f, 0.0f));
 }
@@ -71,7 +88,9 @@ void GameObject::update(double dt) {
 void GameObject::Draw(Shader *shader) {
   if (!visible)
     return;
+  RenderStats::objects()++;
   shader->setFloat("breathAmp", breathAmp);
+  shader->setFloat("swayAmp", swayAmp);
 
   if (aniModel) {
     mat4 transform = glm::scale(rotation, vec3(scale));
@@ -82,14 +101,17 @@ void GameObject::Draw(Shader *shader) {
 
   drawParts(shader, false);
   shader->setFloat("breathAmp", 0.0f);
+  shader->setFloat("swayAmp", 0.0f);
 }
 
 void GameObject::DrawTransparent(Shader *shader) {
   if (!visible)
     return;
   shader->setFloat("breathAmp", breathAmp);
+  shader->setFloat("swayAmp", swayAmp);
   drawParts(shader, true);
   shader->setFloat("breathAmp", 0.0f);
+  shader->setFloat("swayAmp", 0.0f);
 }
 
 void GameObject::drawParts(Shader *shader, bool translucent) {

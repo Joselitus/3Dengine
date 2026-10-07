@@ -1,291 +1,262 @@
 #include "ForestStage.h"
 
-#include <algorithm>
 #include <cmath>
-#include <cstdint>
+#include <cstdio>
+#include <fstream>
+#include <map>
+#include <sstream>
 
-#include <GL/glew.h>
-
-#include "AnimatedModel.h"
 #include "MaterialMap.h"
-#include "PoissonDisk.h"
-#include "RV.h"
-#include "SoundEngine.h"
-#include "Walker.h"
+#include "Readable.h"
 
 using namespace glm;
+using std::make_shared;
+using std::shared_ptr;
+using std::string;
+using std::vector;
 
 namespace {
-const float GROUND_Y = 0.0f;           // where there is no floor
-const float HALF_SIZE = 100.0f;        // the floor is 200 x 200 m (generate_forest.py, SIZE)
-const float TREE_MARGIN = 6.0f;        // no trees this close to the edge
-const float EYE_HEIGHT = 1.6f;
-const float CAR_CAMERA_DISTANCE = 12.0f, CAR_CAMERA_HEIGHT = 3.5f;
-const float DAY_DURATION = 360.0f;     // real seconds per 24 h, as in the desert
-const float START_HOUR = 10.0f;        // a morning sun: long, slanting shadows
-const unsigned int PENGUIN_ANIMATION = 1; // (see TestStage)
-const vec3 NIGHT_LIGHT(0.022f, 0.025f, 0.04f);
-// How much light a patch of needles stops, in one plane of the canopy (three planes overlap
-// under a crown: the middle of its shadow is darker than its edge)
-const float LEAF_DENSITY = 0.7f;
-
-float smooth01(float a, float b, float x) {
-  float t = clamp((x - a) / (b - a), 0.0f, 1.0f);
-  return t * t * (3.0f - 2.0f * t);
+const char *FOREST_DIR = "../assets/forest/";
+const float DRAW_DISTANCE = 260.0f; // trees farther than this are not drawn (there is no fog to hide it)
+const float LOD1_DISTANCE = 25.0f;  // from here a tree is drawn with fewer leaves...
+const float LOD2_DISTANCE = 60.0f;  // ...and from here extremely low poly (see generate_trees.py)
+const float CHUNK = 64.0f;          // metres: side of a chunk of the deep forest
+const float CHUNK_RADIUS = 58.0f;   // ...and how far its trees reach from its centre
+const float WALL_OFFSET = 20.5f;    // from the road's centre line
+const float WALL_STEP = 10.0f;      // metres of road per wall box
+const float START_Z_INDEX = 14;     // the RV waits this many metres into the road
 }
 
-// Value noise (0..1) over the world's x, z with cells `cell` metres wide: the gaps between needles
-float hash2(int x, int z) {
-  uint32_t h = (uint32_t)x * 374761393u + (uint32_t)z * 668265263u;
-  h = (h ^ (h >> 13)) * 1274126177u;
-  return (float)((h ^ (h >> 16)) & 0xffffff) / 16777215.0f;
-}
-float valueNoise(float x, float z, float cell) {
-  float fx = x / cell, fz = z / cell;
-  int x0 = (int)std::floor(fx), z0 = (int)std::floor(fz);
-  float tx = fx - x0, tz = fz - z0;
-  tx = tx * tx * (3.0f - 2.0f * tx);
-  tz = tz * tz * (3.0f - 2.0f * tz);
-  float a = mix(hash2(x0, z0), hash2(x0 + 1, z0), tx);
-  float b = mix(hash2(x0, z0 + 1), hash2(x0 + 1, z0 + 1), tx);
-  return mix(a, b, tz);
-}
-} // namespace
-
-ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : GameStage(mode) {
-  // Only the wind (the desert's music would not fit)
-  loadAmbience("../assets/music/wind.wav");
-  setSky(loadModel("../assets/sky/skydome_plain.obj"), 3);
-  environment.skyDunes = false; // (no dunes on the horizon here)
-  setDayDuration(DAY_DURATION);
-
-  // The floor: needles and moss on gentle bumps, firm to drive on (like a dirt track: no sand)
-  if (!setFloor(loadModel("../assets/forest/forest_floor.obj"), vec3(0.0f, GROUND_Y, 0.0f),
-                MaterialMap::uniform(FloorMaterial::Asphalt)))
-    fprintf(stderr, "ForestStage: could not set the floor\n");
-  {
-    auto ground = std::make_shared<GameObject>(loadModel("../assets/forest/forest_floor.obj"));
-    ground->setPosition(0.0f, GROUND_Y, 0.0f);
-    ground->setCollidable(false); // (before add)
-    add(ground);
+bool ForestStage::loadPath(const string &file) {
+  std::ifstream in(file);
+  if (!in)
+    return false;
+  string line;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#')
+      continue;
+    PathPoint p;
+    if (sscanf(line.c_str(), "%f %f %f %f %f", &p.x, &p.z, &p.height, &p.tx, &p.tz) == 5)
+      path.push_back(p);
   }
-
-  plantTrees();
-
-  // The RV in the clearing, facing +z (its door, on +x, towards the start)
-  rv = std::make_shared<RV>(loadModel("../assets/rv/rv.obj"));
-  rv->setPosition(0.0f, groundAt(0.0f, 0.0f), 0.0f);
-  rv->setHeading(0.0f);
-  rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
-                     loadModel("../assets/rv/wheel_posx.obj"));
-  rv->setWindshieldModels(loadModel("../assets/rv/windshield.obj"),
-                          loadModel("../assets/rv/windshield_broken.obj"));
-  rv->setCockpitModels(loadModel("../assets/rv/dashboard.obj"), loadModel("../assets/rv/key.obj"),
-                       loadModel("../assets/rv/needle.obj"),
-                       loadModel("../assets/rv/dashboard_glow.obj"));
-  rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
-  rv->setEngineSound(sound);
-  rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
-  rv->setMaxSpeed(20.0f);
-  rv->setGravity(25.0f);
-  addDynamic(rv);
-  for (const auto &emitter : rv->getDust())
-    addEmitter(emitter);
-  for (const auto &emitter : rv->getGrains())
-    addEmitter(emitter);
-  rv->setEnterAction([this]() { enterRV(); });
-  interactables.push_back(rv.get());
-
-  // The player: the penguin on foot, beside the RV, in first person
-  walker = std::make_shared<Walker>(std::make_shared<AnimatedModel>(
-      "../assets/ping/PenguinoAnimado.fbx", false, PENGUIN_ANIMATION));
-  walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
-  walker->setGravity(25.0f);
-  addDynamic(walker);
-  player = walker;
-  cameraDistance = 0.0f;
-  cameraHeight = EYE_HEIGHT;
-
-  setTimeOfDay(START_HOUR); // (the light, once everything is there)
+  return path.size() > 100;
 }
 
-ForestStage::~ForestStage() {
-  if (canopyTexture)
-    glDeleteTextures(1, &canopyTexture);
+void ForestStage::addWall(float x, float z, float yaw, const vec3 &halfExtents) {
+  // 3 m under the ground to 13 m over it, whatever the slope
+  auto shape = make_shared<Box>(halfExtents, vec3(0.0f, 5.0f, 0.0f));
+  static shared_ptr<Model> nothing = make_shared<Model>();
+  auto wall = make_shared<GameObject>(nothing, shape);
+  wall->setPosition(x, groundAt(x, z), z);
+  wall->setYaw(yaw);
+  wall->setVisible(false);
+  add(wall);
 }
 
-float ForestStage::groundAt(float x, float z) const { return GameStage::groundAt(x, z, GROUND_Y); }
-
-// Pines all over, at least TREE_SPACING apart (Poisson disk), none in the clearing nor at the
-// edge; each one of the three models, turned and sized at random
-void ForestStage::plantTrees() {
-  std::shared_ptr<Model> models[3] = {loadModel("../assets/forest/pine_0.obj"),
-                                      loadModel("../assets/forest/pine_1.obj"),
-                                      loadModel("../assets/forest/pine_2.obj")};
-  // how tall each model is (the pill the engine fits to it)
-  float heights[3];
-  for (int i = 0; i < 3; i++) {
-    GameObject probe(models[i]);
-    vec3 lo, hi;
-    probe.getShape().bounds(probe.getPose(), lo, hi);
-    heights[i] = hi.y - lo.y;
+void ForestStage::buildWalls() {
+  for (size_t k = 0; k < path.size(); k += (size_t)WALL_STEP) {
+    const PathPoint &p = path[k];
+    float yaw = std::atan2(p.tx, p.tz);
+    vec2 left(-p.tz, p.tx);
+    for (float side : {1.0f, -1.0f})
+      addWall(p.x + side * left.x * WALL_OFFSET, p.z + side * left.y * WALL_OFFSET, yaw,
+              vec3(0.6f, 8.0f, WALL_STEP * 0.6f));
   }
-  vec2 lo(-HALF_SIZE + TREE_MARGIN), hi(HALF_SIZE - TREE_MARGIN);
-  std::vector<vec2> spots = poissonDisk(lo, hi, TREE_SPACING, 20261007u, 30,
-                                        [](const vec2 &p) { return length(p) > CLEARING; });
-  std::vector<vec4> trees;
-  for (size_t i = 0; i < spots.size(); i++) {
-    // (a cheap repeatable "random" from the place)
-    float r1 = hash2((int)(spots[i].x * 10.0f), (int)(spots[i].y * 10.0f));
-    float r2 = hash2((int)(spots[i].y * 7.0f) + 13, (int)(spots[i].x * 7.0f) - 5);
-    int model = (int)(r1 * 3.0f) % 3;
-    float scale = 0.8f + 0.45f * r2;
-    // the trunk only: the crowns are high above anything that walks or drives
-    auto tree = std::make_shared<GameObject>(models[model],
-                                             std::make_shared<Capsule>(0.7f, 12.0f));
-    float y = groundAt(spots[i].x, spots[i].y);
-    tree->setPosition(spots[i].x, y - 0.1f, spots[i].y); // (sunk a little: the ground is not flat)
-    tree->setYaw(r1 * 6.2831853f * 7.0f);
-    tree->setScale(scale);
-    add(tree);
-    trees.push_back(vec4(spots[i].x, y, spots[i].y, heights[model] * scale));
+  // across the two ends of the road
+  for (int end = 0; end < 2; end++) {
+    const PathPoint &p = end ? path.back() : path.front();
+    float sign = end ? 1.0f : -1.0f;
+    addWall(p.x + sign * p.tx * 6.0f, p.z + sign * p.tz * 6.0f, std::atan2(p.tx, p.tz),
+            vec3(WALL_OFFSET + 1.0f, 8.0f, 0.6f));
   }
-  buildCanopy(trees);
 }
 
-void ForestStage::buildCanopy(const std::vector<vec4> &trees) {
-  const int N = CANOPY_TEXELS;
-  const float size = 2.0f * HALF_SIZE, texel = size / N;
-  const float planes[3] = {CANOPY_LOW, CANOPY_MID, CANOPY_HIGH};
-  std::vector<float> open(N * N * 3, 1.0f); // 1 = open sky
-  for (const vec4 &t : trees) {
-    float h = t.w, base = CROWN_BASE * h;
-    for (int k = 0; k < 3; k++) {
-      // the crown's radius at this plane: the cone of foliage, from CROWN_BASE up to the top
-      float y = GROUND_Y + planes[k] - t.y; // (the plane's height over this tree's foot)
-      if (y < base || y > h)
-        continue;
-      float radius = CROWN_RADIUS * h * (1.0f - (y - base) / (h - base)) + 0.4f;
-      int x0 = std::max(0, (int)((t.x - radius + HALF_SIZE) / texel));
-      int x1 = std::min(N - 1, (int)((t.x + radius + HALF_SIZE) / texel));
-      int z0 = std::max(0, (int)((t.z - radius + HALF_SIZE) / texel));
-      int z1 = std::min(N - 1, (int)((t.z + radius + HALF_SIZE) / texel));
-      for (int zi = z0; zi <= z1; zi++)
-        for (int xi = x0; xi <= x1; xi++) {
-          float wx = -HALF_SIZE + (xi + 0.5f) * texel, wz = -HALF_SIZE + (zi + 0.5f) * texel;
-          float d = length(vec2(wx - t.x, wz - t.z));
-          if (d > radius)
-            continue;
-          // dense in the middle, ragged at the edge, with gaps between the needles
-          float edge = 1.0f - smooth01(radius * 0.6f, radius, d);
-          float n = 0.65f * valueNoise(wx + 37.0f * k, wz, 0.45f) + 0.35f * valueNoise(wx, wz - 19.0f * k, 1.6f);
-          float leaves = edge * (1.0f - smooth01(0.40f, 0.58f, n));
-          float &o = open[(zi * N + xi) * 3 + k];
-          o *= 1.0f - LEAF_DENSITY * leaves;
-        }
+namespace {
+// What goes into a merged mesh: the vertices of every instance of a material
+struct Accumulator {
+  vector<Vertex> vertices;
+  vector<unsigned int> indices;
+  vector<Texture> textures;
+};
+struct Chunk {
+  vec3 centre;
+  std::map<string, Accumulator> meshes; // by material name
+};
+}
+
+bool ForestStage::buildForest(const string &file) {
+  std::ifstream in(file);
+  if (!in)
+    return false;
+  // Each model comes in three levels of detail; they are loaded once, whatever the trees
+  struct Models {
+    shared_ptr<Model> near, middle, far;
+  };
+  std::map<string, Models> models;
+  auto modelsOf = [&](const string &name) -> Models & {
+    auto found = models.find(name);
+    if (found == models.end()) {
+      string base = string(FOREST_DIR) + name;
+      found = models.insert({name, {loadModel(base + ".obj"), loadModel(base + "_lod1.obj"),
+                                    loadModel(base + "_lod2.obj")}}).first;
     }
+    return found->second;
+  };
+  static shared_ptr<const CollisionShape> noShape = make_shared<Capsule>(0.1f, 0.5f);
+
+  std::map<long long, Chunk> chunks; // the deep forest
+  size_t count = 0, swaying = 0, solid = 0, deepCount = 0;
+  string line;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#')
+      continue;
+    char name[64];
+    float x, y, z, yaw, scale, trunk, height, crown;
+    int animated, isSolid, deep;
+    if (sscanf(line.c_str(), "%63s %f %f %f %f %f %d %d %d %f %f %f", name, &x, &y, &z, &yaw,
+               &scale, &animated, &isSolid, &deep, &trunk, &height, &crown) != 12)
+      continue;
+    Models &m = modelsOf(name);
+    count++;
+
+    if (deep) {
+      // The deep forest is always the extremely low poly model, so it needs no objects of its
+      // own: the instances of a chunk of forest are merged into one mesh per material
+      int cx = (int)std::floor(x / CHUNK), cz = (int)std::floor(z / CHUNK);
+      Chunk &chunk = chunks[((long long)cx << 32) ^ (unsigned int)cz];
+      if (chunk.meshes.empty())
+        chunk.centre = vec3((cx + 0.5f) * CHUNK, y, (cz + 0.5f) * CHUNK);
+      float c = std::cos(yaw), s = std::sin(yaw);
+      vec3 at = vec3(x, y, z) - chunk.centre;
+      for (const Mesh &mesh : m.far->meshes) {
+        Accumulator &acc = chunk.meshes[mesh.getMaterialName()];
+        if (acc.textures.empty())
+          acc.textures = mesh.getTextures();
+        unsigned int base = (unsigned int)acc.vertices.size();
+        for (const Vertex &v : mesh.getVertices()) {
+          Vertex w;
+          vec3 p = v.Position * scale;
+          w.Position = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z) + at;
+          w.Normal = vec3(c * v.Normal.x + s * v.Normal.z, v.Normal.y,
+                          -s * v.Normal.x + c * v.Normal.z);
+          w.TexCoords = v.TexCoords;
+          acc.vertices.push_back(w);
+        }
+        for (unsigned int i : mesh.getIndices())
+          acc.indices.push_back(base + i);
+      }
+      deepCount++;
+      continue;
+    }
+
+    // The trunk is solid by the road (the shape is in the model's units: the scale applies to it
+    // too); further in an invisible wall stops whoever walks, so the rest are not obstacles
+    auto tree = make_shared<GameObject>(
+        m.near, isSolid ? shared_ptr<const CollisionShape>(make_shared<Capsule>(trunk * 0.9f, height * 0.8f))
+                        : noShape);
+    // Far from the player it is the simple version, and it changes to the normal one as he nears
+    tree->addDetail(m.middle, LOD1_DISTANCE);
+    tree->addDetail(m.far, LOD2_DISTANCE);
+    tree->setCollidable(isSolid != 0);
+    tree->setPosition(x, y, z);
+    tree->setYaw(yaw);
+    tree->setScale(scale);
+    // Only the trees by the road sway in the wind
+    tree->setSwayAmp(animated ? 1.0f : 0.0f);
+    tree->setCullRadius(crown * scale + 2.0f);
+    add(tree);
+    swaying += animated ? 1 : 0;
+    solid += isSolid ? 1 : 0;
   }
-  std::vector<unsigned char> bytes(open.size());
-  for (size_t i = 0; i < open.size(); i++)
-    bytes[i] = (unsigned char)(clamp(open[i], 0.0f, 1.0f) * 255.0f + 0.5f);
-  glGenTextures(1, &canopyTexture);
-  glBindTexture(GL_TEXTURE_2D, canopyTexture);
-  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, N, N, 0, GL_RGB, GL_UNSIGNED_BYTE, bytes.data());
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  environment.canopyMask = canopyTexture;
-  environment.canopyMin = vec2(-HALF_SIZE);
-  environment.canopySize = size;
-  environment.canopyHeights = vec3(GROUND_Y + CANOPY_LOW, GROUND_Y + CANOPY_MID, GROUND_Y + CANOPY_HIGH);
+
+  static shared_ptr<const CollisionShape> chunkShape = make_shared<Capsule>(0.5f, 1.0f);
+  for (auto &entry : chunks) {
+    Chunk &chunk = entry.second;
+    auto model = make_shared<Model>();
+    for (auto &m : chunk.meshes) {
+      model->meshes.push_back(Mesh(m.second.vertices, m.second.indices, m.second.textures));
+      model->meshes.back().setMaterialName(m.first);
+    }
+    auto object = make_shared<GameObject>(model, chunkShape);
+    object->setPosition(chunk.centre.x, chunk.centre.y, chunk.centre.z);
+    object->setCollidable(false); // the wall stops anybody before the deep forest
+    object->setCullRadius(CHUNK_RADIUS);
+    add(object);
+  }
+  fprintf(stderr,
+          "ForestStage: %zu trees: %zu near (%zu swaying, %zu with a solid trunk) and %zu deep, "
+          "merged in %zu chunks\n",
+          count, count - deepCount, swaying, solid, deepCount, chunks.size());
+  return count > 0;
 }
 
-// The day: as in the desert (TestStage::onTimeChanged), without the music
-void ForestStage::onTimeChanged() {
-  float angle = (getTimeOfDay() - 6.0f) / 24.0f * 6.2831853f;
-  vec3 sun = normalize(vec3(std::cos(angle), std::sin(angle), -0.3f));
-  float h = sun.y;
-  float day = smooth01(-0.1f, 0.3f, h);
-  float dusk = smooth01(-0.2f, 0.0f, h) * (1.0f - smooth01(0.05f, 0.35f, h));
-  vec3 horizon = mix(vec3(0.035f, 0.055f, 0.11f), vec3(0.50f, 0.66f, 0.80f), day);
-  horizon = mix(horizon, vec3(0.95f, 0.52f, 0.30f), dusk * 0.85f);
-  vec3 zenith = mix(vec3(0.003f, 0.007f, 0.028f), vec3(0.16f, 0.38f, 0.78f), day);
-  zenith = mix(zenith, vec3(0.25f, 0.22f, 0.45f), dusk * 0.5f);
-  environment.horizon = horizon;
-  environment.skyZenith = zenith;
-  environment.sunDir = sun;
-  environment.starAlpha = 1.0f - smooth01(-0.2f, 0.0f, h);
-  vec3 sunColor = mix(vec3(1.0f, 0.55f, 0.25f), vec3(0.85f, 0.83f, 0.78f), smooth01(0.0f, 0.45f, h));
-  float sunPower = smooth01(-0.05f, 0.25f, h);
-  environment.lightColor = sunColor * sunPower + NIGHT_LIGHT;
-  float sunShare = sunPower / (sunPower + length(NIGHT_LIGHT));
-  environment.lightDir = normalize(mix(vec3(0.0f, 1.0f, 0.0f), sun, sunShare));
+void ForestStage::addSign(size_t index, float side, const vector<string> &pages) {
+  const PathPoint &p = path[index];
+  float x = p.x + side * (-p.tz) * 5.2f, z = p.z + side * p.tx * 5.2f;
+  auto sign = make_shared<Readable>(loadModel("../assets/sign/sign.obj"), "Cartel", pages, 1.3f);
+  sign->setPosition(x, groundAt(x, z), z);
+  sign->setYaw(std::atan2(p.x - x, p.z - z)); // facing the road
+  add(sign);
+  interactables.push_back(sign.get());
 }
 
-void ForestStage::enterRV() {
-  if (inVehicle)
-    return;
-  inVehicle = true;
-  walker->control(vec2(0.0f), 0.0f, 0.0f);
-  walker->setVelocity(vec3(0.0f));
-  walker->setGravity(0.0f);
-  walker->setCollidable(false);
-  walker->setVisible(false);
-  vec3 seat = rv->seatPosition();
-  walker->setPosition(seat.x, seat.y, seat.z);
-  rv->setOccupied(true);
-  setPlayer(rv, CAR_CAMERA_DISTANCE, CAR_CAMERA_HEIGHT, rv->headingYaw());
-}
+ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : VehicleStage(mode) {
+  // No music: the forest has only the wind (a day/night ambience would go here)
+  loadAmbience("../assets/music/wind.wav");
+  startDay();
+  environment.forestHorizon = 1.0f; // trees on the horizon of the sky, not dunes
+  setDrawDistance(DRAW_DISTANCE);
 
-void ForestStage::leaveVehicle() {
-  if (!inVehicle)
-    return;
-  inVehicle = false;
-  rv->control(vec2(0.0f), 0.0f, 0.0f);
-  rv->setOccupied(false);
-  vec3 door = rv->doorPosition(1.5f);
-  walker->setPosition(door.x, groundAt(door.x, door.z), door.z);
-  walker->setVelocity(vec3(0.0f));
-  walker->setGravity(25.0f);
-  walker->setCollidable(true);
-  setPlayer(walker, 0.0f, EYE_HEIGHT, rv->doorYaw());
-}
-
-void ForestStage::apply(DynamicGameObject &object, double dt) {
-  if (inVehicle && &object == walker.get()) { // the penguin rides in the RV
-    vec3 seat = rv->seatPosition();
-    object.setPosition(seat.x, seat.y, seat.z);
-    object.setVelocity(vec3(0.0f));
+  string dir = FOREST_DIR;
+  if (!loadPath(dir + "forest_path.txt")) {
+    fprintf(stderr, "ForestStage: no road (%sforest_path.txt): run generate_forest.py\n", FOREST_DIR);
     return;
   }
-  collideWithFloor(object, dt);
-}
 
-void ForestStage::toggleHeadlights() {
-  if (inVehicle)
-    rv->toggleHeadlights();
-  else
-    walker->toggleFlashlight();
-}
-void ForestStage::toggleEngine() {
-  if (inVehicle)
-    rv->toggleEngine();
-}
-void ForestStage::toggleHandbrake() {
-  if (inVehicle)
-    rv->toggleHandbrake();
-}
-void ForestStage::toggleVehicleCamera() {
-  if (inVehicle)
-    rv->toggleCameraView();
-}
+  // The terrain: a regular grid of heights (the height field) with its materials
+  // (asphalt on the road, grass everywhere else), drawn from the same mesh
+  auto terrainModel = loadModel(dir + "forest_floor.obj");
+  auto materials = MaterialMap::loadImage(dir + "forest_floor_materials.png");
+  if (!materials) {
+    fprintf(stderr, "ForestStage: no material map: the whole floor is grass\n");
+    materials = MaterialMap::uniform(FloorMaterial::Grass);
+  }
+  auto ground = make_shared<GameObject>(terrainModel);
+  ground->setCollidable(false); // it is the floor, not an obstacle
+  ground->setCullRadius(1e9f);  // (always drawn)
+  add(ground);
+  if (!setFloor(terrainModel, vec3(0.0f), materials))
+    return;
+  auto road = make_shared<GameObject>(loadModel(dir + "road.obj"));
+  road->setCollidable(false);
+  road->setCullRadius(1e9f);
+  add(road);
 
-void ForestStage::getSpotLights(std::vector<SpotLight> &lights) const {
-  if (!inVehicle)
-    walker->getFlashlight(lights);
-  rv->getHeadlights(lights);
-  rv->getDashboardLights(lights);
+  // The RV a few metres into the road, facing along it; the player on foot by its
+  // door, looking down the road
+  const PathPoint &start = path[(size_t)START_Z_INDEX];
+  float heading = std::atan2(start.tx, start.tz);
+  createRV(sound, start.x, start.z, heading);
+  vec3 door = rv->doorPosition(1.6f);
+  createWalker(door.x, door.z - 0.5f);
+  cameraDistance = 0.0f; // first person
+  cameraHeight = EYE_HEIGHT;
+  cameraYaw = heading + 3.14159265f; // (0 looks towards -z: this is along the road)
+
+  addSign(4, 1.0f, {
+      "CARRETERA FORESTAL. Tres kilometros de asfalto entre pinos y robles, sin una sola gasolinera.",
+      "Conduce despacio: el firme esta viejo y de noche el bosque se cierra del todo.",
+      "Si se acaba la gasolina, no hay nadie a quien pedir ayuda.",
+  });
+  addSign(path.size() - 12, -1.0f, {
+      "FIN DE LA CARRETERA. Mas alla solo hay bosque.",
+      "Da la vuelta: el camino de regreso es igual de largo.",
+  });
+
+  if (!buildForest(dir + "hero_trees.txt")) {
+    fprintf(stderr, "ForestStage: no trees (%shero_trees.txt): run generate_forest.py\n", FOREST_DIR);
+    return;
+  }
+  buildWalls();
+  valid = true;
 }

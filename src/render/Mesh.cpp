@@ -1,4 +1,5 @@
 #include "Mesh.h"
+#include "RenderStats.h"
 using namespace std;
 using namespace glm;
 
@@ -70,6 +71,8 @@ void Mesh::Draw(Shader * shader) {
         glDepthMask(GL_FALSE); // it does not hide what is behind it
     }
     glBindVertexArray(VAO);
+    RenderStats::draws()++;
+    RenderStats::triangles() += indices.size() / 3;
     glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
     if (blended) {

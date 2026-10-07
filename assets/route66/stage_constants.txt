@@ -1,0 +1,11 @@
+station_z 10000
+road_end_z 20000
+road_width 8
+apron_far 36
+apron_half 48
+pump_x -17
+pylon_x -6.2
+pylon_z -26
+pump_zs -7.5 -2.5 2.5 7.5
+building -30 0 22 11 4.2
+canopy -16 0 30 11

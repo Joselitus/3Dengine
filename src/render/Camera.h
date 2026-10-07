@@ -37,6 +37,7 @@ private:
   glm::vec2 rotation; // yaw, pitch in radians (relative to `base`)
   glm::mat4 base = glm::mat4(1.0f); // view rotation of what carries the camera
 
+  float farPlane = 300.0f;          // farthest distance drawn, metres
   float fov = DEFAULT_FOV;          // vertical field of view, degrees
   float sensitivity = SENSIVILITY;  // radians per pixel of mouse movement
 
@@ -66,6 +67,8 @@ public:
 
   // Field of view (vertical, degrees); the projection is rebuilt at once
   void setFov(float degrees);
+  // How far the camera sees (metres, default 300); the projection is rebuilt at once
+  void setFarPlane(float distance) { farPlane = distance; setFov(fov); }
   float getFov() const { return fov; }
   // How much the camera turns per pixel the mouse moves. Only stored here:
   // the Controller reads it when it turns the camera.

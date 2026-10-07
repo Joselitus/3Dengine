@@ -29,16 +29,19 @@
 #include "PlayableCharacter.h"
 #include "RV.h"
 #include "Readable.h"
+#include "RenderStats.h"
 #include "Satellite.h"
 #include "Model.h"
 #include "FollaCulos.h"
 #include "ForestStage.h"
+#include "PineForestStage.h"
 #include "Mosquito.h"
 #include "MosquitoEgg.h"
 #include "Pingu.h"
 #include "AudioMenu.h"
 #include "CameraMenu.h"
 #include "PauseMenu.h"
+#include "Route66Stage.h"
 #include "SceneStage.h"
 #include "Settings.h"
 #include "Shader.h"
@@ -48,6 +51,7 @@
 #include "ParticleRenderer.h"
 #include "SoundEngine.h"
 #include "UIManager.h"
+#include "VehicleStage.h"
 #include "Walker.h"
 #include "myopengl.h"
 
@@ -136,27 +140,10 @@ GLFWwindow *initializeGLFW(const char *windowname) {
 // on foot, in first person. Using the RV's door (Use key) puts the penguin
 // inside it and hands the controls and the camera (third person) to the RV;
 // the leave-vehicle key (Left Shift) puts the penguin on foot at the door and
-// goes back to first person.
-class TestStage : public GameStage {
+// goes back to first person. The rest (the RV, the day cycle, the controls)
+// is VehicleStage's.
+class TestStage : public VehicleStage {
 private:
-  // PenguinoAnimado.fbx holds two takes of the same dance; take 0 (".002") has
-  // the right flipper detached from the body and the feet in the air, take 1
-  // (".003") is the clean one.
-  static constexpr unsigned int PENGUIN_ANIMATION = 1;
-  static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
-  static constexpr float CAR_CAMERA_DISTANCE = 12.0f;
-  static constexpr float CAR_CAMERA_HEIGHT = 3.5f;
-  static constexpr float EYE_HEIGHT = 1.6f; // first person, above the feet
-  static constexpr float DAY_DURATION = 360.0f; // real seconds per 24 h
-  // What is within this many metres of the edge of the terrain is not drawn
-  static constexpr float EDGE_CULL_MARGIN = 12.0f;
-  static constexpr float START_HOUR = 12.0f;    // the game starts at midday
-  // What is left of the light with no sun (it comes from straight above): very
-  // little, so that at night it is hard to see anything without the headlights
-  const vec3 NIGHT_LIGHT = vec3(0.022f, 0.025f, 0.04f);
-  std::shared_ptr<RV> rv;
-  std::shared_ptr<Walker> walker; // the penguin on foot
-  std::shared_ptr<FollaCulos> creature; // the night creature: runs at the player
   // The giant mosquitoes: the first one and those born of its eggs, the eggs waiting to hatch, the
   // pool they are laid in, and how many there may be at most (eggs included)
   std::vector<std::shared_ptr<Mosquito>> mosquitoes;
@@ -227,155 +214,28 @@ private:
     addDynamicLater(egg);
     return true;
   }
-  bool inVehicle = false;         // the penguin is inside the RV
-
-  // The penguin gets into the RV: it is hidden inside its body and goes
-  // wherever the RV goes, and the RV gets the controls and the camera
-  void enterRV() {
-    if (inVehicle)
-      return;
-    inVehicle = true;
-    walker->control(vec2(0.0f), 0.0f, 0.0f); // stops walking
-    walker->setVelocity(vec3(0.0f));
-    walker->setGravity(0.0f);       // it rides: nothing pulls it down
-    walker->setCollidable(false);   // inside the RV's box
-    walker->setVisible(false);
-    vec3 seat = rv->seatPosition();
-    walker->setPosition(seat.x, seat.y, seat.z);
-    rv->setOccupied(true);
-    setPlayer(rv, CAR_CAMERA_DISTANCE, CAR_CAMERA_HEIGHT, rv->headingYaw());
-  }
-
-  // Ground height at (x, z), or GROUND_Y where there is no floor
-  float groundAt(float x, float z) const {
-    return GameStage::groundAt(x, z, GROUND_Y);
-  }
-
-protected:
-  // The daylight cycle: the sun crosses the sky (east at 6:00, highest at
-  // noon, west at 18:00). The sky, the fog and the light follow it: blue by
-  // day, orange at dusk and dawn, and at night dark with stars and only a
-  // minimum of light left. The music fades out as the sun sets (until only
-  // the wind remains) and comes back with the dawn.
-  void onTimeChanged() override {
-    // 0 below `a`, 1 above `b`, smooth between (also works if a > b)
-    auto ramp = [](float a, float b, float x) {
-      float t = clamp((x - a) / (b - a), 0.0f, 1.0f);
-      return t * t * (3.0f - 2.0f * t);
-    };
-    float angle = (getTimeOfDay() - 6.0f) / 24.0f * 6.2831853f;
-    vec3 sun = normalize(vec3(cos(angle), sin(angle), -0.3f));
-    float h = sun.y; // how high the sun is (negative: below the horizon)
-
-    float day = ramp(-0.1f, 0.3f, h);
-    float dusk = ramp(-0.2f, 0.0f, h) * (1.0f - ramp(0.05f, 0.35f, h));
-    vec3 horizon = mix(vec3(0.035f, 0.055f, 0.11f), vec3(0.45f, 0.68f, 0.92f), day);
-    horizon = mix(horizon, vec3(0.95f, 0.52f, 0.30f), dusk * 0.85f);
-    vec3 zenith = mix(vec3(0.003f, 0.007f, 0.028f), vec3(0.16f, 0.38f, 0.78f), day);
-    zenith = mix(zenith, vec3(0.25f, 0.22f, 0.45f), dusk * 0.5f);
-    environment.horizon = horizon;
-    environment.skyZenith = zenith;
-    environment.sunDir = sun;
-    environment.starAlpha = 1.0f - ramp(-0.2f, 0.0f, h);
-
-    // The sun lights the world while it is up; at night there is only the
-    // minimum that is always there, from straight above
-    vec3 sunColor = mix(vec3(1.0f, 0.55f, 0.25f), vec3(0.85f, 0.83f, 0.78f),
-                        ramp(0.0f, 0.45f, h));
-    float sunPower = ramp(-0.05f, 0.25f, h);
-    environment.lightColor = sunColor * sunPower + NIGHT_LIGHT;
-    // The light comes from the sun while it gives noticeable light; only the
-    // minimum that is left (NIGHT_LIGHT) comes from above, so as the sun sets
-    // its share of the light shrinks instead of the direction drifting early
-    float sunShare = sunPower / (sunPower + length(NIGHT_LIGHT));
-    environment.lightDir = normalize(mix(vec3(0.0f, 1.0f, 0.0f), sun, sunShare));
-    setMusicVolume(ramp(-0.1f, 0.5f, h)); // gone shortly after sunset
-  }
-
-  // Everything dynamic stays on the dunes (the penguin inside the RV just
-  // rides in it)
-  void apply(DynamicGameObject &object, double dt) override {
-    if (inVehicle && &object == walker.get()) {
-      vec3 seat = rv->seatPosition();
-      object.setPosition(seat.x, seat.y, seat.z);
-      object.setVelocity(vec3(0.0f));
-      return;
-    }
-    collideWithFloor(object, dt);
-  }
+  static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
+  // What is within this many metres of the edge of the terrain is not drawn
+  static constexpr float EDGE_CULL_MARGIN = 12.0f;
 
 public:
-  // Interactions are for the penguin on foot, not while driving
-  bool interactionsEnabled() const override { return !inVehicle && !isPlayerDead(); }
-
-  // The player (the penguin or the RV) is always drawn, wherever it is
-  bool edgeCullExempt(const GameObject &object) const override {
-    return &object == rv.get() || &object == walker.get();
-  }
-
-  // F: the headlights while the penguin is driving, its flashlight on foot
-  void toggleHeadlights() override {
-    if (inVehicle)
-      rv->toggleHeadlights();
-    else
-      walker->toggleFlashlight();
-  }
-  // R: the engine, only while the penguin is driving
-  void toggleEngine() override {
-    if (inVehicle)
-      rv->toggleEngine();
-  }
-  // Space: the handbrake, only while the penguin is driving
-  void toggleHandbrake() override {
-    if (inVehicle)
-      rv->toggleHandbrake();
-  }
-  // C: inside the RV or behind it, only while the penguin is driving
-  void toggleVehicleCamera() override {
-    if (inVehicle)
-      rv->toggleCameraView();
-  }
   void getSpotLights(std::vector<SpotLight> &lights) const override {
-    if (!inVehicle)
-      walker->getFlashlight(lights); // (first: the shader may not have room for all)
+    VehicleStage::getSpotLights(lights);
     for (const auto &mosquito : mosquitoes) // the flash of an explosion (only for a moment)
       mosquito->getLight(lights);
-    rv->getHeadlights(lights);
-    rv->getDashboardLights(lights);
-    if (creature)
-      creature->getLight(lights); // (last: if the shader has no room, the creature's is the one left out)
-  }
-
-  // The penguin gets out at the RV's door, on foot and in first person
-  void leaveVehicle() override {
-    if (!inVehicle)
-      return;
-    inVehicle = false;
-    rv->control(vec2(0.0f), 0.0f, 0.0f); // the RV stops being driven
-    rv->setOccupied(false);
-    vec3 door = rv->doorPosition(1.5f); // beside the door, clear of the body
-    walker->setPosition(door.x, groundAt(door.x, door.z), door.z);
-    walker->setVelocity(vec3(0.0f));
-    walker->setGravity(25.0f);
-    walker->setCollidable(true);
-    // (attaching it hides its model); it looks away from the RV
-    setPlayer(walker, 0.0f, EYE_HEIGHT, rv->doorYaw());
   }
 
   // The NPCs speak through `sound` with voices made by `speech`
   TestStage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer &speech)
-      : GameStage(mode) {
+      : VehicleStage(mode) {
     soundEngine = &sound;
+    groundFallback = GROUND_Y;
     // The desert's background music: an arid guitar and banjo loop
     loadMusic("../assets/music/desert.wav");
     // ...and the wind, which never stops (it is all that is left at night)
     loadAmbience("../assets/music/wind.wav");
 
-    // A day lasts DAY_DURATION seconds; the sky and the light follow the
-    // clock (see onTimeChanged)
-    setSky(loadModel("../assets/sky/skydome_plain.obj"), 3);
-    setDayDuration(DAY_DURATION);
-    setTimeOfDay(START_HOUR);
+    startDay();
     setEdgeCulling(EDGE_CULL_MARGIN); // (once the floor is known)
     // First person: the camera at the penguin's eyes, 1.6 above its feet
     cameraDistance = 0.0f;
@@ -480,47 +340,9 @@ public:
     // creature->setBreathAmp(2.0f); // the creature breathes
     // addDynamic(creature);
 
-    // The RV (front toward +z, wheels on y = 0)
-    rv = make_shared<RV>(loadModel("../assets/rv/rv.obj"));
-    rv->setPosition(0.0f, GROUND_Y, 0.0f);
-    rv->setHeading(0.0f); // facing +z: its door (+x side) is towards the start
-    // The wheels are separate models so they follow the suspension
-    rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
-                       loadModel("../assets/rv/wheel_posx.obj"));
-    // The windshield: intact, and the cracked one that replaces it after a crash
-    rv->setWindshieldModels(loadModel("../assets/rv/windshield.obj"),
-                            loadModel("../assets/rv/windshield_broken.obj"));
-    // The cockpit: the dashboard, the ignition key and the gauges' needle
-    rv->setCockpitModels(loadModel("../assets/rv/dashboard.obj"),
-                         loadModel("../assets/rv/key.obj"),
-                         loadModel("../assets/rv/needle.obj"),
-                         loadModel("../assets/rv/dashboard_glow.obj"));
-    rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
-    rv->setEngineSound(sound);
-    rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
-    rv->setMaxSpeed(20.0f);
-    rv->setGravity(25.0f);
-    addDynamic(rv);
-    // The dust its wheels throw up on sand (the stage moves and removes it)
-    for (const auto &emitter : rv->getDust())
-      addEmitter(emitter);
-    for (const auto &emitter : rv->getGrains())
-      addEmitter(emitter);
-    // Using its door gets the player in (see enterRV)
-    rv->setEnterAction([this]() { enterRV(); });
-    interactables.push_back(rv.get());
-
-    // The player: a penguin on foot (a Walker), its feet on the floor, seen
-    // in first person. It is drawn centred on its position (AnimatedModel
-    // fits it to 1.8 units around the origin), which only shows if the camera
-    // is moved out of first person.
-    walker = make_shared<Walker>(
-        make_shared<AnimatedModel>("../assets/ping/PenguinoAnimado.fbx", false,
-                                   PENGUIN_ANIMATION));
-    walker->setPosition(3.0f, groundAt(3.0f, 4.0f), 4.0f);
-    walker->setGravity(25.0f);
-    addDynamic(walker);
-    player = walker;
+    // The RV, facing +z: its door (+x side) is towards the start
+    createRV(sound, 0.0f, 0.0f, 0.0f);
+    createWalker(3.0f, 4.0f);
 
     // A satellite next to the start, within reach (see Interactable)
     auto satellite = make_shared<Satellite>(
@@ -556,39 +378,10 @@ public:
     addDynamic(guide);
     interactables.push_back(guide.get());
 
-    // The night creature: it runs straight at whoever the player controls (the penguin on
-    // foot, or the RV when driving). The model is its own size, in metres.
-    creature = make_shared<FollaCulos>(
-        make_shared<AnimatedModel>("../assets/folla_culos/folla_culos_run.glb", true),
-        make_shared<AnimatedModel>("../assets/folla_culos/folla_culos_run.glb", false, 1),
-        sound, speech);
-    // If it is run over from the front it ends up stuck on the windshield of the RV
-    creature->setFrontHitTest([this](const FollaCulos &c) {
-      return rv->forwardSpeed() > 1.0f && rv->isInFront(c.getPosition());
-    });
-    creature->setRagdollWorld(
-        [this](float x, float z, float &height) { return floorAt(x, z, height); },
-        [this](vec3 &point, float radius) { rv->pushOutOfBody(point, radius); },
-        [this]() { return rv->getVelocity(); });
-    creature->setSurfaceFrame([this](vec3 &center, vec3 &up, vec3 &normal) {
-      rv->windshieldFrame(center, up, normal);
-    });
-    creature->setPosition(18.0f, groundAt(18.0f, 24.0f), 24.0f);
-    creature->setGravity(25.0f);
-    creature->setTarget([this]() { return player->getPosition(); });
-    // Touching the player on foot kills him; then it runs away
-    creature->setPlayerCaughtCallback([this]() { killPlayer(); });
-    creature->setPlayerDeadQuery([this]() { return isPlayerDead(); });
-    // It is wary of the RV: when the player drives it, it keeps its distance (see FollaCulos)
-    creature->setPlayerInVehicleQuery([this]() { return inVehicle; });
+    createCreature(sound, speech, 18.0f, 24.0f);
     // The other NPCs are its prey if they come near
     Npc *pingu = guide.get();
     creature->setPreyQuery([pingu]() { return std::vector<Npc *>{pingu}; });
-    // Its face follows the camera
-    creature->setLookTarget([this]() { return viewer; });
-    // At night it comes for you; by day it keeps away (the sun is below the horizon)
-    creature->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
-    addDynamic(creature);
 
     // A pool of water (for now a blue square, flat on a flat bit of sand): the mosquito lays its
     // eggs in it
@@ -625,8 +418,6 @@ public:
   }
 };
 
-constexpr unsigned int TestStage::PENGUIN_ANIMATION;
-
 // Shaders and assets are loaded with paths relative to src/. The binary is
 // built into test/, next to src/, so move there whatever the launch directory.
 bool enterSourceDir() {
@@ -645,6 +436,7 @@ int main(int argc, char **argv) {
   float startHour = -1.0f;   // --time H: hour a map starts at (default: its own)
   float dayDuration = -1.0f; // --day-duration S: seconds per day (0 = stopped)
   std::string startMap;      // --map N|NAME: the map to start in (number in the list from 0, or name)
+  bool profile = false;      // --profile: print where the time of each frame goes
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
@@ -656,6 +448,8 @@ int main(int argc, char **argv) {
       dayDuration = (float)atof(argv[++i]);
     else if (std::string(argv[i]) == "--map" && i + 1 < argc)
       startMap = argv[++i];
+    else if (std::string(argv[i]) == "--profile")
+      profile = true;
   if (!enterSourceDir())
     fprintf(stderr, "Could not find src/, using the current directory\n");
 
@@ -725,14 +519,28 @@ int main(int argc, char **argv) {
          return std::unique_ptr<GameStage>(
              new TestStage(floorMode, sound, speech));
        }},
+      {"Bosque",
+       [floorMode, &sound]() -> std::unique_ptr<GameStage> {
+         std::unique_ptr<ForestStage> forest(new ForestStage(floorMode, sound));
+         if (!forest->isValid())
+           return nullptr;
+         return std::unique_ptr<GameStage>(forest.release());
+       }},
+      {"Ruta 66",
+       [floorMode, &sound, &speech]() -> std::unique_ptr<GameStage> {
+         std::unique_ptr<Route66Stage> route(new Route66Stage(floorMode, sound, speech));
+         if (!route->isValid())
+           return nullptr;
+         return std::unique_ptr<GameStage>(route.release());
+       }},
       {"Desierto de noche",
        [floorMode]() -> std::unique_ptr<GameStage> {
          return SceneStage::load("../assets/scenes/desert.scene",
                                  "../assets", floorMode);
        }},
-      {"Bosque",
+      {"Bosque de pinos",
        [floorMode, &sound]() {
-         return std::unique_ptr<GameStage>(new ForestStage(floorMode, sound));
+         return std::unique_ptr<GameStage>(new PineForestStage(floorMode, sound));
        }},
   };
   std::unique_ptr<GameStage> stage;
@@ -792,6 +600,7 @@ int main(int argc, char **argv) {
       shader.setVector3("canopyHeights", env.canopyHeights.x, env.canopyHeights.y, env.canopyHeights.z);
       shader.setFloat("canopyStrength", env.canopyStrength);
     }
+    shader.setFloat("forestHorizon", env.forestHorizon);
   };
 
   // Replaces the current map: nothing may still point into the old one (its
@@ -814,6 +623,7 @@ int main(int argc, char **argv) {
     ambience.play(stage->getAmbience(), true, stage->getAmbienceVolume());
     for (Interactable *object : stage->getInteractables())
       interaction.add(object);
+    camera.setFarPlane(stage->getFarPlane());
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                       stage->getCameraHeight(), stage->getCameraYaw());
 
@@ -960,7 +770,9 @@ int main(int argc, char **argv) {
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
     stage->setViewer(camera.getPosition()); // (where it was the last frame)
+    double tUpdate = glfwGetTime();
     stage->update(dt);
+    double tPhysics = glfwGetTime() - tUpdate;
     // a map may fade its sounds (with the time of day)
     music.setVolume(stage->getMusicVolume());
     ambience.setVolume(stage->getAmbienceVolume());
@@ -1007,6 +819,7 @@ int main(int argc, char **argv) {
     vec3 eye = camera.getPosition();
     if (stage->keepAboveFloor(eye, Camera::RADIUS))
       camera.reposition(eye.x, eye.y, eye.z);
+    selector.countFrame(dt);
     selector.update(*stage, camera, !ui.hasPanels());
     // The player hears from the camera
     sound.setListener(camera.getPosition(), camera.getForward());
@@ -1018,7 +831,21 @@ int main(int argc, char **argv) {
 
     // Draw: the map's sky (if any) and the map, then the interface on top
     shader.setFloat("time", (float)now);
+    RenderStats::clear();
+    double tRender = glfwGetTime();
+    static GLuint sampleQuery = 0;
+    if (profile) { // how many samples the world's drawing leaves in the picture (its overdraw)
+      if (!sampleQuery)
+        glGenQueries(1, &sampleQuery);
+      glBeginQuery(GL_SAMPLES_PASSED, sampleQuery);
+    }
     stage->render(&shader, camera.getPosition(), now);
+    if (profile)
+      glEndQuery(GL_SAMPLES_PASSED);
+    double tSubmit = glfwGetTime() - tRender; // the CPU's share: what it takes to give the GPU its work
+    if (profile)
+      glFinish(); // wait for the GPU, to time it
+    double tGpu = glfwGetTime() - tRender - tSubmit;
     const Environment &env = stage->getEnvironment();
     particles.setLighting(env.lightColor, env.lightDir, lights);
     particles.draw(stage->getEmitters(), camera); // over the world
@@ -1026,8 +853,45 @@ int main(int argc, char **argv) {
     ui.draw(); // last, over everything
 
     // Swap buffers
+    double tSwap = glfwGetTime();
     glfwSwapBuffers(window);
     glfwPollEvents();
+    if (profile) {
+      // The average of each second: frame time, then where it went (physics, submitting the
+      // draw calls, the GPU finishing, waiting at the swap: vsync) and what was drawn
+      static double sum[5] = {0, 0, 0, 0, 0}, since = glfwGetTime();
+      static unsigned long frames = 0, draws = 0, tris = 0, uniforms = 0, objects = 0;
+      static double samples = 0.0;
+      GLuint passed = 0;
+      glGetQueryObjectuiv(sampleQuery, GL_QUERY_RESULT, &passed);
+      samples += passed;
+      sum[0] += glfwGetTime() - now;
+      sum[1] += tPhysics;
+      sum[2] += tSubmit;
+      sum[3] += tGpu;
+      sum[4] += glfwGetTime() - tSwap;
+      frames++;
+      draws += RenderStats::draws();
+      tris += RenderStats::triangles();
+      uniforms += RenderStats::uniformCalls();
+      objects += RenderStats::objects();
+      if (glfwGetTime() - since >= 1.0 && frames > 0) {
+        fprintf(stderr,
+                "PROFILE %.1f fps | frame %.1f ms = physics %.1f + submit %.1f + gpu %.1f + swap %.1f | "
+                "%lu objects, %lu draw calls, %.2fM triangles, %lu uniform calls per frame\n",
+                frames / (glfwGetTime() - since), 1000 * sum[0] / frames, 1000 * sum[1] / frames,
+                1000 * sum[2] / frames, 1000 * sum[3] / frames, 1000 * sum[4] / frames,
+                objects / frames, draws / frames, tris / frames / 1e6, uniforms / frames);
+        int fbw, fbh;
+        glfwGetFramebufferSize(window, &fbw, &fbh);
+        fprintf(stderr, "        %.1f samples per pixel of the world (overdraw, counting each MSAA sample)\n",
+                samples / frames / ((double)fbw * fbh));
+        samples = 0.0;
+        for (double &v : sum) v = 0;
+        frames = draws = tris = uniforms = objects = 0;
+        since = glfwGetTime();
+      }
+    }
   }
 
   glfwTerminate();

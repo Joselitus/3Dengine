@@ -16,6 +16,7 @@
     --error: #ff7a7a;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg);
     color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
   canvas { display: block; }
@@ -61,6 +62,12 @@
 
 <div id="controls" class="panel">
   <h1 id="title">Visor de escena</h1>
+  <select id="scene-select" style="width:100%"></select>
+  <div id="clock" hidden>
+    <h2>Hora del día <span id="hour-label"></span></h2>
+    <input type="range" id="hour" min="0" max="24" step="0.05" value="12" style="width:100%">
+    <label><input type="checkbox" id="opt-day"> Dejar pasar el día</label>
+  </div>
   <h2>Cámara</h2>
   <div class="row">
     <button data-view="orbit">Órbita</button>
@@ -68,10 +75,9 @@
     <button data-view="player">Jugador</button>
   </div>
   <h2>Mostrar</h2>
-  <label><input type="checkbox" id="opt-fog" checked> Niebla</label>
   <label><input type="checkbox" id="opt-sky" checked> Cielo</label>
   <label><input type="checkbox" id="opt-grid"> Rejilla (1 m) y ejes</label>
-  <label><input type="checkbox" id="opt-lit"> Luz de día (ver mejor)</label>
+  <label id="row-lit"><input type="checkbox" id="opt-lit"> Luz de día (ver mejor)</label>
   <label><input type="checkbox" id="opt-anim" checked> Animar</label>
   <label><input type="checkbox" id="opt-reload" checked> Recargar al cambiar el .scene</label>
   <div class="row" style="margin-top:6px">

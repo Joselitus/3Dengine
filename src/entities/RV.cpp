@@ -18,6 +18,10 @@ using namespace glm;
 #define SAND_GRIP 0.75f
 #define SAND_ROLLING 2.5f
 #define SAND_TOP_SPEED 0.5f
+// forest floor (moss, needles): firmer than sand, still slower than the road
+#define GRASS_GRIP 0.85f
+#define GRASS_ROLLING 1.8f
+#define GRASS_TOP_SPEED 0.65f
 // The dust a wheel throws up on sand: the particles go backwards (against the
 // direction of travel) and upwards, and then fall. It starts above a walking
 // pace, and the faster it goes, the more there is.
@@ -97,8 +101,8 @@ static const vec3 WHEEL_ORIGIN(0.45f, 1.58f, 2.28f);
 static const float STEERING_RATIO = 3.5f;
 static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the driver
 // Fuel (0..1 of the tank) used per metre driven: the consumption is proportional to the
-// speed (the distance covered in a frame is speed * dt). A full tank is ~1.5 km.
-static const float FUEL_PER_METER = 1.0f / 1500.0f;
+// speed (the distance covered in a frame is speed * dt). A full tank is 12 km.
+static const float FUEL_PER_METER = 1.0f / 12000.0f; // (the default of RV::setFuelPerMeter)
 // With no fuel, the handbrake holds it once it is slower than this (m/s), so that it does
 // not creep on a slope
 static const float EMPTY_HOLD_SPEED = 2.0f;
@@ -274,6 +278,10 @@ static VehicleBody::Surface surfaceOf(FloorMaterial material) {
     surface.grip = SAND_GRIP;
     surface.rolling = SAND_ROLLING;
     surface.topSpeed = SAND_TOP_SPEED;
+  } else if (material == FloorMaterial::Grass) {
+    surface.grip = GRASS_GRIP;
+    surface.rolling = GRASS_ROLLING;
+    surface.topSpeed = GRASS_TOP_SPEED;
   }
   return surface;
 }
@@ -738,7 +746,7 @@ bool RV::contactFloor(const Stage &stage, double dt) {
 
   // Driving burns fuel in proportion to the speed (only while somebody drives it)
   if (occupied && engineOn && fuel > 0.0f)
-    setFuel(fuel - FUEL_PER_METER * std::fabs(body->getForwardSpeed()) * (float)dt);
+    setFuel(fuel - fuelPerMeter * std::fabs(body->getForwardSpeed()) * (float)dt);
 
   // The timer of a frontal collision follows the speed (after the physics of this frame)
   impact.update((float)dt, body->getForwardSpeed());

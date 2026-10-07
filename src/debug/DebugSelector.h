@@ -64,6 +64,12 @@ private:
   std::weak_ptr<GameObject> hovered; // Inspect: under the crosshair
   std::string hoveredName;
   std::vector<std::string> info; // what the box shows, refreshed each update
+  // Frames per second, shown in the selection mode: frames and time counted over
+  // FPS_PERIOD seconds, then the shown value is renewed
+  static constexpr double FPS_PERIOD = 0.5;
+  int fpsFrames = 0;
+  double fpsTime = 0.0;
+  float fps = 0.0f;
   bool turning = false;          // Place: the right button turns the object
   double lastCursorX = 0.0;      // while turning, on the previous update
   float turnHeading = 0.0f;      // while turning, where the mouse has taken
@@ -115,6 +121,18 @@ public:
   // Forgets the selected and the hovered object (e.g. its map is about to be
   // replaced)
   void clear();
+
+  // Counts a frame that took `dt` seconds (call it every frame): the selection mode shows the
+  // frames per second
+  void countFrame(double dt) {
+    fpsFrames++;
+    fpsTime += dt;
+    if (fpsTime >= FPS_PERIOD) {
+      fps = (float)(fpsFrames / fpsTime);
+      fpsFrames = 0;
+      fpsTime = 0.0;
+    }
+  }
 
   // Reads the mouse (if `canPick`: no panel is open), selects or moves, and
   // refreshes the data

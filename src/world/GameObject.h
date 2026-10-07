@@ -34,16 +34,25 @@ public:
 
 protected:
   std::vector<Part> parts;
+  std::shared_ptr<Model> nearModel; // the first part's own model, with details
   std::shared_ptr<AnimatedModel> aniModel; // skinned model, if it has one
   glm::vec3 position = glm::vec3(0.0f);
   glm::mat4 rotation = glm::mat4(1.0f);
   float scale = 1.0f;
   float breathAmp = 0.0f; // procedural breathing of the static meshes
+  float swayAmp = 0.0f;   // wind on a tree: 0 = still, 1 = a normal breeze (see setSwayAmp)
   bool visible = true;    // false: Draw() does nothing (e.g. a first-person
                           // player, whose model would hide the view)
   double time = 0.0;      // seconds since the object was updated the first time
   std::shared_ptr<const CollisionShape> shape; // never null
   bool collidable = true; // false: the stage ignores its shape (e.g. the floor)
+  float cullRadius = 0.0f; // how far its parts reach from its position (see setCullRadius)
+  // Simpler models of the first part, for when the object is far from the camera
+  struct Detail {
+    float from; // metres from the camera (in x/z) from which it is used
+    std::shared_ptr<Model> model;
+  };
+  std::vector<Detail> details; // by increasing distance; the part's own model is used before the first
 
 public:
   // `shape` is the collision shape, in the object's frame; without it, a
@@ -73,11 +82,25 @@ public:
   void setYaw(float radians);
   void setScale(float scale) { this->scale = scale; }
   void setBreathAmp(float amp) { breathAmp = amp; }
+  // The vertex shader moves the object like a tree in the wind (the mesh must stand on
+  // y = 0 with its trunk on the y axis); 0 = still
+  void setSwayAmp(float amp) { swayAmp = amp; }
   void setVisible(bool visible) { this->visible = visible; }
   bool isVisible() const { return visible; }
   glm::vec3 getPosition() const { return position; }
   const CollisionShape &getShape() const { return *shape; }
   void setCollidable(bool collidable) { this->collidable = collidable; }
+  // For Stage::setDrawDistance: how far from its position the object extends (a
+  // big object, like a chunk of forest or the terrain, is drawn while any of it
+  // can be in range)
+  void setCullRadius(float radius) { cullRadius = radius; }
+  float getCullRadius() const { return cullRadius; }
+  // From `distance` metres away the first part is drawn with `model`, a simpler version of
+  // it (call it for the nearest first); the stage chooses with selectDetail before drawing
+  void addDetail(std::shared_ptr<Model> model, float distance);
+  bool hasDetails() const { return !details.empty(); }
+  // Uses the version of the model that suits an object `distance` metres from the camera
+  void selectDetail(float distance);
   bool isCollidable() const { return collidable; }
   // Where the collision shape is now
   Pose getPose() const {

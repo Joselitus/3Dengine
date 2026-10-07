@@ -48,6 +48,7 @@ public:
   virtual ~Mesh() = default;
   const std::vector<Vertex> &getVertices() const { return vertices; }
   const std::vector<unsigned int> &getIndices() const { return indices; }
+  const std::vector<Texture> &getTextures() const { return textures; }
   void setMaterialName(const std::string &name) { materialName = name; }
   const std::string &getMaterialName() const { return materialName; }
   void setColor(const glm::vec3 &c) { color = c; hasColor = true; }

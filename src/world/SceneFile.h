@@ -9,7 +9,8 @@
 enum class Effect {
   Lit,      // Phong with the moonlight, fades into the fog
   Emissive, // flat texture colour, ignores light and fog
-  Breathe   // lit, plus procedural breathing in the vertex shader
+  Breathe,  // lit, plus procedural breathing in the vertex shader
+  Sway      // lit, plus wind: it moves like a tree (see GameObject::setSwayAmp)
 };
 
 // One static model placed in the world.
@@ -32,6 +33,10 @@ struct SceneFile {
   float timeOfDay = 0.0f;   // hours at the start (0 = midnight)
   float dayDuration = 0.0f; // seconds a day lasts, 0 = the time stands still
   std::string sky;    // empty: no sky dome
+  // Only for the web viewer's descriptions of maps built in code (the game's
+  // SceneStage ignores it): the sky is painted by the shader from the time of
+  // day ("dunes" or "forest" on the horizon)
+  std::string proceduralSky;
   std::string floor;  // empty: no floor (nothing to walk on)
   glm::vec3 floorPosition = glm::vec3(0.0f);
   std::string player; // empty: no controllable character

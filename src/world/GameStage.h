@@ -35,6 +35,8 @@ struct Environment {
   float canopySize = 1.0f;
   glm::vec3 canopyHeights = glm::vec3(0.0f);
   float canopyStrength = 0.85f;
+  // 1: that sky has a line of trees on the horizon instead of dunes
+  float forestHorizon = 0.0f;
 };
 
 // A playable map: a Stage that also knows everything the game needs to run
@@ -49,6 +51,7 @@ protected:
   std::shared_ptr<PlayableCharacter> player;
   float cameraDistance = 0.0f; // 0 = first person
   float cameraHeight = 1.6f;   // above the player's position (its feet)
+  float farPlane = 300.0f;     // how far the camera sees (a map with far scenery raises it)
   float cameraYaw = 0.0f;      // where the view starts looking (0 = towards -z)
   std::vector<Interactable *> interactables; // owned by the stage
   bool playerChanged = false; // see takePlayerChange()
@@ -133,6 +136,7 @@ public:
   std::shared_ptr<PlayableCharacter> getPlayer() const { return player; }
   float getCameraDistance() const { return cameraDistance; }
   float getCameraHeight() const { return cameraHeight; }
+  float getFarPlane() const { return farPlane; }
   float getCameraYaw() const { return cameraYaw; }
   const std::vector<Interactable *> &getInteractables() const {
     return interactables;
