@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include "AudioClip.h"
+#include "AudioGenerator.h"
 
 struct ma_engine;
 
@@ -19,6 +20,7 @@ class Sound {
 private:
   struct Playback; // miniaudio's buffer and sound (SoundEngine.cpp)
   std::shared_ptr<const AudioClip> clip; // the samples must outlive playback
+  std::shared_ptr<AudioGenerator> generator; // or the sound being made as it plays
   std::unique_ptr<Playback> playback;
 
   friend class SoundEngine;
@@ -34,6 +36,8 @@ public:
   double getLengthSeconds() const;
   void setPosition(const glm::vec3 &position);
   void setVolume(float volume); // 1 = as recorded
+  // Playback speed: 1 = as recorded, 2 = twice as fast and an octave higher
+  void setPitch(float pitch);
   // Starts again from the beginning each time it ends, until stopped
   void setLooping(bool looping);
   void stop();
@@ -71,6 +75,10 @@ public:
                               bool spatial = false,
                               const glm::vec3 &position = glm::vec3(0.0f),
                               bool loop = false);
+  // Plays a sound made on the fly (see AudioGenerator), until the Sound is destroyed
+  std::unique_ptr<Sound> playGenerated(std::shared_ptr<AudioGenerator> generator,
+                                       bool spatial = false,
+                                       const glm::vec3 &position = glm::vec3(0.0f));
 };
 
 #endif

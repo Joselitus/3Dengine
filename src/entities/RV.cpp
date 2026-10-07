@@ -322,13 +322,45 @@ void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
   setPartVisible(glowPart, lampsLit());
 }
 
-// The light switch keeps what the player chose: switching the engine off puts the lights out
-// (lightsActive) but not the switch, so starting the engine again turns them back on
-void RV::setEngine(bool on) {
+void RV::setEngineSound(SoundEngine &sound) {
+  engineSound.reset(new EngineSound(sound));
+}
+
+// Revs follow the road speed and the pedal; the sound follows the revs
+void RV::updateEngineSound(double dt, float speed) {
+  float pedal = (engineOn && occupied) ? std::fabs(throttle) : 0.0f;
+  engineSim.update(dt, fuel > 0.0f, speed, pedal);
+  if (keyOn && engineSim.hasGivenUp()) { // it would not start: the driver lets the key go
+    keyOn = false;
+    setEngineRunning(false);
+  }
+  // the engine has caught: from now on it can be used
+  if (keyOn && !engineOn && engineSim.isRunning())
+    setEngineRunning(true);
+  if (engineSound)
+    engineSound->update(position + vec3(0.0f, 1.0f, 0.0f), engineSim.getRpm(),
+                        engineSim.getLoad(), engineSim.getStarter(), engineSim.getFire());
+}
+
+void RV::setEngineRunning(bool on) {
   engineOn = on;
   flickerTime = 0.0f; // a fault does not outlast a change of engine
   lampLevel = 1.0f;
   updateLights();
+}
+
+// The light switch keeps what the player chose: switching the engine off puts the lights out
+// (lightsActive) but not the switch, so starting the engine again turns them back on
+void RV::setEngine(bool on) {
+  if (on == keyOn)
+    return;
+  keyOn = on;
+  if (on) {
+    engineSim.start(fuel > 0.0f); // engineOn follows when it catches
+  } else {
+    engineSim.stop();
+    setEngineRunning(false);
+  }
 }
 
 void RV::setHeadlights(bool on) {
@@ -500,7 +532,8 @@ void RV::updateCockpit(double dt) {
   float speed = body && engineOn ? std::fabs(body->getForwardSpeed()) : 0.0f;
   speedShown += (glm::clamp(speed / SPEEDOMETER_MAX, 0.0f, 1.0f) - speedShown) * follow;
   fuelShown += ((engineOn ? fuel : 0.0f) - fuelShown) * follow;
-  keyTurn += ((engineOn ? 1.0f : 0.0f) - keyTurn) *
+  // (the key goes a bit further while the starter is engaged, and springs back)
+  keyTurn += ((keyOn ? (engineSim.getStarter() > 0.5f ? 1.3f : 1.0f) : 0.0f) - keyTurn) *
              (dt > 0.0 ? glm::min(1.0f, (float)dt * KEY_RATE) : 1.0f);
 
   setPartTransform(keyPart, panelFrame(KEY_ORIGIN, KEY_ON_ANGLE * keyTurn));
@@ -657,6 +690,8 @@ bool RV::contactFloor(const Stage &stage, double dt) {
                           vec3 &normal) {
     return stage.floorAt(x, z, height, &normal, maxY);
   });
+
+  updateEngineSound(dt, body->getForwardSpeed());
 
   // Driving burns fuel in proportion to the speed (only while somebody drives it)
   if (occupied && engineOn && fuel > 0.0f)

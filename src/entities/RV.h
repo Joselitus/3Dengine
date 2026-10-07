@@ -7,6 +7,8 @@
 
 #include "Camera.h"
 #include "Interactable.h"
+#include "EngineSimulator.h"
+#include "EngineSound.h"
 #include "ImpactDetector.h"
 #include "ParticleEmitter.h"
 #include "PlayableCharacter.h"
@@ -71,7 +73,8 @@ private:
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
   bool occupied = false;             // someone is driving it
-  bool engineOn = false;             // the key is turned (see setEngine)
+  bool keyOn = false;                // the key is turned: the engine is starting or running
+  bool engineOn = false;             // the engine has caught and runs (see setEngine)
   bool headlightsOn = false;         // the light switch (what the player chose)
   bool parkedLights = false;         // got out with the lights on: they stay on without the engine
   // headlight faults (see the class comment)
@@ -107,6 +110,12 @@ private:
   float fuelShown = 0.0f;
   float fuel = 0.75f;      // fuel level, 0..1: driving burns it (FUEL_PER_METER), empty = no engine
 
+  // the engine: its speed (rpm) and its sound (see setEngineSound)
+  EngineSimulator engineSim;
+  std::unique_ptr<EngineSound> engineSound;
+
+  void updateEngineSound(double dt, float speed);
+  void setEngineRunning(bool on); // the engine caught / stopped: lights, gauges, driving follow
   void updateCockpit(double dt);
   void placeSteeringWheel();
   void updateDashboardLights(); // the dashboard glows with the headlights
@@ -198,6 +207,10 @@ public:
   // The steering wheel (steering_wheel.obj), in its own frame placed under the dashboard
   // (see setSteeringWheelModel in RV.cpp); it turns with the front wheels
   void setSteeringWheelModel(std::shared_ptr<Model> wheel);
+  // Gives the engine a sound: it idles from the moment it starts and revs up with the
+  // speed and the throttle (EngineSimulator, EngineSound). Without it, it is silent.
+  void setEngineSound(SoundEngine &sound);
+  float getEngineRpm() const { return engineSim.getRpm(); }
   // The two windshields, in the frame of rv.obj: the intact one, and the broken one (cracked
   // glass) that replaces it when the windshield is damaged
   void setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken);
@@ -247,7 +260,10 @@ public:
   // engine starts again (the switch does nothing while it is off)
   bool isEngineOn() const { return engineOn; }
   void setEngine(bool on);
-  void toggleEngine() { setEngine(!engineOn); }
+  // Turning the key on starts the engine only after the starter has cranked it (isEngineOn is
+  // false meanwhile, and the lights, gauges and driving stay off); it may take several tries.
+  bool isKeyOn() const { return keyOn; }
+  void toggleEngine() { setEngine(!keyOn); }
   // Which way it faces (radians around +y, 0 = towards +z; the door is on its
   // +x side). Only before the first update: after it the physics rules.
   void setHeading(float radians) {

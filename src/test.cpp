@@ -420,6 +420,7 @@ public:
                          loadModel("../assets/rv/needle.obj"),
                          loadModel("../assets/rv/dashboard_glow.obj"));
     rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
+    rv->setEngineSound(sound);
     rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
     rv->setMaxSpeed(20.0f);
     rv->setGravity(25.0f);
