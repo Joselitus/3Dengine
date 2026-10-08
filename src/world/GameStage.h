@@ -59,6 +59,7 @@ protected:
   bool playerAbducted = false; // see abductPlayer()
   glm::vec3 abductPoint = glm::vec3(0.0f);
   glm::vec3 viewer = glm::vec3(0.0f); // where the camera is (things may look at it)
+  glm::mat4 viewProjection = glm::mat4(1.0f); // and what it sees (world -> clip space)
 
   explicit GameStage(FloorMode mode) : Stage(mode) {}
 
@@ -115,8 +116,16 @@ public:
   // Bob holds him: how near he is to getting free (0..1), or < 0 if nobody holds him
   virtual float struggleProgress() const { return -1.0f; }
   const glm::vec3 &getAbductPoint() const { return abductPoint; }
-  // The main loop tells the map where the camera is, every frame
-  void setViewer(const glm::vec3 &position) { viewer = position; }
+  // How much the player feels Bob near (0..1): the main loop covers the screen with that much film
+  // grain (nothing by default)
+  virtual float alienPresence() const { return 0.0f; }
+  // The abduction is over (he is in the ship): Bob's hiss stops, though the grain stays
+  virtual void endAlienHiss() {}
+  // The main loop tells the map where the camera is and what it sees, every frame
+  void setViewer(const glm::vec3 &position, const glm::mat4 &projection) {
+    viewer = position;
+    viewProjection = projection;
+  }
   const Environment &getEnvironment() const { return environment; }
 
   // True once after the player has changed (setPlayer): then the controller

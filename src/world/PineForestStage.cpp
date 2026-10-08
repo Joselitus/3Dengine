@@ -78,7 +78,7 @@ PineForestStage::PineForestStage(FloorMode mode, SoundEngine &sound) : VehicleSt
   // Bob's ship lands in the clearing, away from the RV, its ramp towards the start
   vec3 landing(-9.0f, 0.0f, -9.0f);
   landing.y = groundAt(landing.x, landing.z);
-  createAlienVisit(landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
+  createAlienVisit(sound, landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
 
   // The day as in the desert (VehicleStage), from the morning, with no dunes on the sky
   startDay();

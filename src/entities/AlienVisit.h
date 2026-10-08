@@ -12,6 +12,7 @@
 class Stage;
 
 // Bob's night visits to a map: his ship (Saucer) and Bob, made from assets/bob, added to `stage`
+// (with the ship's smoke emitters)
 // and wired to each other and to the map. The ship lands on `landing` (the ground under its
 // middle) with its ramp opening towards `rampYaw` (radians about +y, 0 = +z). The map says
 // whether it is night, where the player is (his feet), whether he is in the vehicle and whether

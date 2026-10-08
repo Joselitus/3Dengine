@@ -6,6 +6,7 @@
 #include <random>
 
 #include "DynamicGameObject.h"
+#include "SoundEngine.h"
 #include "SpotLight.h"
 
 class Saucer;
@@ -35,6 +36,14 @@ class Saucer;
 // he covers), and his arms reach out when he holds the player. His eyes are two models: black
 // ones, and white ones drawn glowing (at night). The ray is one more model (a thin yellow
 // glowing rod, one per eye) stretched from each eye to the player's head.
+//
+// His sounds (setSounds): the hum of his ray (bob_eye_beam.wav, from his eyes) while he fires, cut
+// with the firing; and a grainy hiss (bob_grain.wav, in both ears) while the player sees him: his
+// presence (getPresence), which only grows while the player looks straight at him (within
+// GAZE_CONE of the middle of the view; at the edges of the screen he can be seen but does
+// nothing), quiet for just that, louder when he looks back and as he comes nearer, and at its
+// highest once he has taken the player. The main loop draws the same presence as a film grain
+// over the screen.
 class Bob : public DynamicGameObject {
 public:
   enum class Behavior { Inside, Exiting, Prowl, Chase, Firing, Grabbing, Fallen, Returning, Boarding };
@@ -58,6 +67,19 @@ public:
   static constexpr float FALLEN_TIME = 4.0f, LEAVE_ALONE = 6.0f;
   // The player's head over his feet (m), what the ray aims at
   static constexpr float HEAD_HEIGHT = 1.5f;
+  // How loud his ray is (1 = as recorded) and how long (s) it fades out at the end of the firing
+  static constexpr float BEAM_VOLUME = 2.0f, BEAM_FADE = 0.2f;
+  // His presence (0..1), while the player looks at him within PRESENCE_RANGE (m): SEEN for
+  // being there, up to WATCHING more if he looks at the player (he chases him, or faces him), and
+  // up to NEAR more as he comes from PRESENCE_RANGE to PRESENCE_NEAR (m). It rises and falls at
+  // these rates (1/s), and the hiss is GRAIN_VOLUME loud at presence 1.
+  static constexpr float PRESENCE_RANGE = 60.0f, PRESENCE_NEAR = 3.0f;
+  static constexpr float PRESENCE_SEEN = 0.15f, PRESENCE_WATCHING = 0.35f, PRESENCE_CLOSE = 0.5f;
+  static constexpr float PRESENCE_RISE = 2.0f, PRESENCE_FALL = 0.6f;
+  static constexpr float GRAIN_VOLUME = 1.0f;
+  // Looking straight at him: all of it within GAZE_CONE degrees of the middle of the view, none
+  // past GAZE_EDGE (the screen is 45 degrees high)
+  static constexpr float GAZE_CONE = 9.0f, GAZE_EDGE = 16.0f;
 
 private:
   Behavior behavior = Behavior::Inside;
@@ -73,11 +95,19 @@ private:
   float fall = 0.0f;         // 0 = standing .. 1 = on his back
   glm::vec3 lastPosition = glm::vec3(0.0f);
   bool tookPlayer = false;
+  bool hissSilenced = false; // (see silenceHiss)
   float rayCooldown = 0.0f;
   bool rayHit = false;       // (Firing) the paralysis has been given
   float struggle = 0.0f;     // (Grabbing) 0..1: at 1 the player is free
   float leaveAlone = 0.0f;   // seconds until he chases again
   std::mt19937 random;
+  float presence = 0.0f;
+
+  SoundEngine *soundEngine = nullptr;
+  std::shared_ptr<AudioClip> beamClip, grainClip;
+  std::unique_ptr<Sound> beam, grain;
+  std::function<glm::vec3()> viewerPosition;
+  std::function<glm::mat4()> viewerProjection;
 
   std::function<glm::vec3()> targetPosition;
   std::function<bool()> playerInVehicle, playerDead, playerParalysed, isNight;
@@ -94,6 +124,11 @@ private:
   void animate(double dt);
   void aimRays(bool shining);
   void take();
+  glm::vec3 eyesPosition() const;
+  float gazedAt(const glm::vec3 &eye, const glm::mat4 &viewProjection) const;
+  float watching(const glm::vec3 &eye) const;
+  void updatePresence(double dt);
+  void updateSounds();
   float uniform(float a, float b) { return std::uniform_real_distribution<float>(a, b)(random); }
 
 public:
@@ -112,6 +147,17 @@ public:
   void setTakePlayerCallback(std::function<void()> take) { takePlayer = take; }
   // What his ray does to the player (the stage paralyses him for that many seconds)
   void setParalyseCallback(std::function<void(float)> p) { paralyse = p; }
+  // His sounds (assets/bob), played on `engine`; without this he is silent
+  void setSounds(SoundEngine &engine);
+  // Where the player's camera is and what it sees (its view-projection matrix): for his presence
+  void setViewer(std::function<glm::vec3()> position, std::function<glm::mat4()> viewProjection) {
+    viewerPosition = position;
+    viewerProjection = viewProjection;
+  }
+  // How much the player feels him (0..1): see PRESENCE_*
+  float getPresence() const { return presence; }
+  // His hiss stops for good (the abduction is over), though his presence stays
+  void silenceHiss() { hissSilenced = true; }
 
   // The ship has landed and its ramp is down: he comes out
   void disembark();

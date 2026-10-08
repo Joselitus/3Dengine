@@ -102,6 +102,13 @@ void Sound::setLooping(bool looping) {
     ma_sound_set_looping(&playback->sound, looping ? MA_TRUE : MA_FALSE);
 }
 
+void Sound::setDistances(float nearest, float farthest) {
+  if (playback->hasSound) {
+    ma_sound_set_min_distance(&playback->sound, nearest);
+    ma_sound_set_max_distance(&playback->sound, farthest);
+  }
+}
+
 void Sound::stop() {
   if (playback->hasSound)
     ma_sound_stop(&playback->sound);

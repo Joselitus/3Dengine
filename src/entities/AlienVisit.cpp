@@ -41,6 +41,8 @@ AlienVisit AlienVisit::create(Stage &stage, const vec3 &landing, float rampYaw,
   visit.bob->setPlayerParalysedQuery(paralysed);
   visit.bob->setPosition(landing.x, landing.y, landing.z);
   stage.addDynamic(visit.saucer);
+  for (auto &emitter : visit.saucer->getSmoke())
+    stage.addEmitter(emitter);
   stage.addDynamic(visit.bob);
   return visit;
 }

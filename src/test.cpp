@@ -20,6 +20,7 @@
 #include "TextFormat.h"
 #include "DebugSelector.h"
 #include "DeathOverlay.h"
+#include "FilmGrain.h"
 #include "StruggleOverlay.h"
 #include "EspeakSynthesizer.h"
 #include "GameStage.h"
@@ -511,6 +512,16 @@ int main(int argc, char **argv) {
   // Held by Bob: which key to hammer to get free, and how near he is
   StruggleOverlay struggleOverlay([&controls]() { return controls.keyName(Action::LeaveVehicle); });
   ui.addOverlay(&struggleOverlay);
+  // Bob is near: the picture gets grainy (see GameStage::alienPresence)
+  FilmGrain grain;
+  // Abducted: a scream (not too loud) while he rises, and a rip as he goes into the ship
+  const float SCREAM_VOLUME = 1.2f, RIP_VOLUME = 1.0f;
+  auto screamClip = std::make_shared<AudioClip>(), ripClip = std::make_shared<AudioClip>();
+  if (!screamClip->loadWavFile("../assets/bob/bob_scream.wav"))
+    screamClip.reset();
+  if (!ripClip->loadWavFile("../assets/bob/bob_rip.wav"))
+    ripClip.reset();
+  std::unique_ptr<Sound> scream, rip;
   double deathTime = -1.0;       // seconds since he died (-1: alive)
   vec3 abductFrom = vec3(0.0f);  // (abducted) where the camera was when Bob took him
   float deathStartPitch = 0.0f;  // where the camera was looking when it happened
@@ -641,6 +652,8 @@ int main(int argc, char **argv) {
     if (dayDuration >= 0.0f)
       stage->setDayDuration(dayDuration);
     deathTime = -1.0; // (a new map: the player is alive)
+    scream.reset();
+    rip.reset();
     mapLoaded = true;
   };
 
@@ -784,7 +797,7 @@ int main(int argc, char **argv) {
     // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
-    stage->setViewer(camera.getPosition()); // (where it was the last frame)
+    stage->setViewer(camera.getPosition(), camera.getViewProjection()); // (as it was the last frame)
     double tUpdate = glfwGetTime();
     stage->update(dt);
     double tPhysics = glfwGetTime() - tUpdate;
@@ -803,8 +816,17 @@ int main(int argc, char **argv) {
         deathTime = 0.0;
         abductFrom = camera.getPosition();
         deathStartPitch = camera.getPitch();
+        if (screamClip && (scream = sound.play(screamClip)))
+          scream->setVolume(SCREAM_VOLUME);
       }
+      bool arrives = deathTime < RISE_TIME && deathTime + dt >= RISE_TIME;
       deathTime += dt;
+      if (arrives) { // (in the ship: the scream and Bob's hiss are cut short)
+        scream.reset();
+        stage->endAlienHiss();
+        if (ripClip && (rip = sound.play(ripClip)))
+          rip->setVolume(RIP_VOLUME);
+      }
       float t = glm::min((float)deathTime / RISE_TIME, 1.0f);
       vec3 into = stage->getAbductPoint() - vec3(0.0f, 0.4f, 0.0f);
       vec3 eye = glm::mix(abductFrom, into, t * t * (3.0f - 2.0f * t));
@@ -890,6 +912,7 @@ int main(int argc, char **argv) {
     particles.setLighting(env.lightColor, env.lightDir, lights);
     particles.draw(stage->getEmitters(), camera); // over the world
     selector.draw(camera); // the selected object's outline, if any
+    grain.draw(stage->alienPresence(), (float)now);
     ui.draw(); // last, over everything
 
     // Swap buffers

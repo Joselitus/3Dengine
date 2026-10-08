@@ -111,6 +111,13 @@ float VehicleStage::struggleProgress() const {
   return alien.bob ? alien.bob->struggleProgress() : -1.0f;
 }
 
+float VehicleStage::alienPresence() const { return alien.bob ? alien.bob->getPresence() : 0.0f; }
+
+void VehicleStage::endAlienHiss() {
+  if (alien.bob)
+    alien.bob->silenceHiss();
+}
+
 void VehicleStage::toggleHandbrake() {
   if (inVehicle)
     rv->toggleHandbrake();
@@ -258,12 +265,15 @@ void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech,
   creatures.push_back(creature);
 }
 
-void VehicleStage::createAlienVisit(const vec3 &landing, float rampYaw) {
+void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, float rampYaw) {
   alien = AlienVisit::create(
       *this, landing, rampYaw, [this]() { return environment.sunDir.y < 0.0f; },
       [this]() { return player->getPosition(); }, [this]() { return inVehicle || inSaucer; },
       [this]() { return isPlayerDead(); }, [this](const vec3 &into) { abductPlayer(into); },
       [this](float seconds) { paralysis = std::max(paralysis, seconds); },
       [this]() { return paralysis > 0.0f; }, [this]() { enterSaucer(); });
+  alien.bob->setSounds(sound);
+  alien.saucer->setSounds(sound);
+  alien.bob->setViewer([this]() { return viewer; }, [this]() { return viewProjection; });
   interactables.push_back(alien.saucer.get()); // (its ramp: get in)
 }

@@ -60,7 +60,7 @@ protected:
   void createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x, float z);
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot
-  void createAlienVisit(const glm::vec3 &landing, float rampYaw);
+  void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
@@ -92,6 +92,8 @@ public:
   bool playerImmobilized() const override;
   float playerParalysis() const override;
   float struggleProgress() const override;
+  float alienPresence() const override;
+  void endAlienHiss() override;
   // Q: the legs of Bob's ship, while the penguin flies it
   void toggleShipLegs() override;
 

@@ -21,6 +21,27 @@ const float RAMP_ANGLE = std::asin(Saucer::RAMP_HINGE_Y / Saucer::RAMP_LENGTH);
 const vec3 HULL_HALF(Saucer::RADIUS * 0.72f, 0.65f, Saucer::RADIUS * 0.72f);
 const vec3 HULL_CENTER(0.0f, Saucer::LEG_HEIGHT + 0.7f, 0.0f);
 const vec3 BEAM_COLOR(0.55f, 0.85f, 1.0f);
+// Where the smoke comes out when it touches down, and which way (its frame): under its three feet
+// (generate_saucer.py: at 3.5 m from the middle, 30 + 120 k degrees from +x), and from the seams
+// of the closed ramp (both sides and its far end)
+struct Vent {
+  vec3 at, towards;
+};
+const float FOOT_DISTANCE = 3.5f;
+Vent ventAt(int i) {
+  if (i < 3) {
+    float a = 2.0f * PI * i / 3.0f + PI / 6.0f;
+    vec3 out(std::cos(a), 0.0f, std::sin(a));
+    return {out * FOOT_DISTANCE + vec3(0.0f, 0.12f, 0.0f), out + vec3(0.0f, 0.25f, 0.0f)};
+  }
+  const float y = Saucer::RAMP_HINGE_Y - 0.08f, mid = Saucer::RAMP_HINGE_Z + Saucer::RAMP_LENGTH * 0.5f;
+  if (i == 3)
+    return {vec3(-0.62f, y, mid), vec3(-1.0f, -0.35f, 0.0f)};
+  if (i == 4)
+    return {vec3(0.62f, y, mid), vec3(1.0f, -0.35f, 0.0f)};
+  return {vec3(0.0f, y, Saucer::RAMP_HINGE_Z + Saucer::RAMP_LENGTH), vec3(0.0f, -0.35f, 1.0f)};
+}
+const int VENTS = 6;
 
 float ease(float t) {
   t = clamp(t, 0.0f, 1.0f);
@@ -45,10 +66,40 @@ Saucer::Saucer(shared_ptr<Model> hull, shared_ptr<Model> lights, shared_ptr<Mode
   legsPart = addPart(legs);
   rampPart = addPart(ramp);
   beamPart = addPart(beam, 2);
+  // steam: white puffs that spread, slow down and rise a little as they fade
+  ParticleSettings steamPuff;
+  steamPuff.lifeMin = 1.6f;
+  steamPuff.lifeMax = 2.8f;
+  steamPuff.speedMin = 1.5f;
+  steamPuff.speedMax = 3.5f;
+  steamPuff.spread = 0.5f;
+  steamPuff.sizeStart = 0.25f;
+  steamPuff.sizeEnd = 1.4f;
+  steamPuff.color = vec3(0.86f, 0.88f, 0.9f);
+  steamPuff.alpha = 0.4f;
+  steamPuff.fadeStart = 0.3f;
+  steamPuff.gravity = -0.5f;
+  steamPuff.drag = 1.6f;
+  steamPuff.maxParticles = 150;
+  for (int i = 0; i < VENTS; i++)
+    smoke.push_back(make_shared<ParticleEmitter>(steamPuff, 300 + i));
   setGravity(0.0f);
   setMass(1e6f); // nothing pushes it
   setVisible(false);
   setCollidable(false);
+}
+
+void Saucer::setSounds(SoundEngine &engine) {
+  soundEngine = &engine;
+  auto load = [](const char *file) {
+    auto clip = make_shared<AudioClip>();
+    if (!clip->loadWavFile(string("../assets/bob/") + file))
+      clip.reset();
+    return clip;
+  };
+  humClip = load("saucer_hum.wav");
+  powerDownClip = load("saucer_power_down.wav");
+  steamClip = load("saucer_steam.wav");
 }
 
 void Saucer::setLanding(const vec3 &spot, float yaw) {
@@ -80,6 +131,10 @@ void Saucer::enter(Phase next) {
     from = position;
     to = landing;
     spinFrom = spin;
+    if (soundEngine && powerDownClip && (powerDown = soundEngine->play(powerDownClip, true, position))) {
+      powerDown->setVolume(POWER_DOWN_VOLUME);
+      powerDown->setDistances(SOUND_NEAR, 200.0f);
+    }
     break;
   case Phase::Landed:
     setCollidable(true);
@@ -203,6 +258,8 @@ void Saucer::update(double dt) {
       spin = landingYaw;
       legsOut = 1.0f;
       enter(Phase::Landed);
+      place();
+      touchDown();
     }
     break;
   }
@@ -244,6 +301,82 @@ void Saucer::update(double dt) {
   }
   if (phase != Phase::Piloted)
     velocity = vec3(0.0f);
+  place(); // (its turn, legs, ramp and beam, as they are now)
+  updateSounds(dt);
+  updateSmoke(dt);
+}
+
+// It stands on its legs on the ground: a release of steam, and smoke from its feet and its ramp
+void Saucer::touchDown() {
+  smokeTime = 0.0f;
+  updateSmoke(0.0);
+  for (auto &emitter : smoke)
+    emitter->burst(8);
+  if (soundEngine && steamClip && (steam = soundEngine->play(steamClip, true, position))) {
+    steam->setVolume(STEAM_VOLUME);
+    steam->setDistances(SOUND_NEAR, 200.0f);
+  }
+}
+
+void Saucer::updateSmoke(double dt) {
+  float rate = 0.0f;
+  if (smokeTime >= 0.0f) {
+    float left = 1.0f - smokeTime / SMOKE_TIME;
+    rate = left > 0.0f ? SMOKE_RATE * left * left : 0.0f;
+    smokeTime = left > 0.0f ? smokeTime + (float)dt : -1.0f;
+  }
+  for (int i = 0; i < VENTS; i++) {
+    Vent vent = ventAt(i);
+    smoke[i]->setPosition(position + vec3(rotation * vec4(vent.at, 0.0f)));
+    smoke[i]->setDirection(vec3(rotation * vec4(vent.towards, 0.0f)));
+    smoke[i]->setRate(rate);
+  }
+}
+
+// The hum while it moves (it dies away as it comes down to land) and where its sounds come from
+void Saucer::updateSounds(double dt) {
+  if (!soundEngine)
+    return;
+  float wanted = 0.0f, pitch = 1.0f;
+  float speed = std::min(length(velocity) / FLY_SPEED, 1.0f);
+  switch (phase) {
+  case Phase::Arriving:
+  case Phase::Leaving:
+    wanted = 1.0f;
+    break;
+  case Phase::Ascending:
+    wanted = ease(phaseTime);
+    break;
+  case Phase::Descending:
+    wanted = 1.0f - ease(phaseTime / (DESCEND_TIME * 0.5f));
+    break;
+  case Phase::Piloted:
+    wanted = engineOn ? 0.55f + 0.45f * speed : 0.0f;
+    pitch = 0.9f + 0.3f * speed;
+    break;
+  default:
+    break;
+  }
+  humLevel = approach(humLevel, wanted, 2.0f * (float)dt);
+  if (humLevel > 0.01f && humClip) {
+    if (!hum && (hum = soundEngine->play(humClip, true, position, true)))
+      hum->setDistances(SOUND_NEAR, 200.0f);
+    if (hum) {
+      hum->setPosition(position);
+      hum->setVolume(HUM_VOLUME * humLevel);
+      hum->setPitch(pitch);
+    }
+  } else {
+    hum.reset();
+  }
+  if (powerDown && !powerDown->isPlaying())
+    powerDown.reset();
+  if (powerDown)
+    powerDown->setPosition(position);
+  if (steam && !steam->isPlaying())
+    steam.reset();
+  if (steam)
+    steam->setPosition(position);
 }
 
 // Flying it, with the stage's floor: across and up and down as the player wants (or sinking, with
@@ -266,7 +399,10 @@ void Saucer::fly(const Stage &stage, double dt) {
     if (velocity.y < 0.0f)
       velocity.y = 0.0f;
   }
+  bool wasOnGround = onGround;
   onGround = position.y <= lowest + 0.05f;
+  if (onGround && !wasOnGround && legsOut >= 0.99f)
+    touchDown();
   if (onGround) // (it does not slide on the ground)
     velocity.x = velocity.z = 0.0f;
   position.y = std::min(position.y, ground + CEILING);

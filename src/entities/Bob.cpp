@@ -61,6 +61,16 @@ Bob::Bob(shared_ptr<Model> body, shared_ptr<Model> eyes, shared_ptr<Model> eyesG
   setCollidable(false);
 }
 
+void Bob::setSounds(SoundEngine &engine) {
+  soundEngine = &engine;
+  beamClip = std::make_shared<AudioClip>();
+  if (!beamClip->loadWavFile("../assets/bob/bob_eye_beam.wav"))
+    beamClip.reset();
+  grainClip = std::make_shared<AudioClip>();
+  if (!grainClip->loadWavFile("../assets/bob/bob_grain.wav"))
+    grainClip.reset();
+}
+
 void Bob::enter(Behavior next) {
   behavior = next;
   stateTime = 0.0f;
@@ -128,6 +138,8 @@ void Bob::update(double dt) {
   stateTime += dtf;
   if (behavior == Behavior::Inside) {
     GameObject::update(dt);
+    updatePresence(dt);
+    updateSounds();
     return;
   }
   bool night = isNight ? isNight() : true;
@@ -283,6 +295,97 @@ void Bob::update(double dt) {
   setPartVisible(eyesPart, !(night || behavior == Behavior::Firing));
   aimRays(rays);
   animate(dt);
+  updatePresence(dt);
+  updateSounds();
+}
+
+vec3 Bob::eyesPosition() const {
+  return position + vec3(rotation * vec4(0.0f, EYE.y, EYE.z, 0.0f));
+}
+
+// How straight the player looks at him (0..1): some of him (his feet, his middle, his head) in the
+// middle of the view, within GAZE_CONE; nothing past GAZE_EDGE, though he may be on the screen
+float Bob::gazedAt(const vec3 &eye, const mat4 &viewProjection) const {
+  // where the camera looks: through the middle of the screen
+  mat4 unproject = inverse(viewProjection);
+  vec4 nearMid = unproject * vec4(0.0f, 0.0f, -1.0f, 1.0f), farMid = unproject * vec4(0.0f, 0.0f, 1.0f, 1.0f);
+  vec3 forward = normalize(vec3(farMid) / farMid.w - vec3(nearMid) / nearMid.w);
+  vec3 up = vec3(rotation * vec4(0.0f, 1.0f, 0.0f, 0.0f)); // (he may be lying down)
+  float best = -1.0f;
+  for (float h : {0.1f, 0.75f, 1.3f}) {
+    vec3 to = position + up * h - eye;
+    if (length(to) > 0.01f)
+      best = std::max(best, dot(forward, normalize(to)));
+  }
+  const float CONE = std::cos(radians(GAZE_CONE)), EDGE = std::cos(radians(GAZE_EDGE));
+  return clamp((best - EDGE) / (CONE - EDGE), 0.0f, 1.0f);
+}
+
+// How much he looks at the player (0..1): fully while he goes for him, else as much as he faces
+// him (all of it within 30 degrees, nothing past 70)
+float Bob::watching(const vec3 &eye) const {
+  switch (behavior) {
+  case Behavior::Chase:
+  case Behavior::Firing:
+  case Behavior::Grabbing:
+    return 1.0f;
+  case Behavior::Inside:
+  case Behavior::Fallen:
+    return 0.0f;
+  default:
+    break;
+  }
+  vec2 to(eye.x - position.x, eye.z - position.z);
+  if (length(to) < 0.01f)
+    return 1.0f;
+  float facing = dot(vec2(std::sin(yaw), std::cos(yaw)), normalize(to));
+  const float WIDE = 0.342f, NARROW = 0.866f; // cos 70, cos 30
+  return clamp((facing - WIDE) / (NARROW - WIDE), 0.0f, 1.0f);
+}
+
+void Bob::updatePresence(double dt) {
+  float wanted = 0.0f;
+  bool dead = playerDead && playerDead();
+  if (tookPlayer) {
+    wanted = 1.0f; // (he has him: it stays at its highest)
+  } else if (behavior != Behavior::Inside && !dead && viewerPosition && viewerProjection) {
+    vec3 eye = viewerPosition();
+    float d = length(position + vec3(0.0f, 0.75f, 0.0f) - eye);
+    float gaze = d < PRESENCE_RANGE ? gazedAt(eye, viewerProjection()) : 0.0f;
+    if (gaze > 0.0f) {
+      float nearness = clamp((PRESENCE_RANGE - d) / (PRESENCE_RANGE - PRESENCE_NEAR), 0.0f, 1.0f);
+      // (looking from afar counts for less)
+      wanted = gaze * (PRESENCE_SEEN + PRESENCE_WATCHING * watching(eye) * (0.4f + 0.6f * nearness) +
+                       PRESENCE_CLOSE * nearness * nearness);
+    }
+  }
+  float rate = wanted > presence ? PRESENCE_RISE : PRESENCE_FALL;
+  presence = approach(presence, std::min(wanted, 1.0f), rate * (float)dt);
+}
+
+// The ray's hum while he fires (it fades out as the firing ends), and the hiss of his presence
+void Bob::updateSounds() {
+  if (!soundEngine)
+    return;
+  if (behavior == Behavior::Firing && beamClip) {
+    if (!beam)
+      beam = soundEngine->play(beamClip, true, eyesPosition());
+    if (beam) {
+      float left = RAY_CHARGE + RAY_TIME - stateTime;
+      beam->setPosition(eyesPosition());
+      beam->setVolume(BEAM_VOLUME * clamp(left / BEAM_FADE, 0.0f, 1.0f));
+    }
+  } else {
+    beam.reset(); // (the firing ended, or was cut short)
+  }
+  if (presence > 0.005f && grainClip && !hissSilenced) {
+    if (!grain)
+      grain = soundEngine->play(grainClip, false, vec3(0.0f), true);
+    if (grain)
+      grain->setVolume(GRAIN_VOLUME * presence);
+  } else {
+    grain.reset();
+  }
 }
 
 // The two rods of the ray, from his eyes to the player's head, in his frame

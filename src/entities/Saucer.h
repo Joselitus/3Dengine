@@ -6,7 +6,9 @@
 #include <random>
 
 #include "Interactable.h"
+#include "ParticleEmitter.h"
 #include "PlayableCharacter.h"
+#include "SoundEngine.h"
 #include "SpotLight.h"
 
 class Bob;
@@ -35,6 +37,12 @@ class Camera;
 // turns about its hinge) and the beam (a translucent cone, glowing). Its frame: the origin is the
 // ground under its middle when it stands on its legs, +z is where its ramp opens (setLanding).
 // It moves itself (contactFloor) and only collides while it stands or the player flies it.
+//
+// Its sounds (setSounds, from its middle): a hum while it moves (on its own, or flown with the
+// engine on: higher the faster), which dies away as it comes down to land while it powers down
+// (saucer_power_down.wav, the length of the descent); and when it touches down on its legs (on its
+// own or flown), a release of steam, with smoke from its feet and from round its ramp (getSmoke:
+// the map draws those emitters).
 class Saucer : public PlayableCharacter, public Interactable {
 public:
   enum class Phase { Away, Arriving, Descending, Landed, Piloted, Closing, Ascending, Leaving };
@@ -55,6 +63,13 @@ public:
   // take to go in or out (s)
   static constexpr float FLY_SPEED = 18.0f, CLIMB_SPEED = 8.0f, RESPONSE = 2.0f;
   static constexpr float SINK_SPEED = 3.0f, CEILING = 120.0f, LEGS_TIME = 1.2f;
+  // Its sounds: how loud (1 = as recorded), and how near (m) they are heard at full volume (they
+  // fade with distance from there)
+  static constexpr float HUM_VOLUME = 1.6f, POWER_DOWN_VOLUME = 0.7f, STEAM_VOLUME = 1.6f;
+  static constexpr float SOUND_NEAR = 8.0f;
+  // The smoke when it touches down: for how long (s), and how much at first (puffs per second
+  // from each of its six vents: three feet, three round the ramp)
+  static constexpr float SMOKE_TIME = 3.0f, SMOKE_RATE = 35.0f;
   // The camera, flying it: distance and height
   static constexpr float CAMERA_DISTANCE = 18.0f, CAMERA_HEIGHT = 6.0f;
 
@@ -83,8 +98,18 @@ private:
   std::function<void()> enterAction;
   size_t hullPart = 0, lightsPart = 0, legsPart = 0, rampPart = 0, beamPart = 0;
   std::mt19937 random;
+  // sounds and smoke
+  SoundEngine *soundEngine = nullptr;
+  std::shared_ptr<AudioClip> humClip, powerDownClip, steamClip;
+  std::unique_ptr<Sound> hum, powerDown, steam;
+  float humLevel = 0.0f;  // 0..1, how loud the hum is now
+  float smokeTime = -1.0f; // seconds since it touched down (< 0: no smoke)
+  std::vector<std::shared_ptr<ParticleEmitter>> smoke;
 
   void enter(Phase next);
+  void touchDown();
+  void updateSounds(double dt);
+  void updateSmoke(double dt);
   void place(); // its turn and parts for what it is doing
   bool beamOn() const;
   bool bobNearRamp() const;
@@ -101,6 +126,10 @@ public:
   void setBob(std::shared_ptr<Bob> alien) { bob = alien; }
   // What using its ramp does (the map puts the player in it)
   void setEnterAction(std::function<void()> action) { enterAction = action; }
+  // Its sounds (assets/bob), played on `engine`; without this it is silent
+  void setSounds(SoundEngine &engine);
+  // Its smoke: the map adds these emitters to its own (Stage::addEmitter)
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getSmoke() const { return smoke; }
 
   Phase getPhase() const { return phase; }
   // It stands with its ramp all the way down

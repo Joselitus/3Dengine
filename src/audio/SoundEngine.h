@@ -40,6 +40,9 @@ public:
   void setPitch(float pitch);
   // Starts again from the beginning each time it ends, until stopped
   void setLooping(bool looping);
+  // (Spatial) full volume within `nearest`, and it fades no more past `farthest` (world units;
+  // by default 1.5 and 40: a small thing)
+  void setDistances(float nearest, float farthest);
   void stop();
 };
 
