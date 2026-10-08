@@ -39,9 +39,15 @@ public:
   float timeSinceImpact() const { return elapsed; }
   // A violent frontal impact has happened (it stays true until clear())
   bool violent() const { return wasViolent; }
+  // How hard the crash was: the biggest fall of speed seen in the window, as a multiple of the
+  // least that counts as violent (`minDrop`). 2 = twice as strong as the minimum. The window
+  // keeps running after the crash is found violent, so wait until timerRunning() is false for
+  // the final value.
+  float severity() const { return peak / params.minDrop; }
   void clear() {
     wasViolent = false;
     running = false;
+    peak = 0.0f;
   }
 
 private:
@@ -50,6 +56,7 @@ private:
   float elapsed = 0.0f;
   float speedAtImpact = 0.0f;
   bool wasViolent = false;
+  float peak = 0.0f; // biggest fall of speed in the window (m/s)
 
   void check(float speedNow);
 };

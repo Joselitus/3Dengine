@@ -483,6 +483,35 @@ int main(int argc, char **argv) {
 
   // Draws the particles (dust...) of the current map
   ParticleRenderer particles;
+  // The rear-view mirrors of the vehicle (two): a camera of its own draws the world behind into
+  // each one's texture (see the main loop, where they take turns); the vehicle's glass shows it
+  const int MIRROR_W = 320, MIRROR_H = 640, MIRRORS = 2;
+  GLuint mirrorTexture[MIRRORS] = {0, 0}, mirrorFbo[MIRRORS] = {0, 0}, mirrorDepth = 0;
+  bool mirrorWorks = true;
+  glGenRenderbuffers(1, &mirrorDepth); // (one depth buffer for both: they are never drawn together)
+  glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepth);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, MIRROR_W, MIRROR_H);
+  for (int i = 0; i < MIRRORS; i++) {
+    glGenTextures(1, &mirrorTexture[i]);
+    glBindTexture(GL_TEXTURE_2D, mirrorTexture[i]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, MIRROR_W, MIRROR_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &mirrorFbo[i]);
+    glBindFramebuffer(GL_FRAMEBUFFER, mirrorFbo[i]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mirrorTexture[i], 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mirrorDepth);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+      mirrorWorks = false;
+  }
+  if (!mirrorWorks)
+    fprintf(stderr, "The mirrors' framebuffer is not complete: no mirrors\n");
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  Camera mirrorCamera(window, &shader);
+  mirrorCamera.setAspect((float)MIRROR_W / MIRROR_H);
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
@@ -649,6 +678,10 @@ int main(int argc, char **argv) {
     for (Interactable *object : stage->getInteractables())
       interaction.add(object);
     camera.setFarPlane(stage->getFarPlane());
+    mirrorCamera.setFarPlane(stage->getFarPlane());
+    if (mirrorWorks)
+      for (int i = 0; i < MIRRORS; i++)
+        stage->setRearMirrorTexture(i, mirrorTexture[i], (float)MIRROR_W / MIRROR_H);
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                       stage->getCameraHeight(), stage->getCameraYaw());
 
@@ -902,6 +935,36 @@ int main(int argc, char **argv) {
     const vec3 &horizon = stage->getEnvironment().horizon;
     applyEnvironment();
     applySpotLights();
+    // A mirror's picture first (if the vehicle has one to show now): the world seen from the glass,
+    // into its texture; then everything back as it was for the real view. The mirrors take turns, one
+    // each frame, so that both together cost what one would (each is a frame late at most)
+    static unsigned mirrorTurn = 0;
+    int mirrorSide = (int)(mirrorTurn++ % MIRRORS);
+    MirrorView mirror;
+    if (mirrorWorks && stage->rearMirror(mirrorSide, mirror)) {
+      stage->showRearMirror(mirrorSide, false);
+      glBindFramebuffer(GL_FRAMEBUFFER, mirrorFbo[mirrorSide]);
+      glViewport(0, 0, MIRROR_W, MIRROR_H);
+      glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      vec3 right = glm::normalize(glm::cross(mirror.forward, mirror.up));
+      vec3 up = glm::cross(right, mirror.forward);
+      mirrorCamera.setFov(mirror.fov);
+      mirrorCamera.setCarrier(mat3(right, up, -mirror.forward));
+      mirrorCamera.reposition(mirror.position.x, mirror.position.y, mirror.position.z);
+      shader.setFloat("time", (float)now);
+      stage->render(&shader, mirror.position, now);
+      const Environment &mirrorEnv = stage->getEnvironment();
+      particles.setLighting(mirrorEnv.lightColor, mirrorEnv.lightDir, lights);
+      particles.draw(stage->getEmitters(), mirrorCamera);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      int fbw, fbh;
+      glfwGetFramebufferSize(window, &fbw, &fbh);
+      glViewport(0, 0, fbw, fbh);
+      shader.use();
+      camera.update(); // (the real camera's matrices to the shader again)
+      stage->showRearMirror(mirrorSide, true);
+    }
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

@@ -5,6 +5,9 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#include <functional>
+#include <memory>
+
 #include "Mesh.h"
 
 
@@ -36,6 +39,8 @@ class Model
         // ones, which have to be drawn after everything opaque in the scene
         void Draw(Shader * shader, bool translucent = false);
         bool hasTransparent() const { return transparent; }
+        // A copy of the model with its vertices moved (see Mesh::deformed): a crashed version of it
+        std::shared_ptr<Model> deformed(const std::function<glm::vec3(const glm::vec3 &)> &move) const;
 };
 
 #endif

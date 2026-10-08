@@ -4,6 +4,7 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "Explosion.h"
 #include "Stage.h"
 #include "TextFormat.h"
 using namespace glm;
@@ -103,9 +104,43 @@ static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the dri
 // Fuel (0..1 of the tank) used per metre driven: the consumption is proportional to the
 // speed (the distance covered in a frame is speed * dt). A full tank is 12 km.
 static const float FUEL_PER_METER = 1.0f / 12000.0f; // (the default of RV::setFuelPerMeter)
-// With no fuel, the handbrake holds it once it is slower than this (m/s), so that it does
-// not creep on a slope
-static const float EMPTY_HOLD_SPEED = 2.0f;
+// Each press of the engine key is one try, that fails with this chance
+static const float START_FAIL_CHANCE = 0.4f;
+// The wreck: a crash this many times harder than the least that breaks the windshield wrecks the
+// front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
+// the engine bay is here, in the frame of rv.obj
+static const float WRECK_SEVERITY = 2.0f;
+static const float FUSE_MIN = 0.1f, FUSE_MAX = 100.0f;
+static const float BLAST_RADIUS = 10.0f, BANG_VOLUME = 3.5f, FLASH_TIME = 0.6f;
+static const vec3 ENGINE_BAY(0.0f, 1.35f, 3.0f);
+// The handbrake (assets/rv/generate_handbrake.py: keep them the same): where the lever's pivot is
+// in the RV's frame, how far the lever tips forward from upright (degrees) pulled up and released,
+// and how fast it swings (rad/s)
+static const vec3 HANDBRAKE_PIVOT(0.12f, 0.62f, 1.75f);
+static const float HANDBRAKE_ENGAGED = 15.0f, HANDBRAKE_RELEASED = 55.0f, HANDBRAKE_SWING = 4.0f;
+// The fire alarm: the lamp (the centre of dashboard_alarm.obj, written by generate_dashboard.py), how
+// long a blink and its beep last (s), and how loud the beep is
+static const vec3 ALARM_LAMP(0.145f, 1.8572f, 2.759f);
+static const float ALARM_PERIOD = 0.6f, ALARM_VOLUME = 0.7f;
+static std::shared_ptr<AudioClip> alarmClip();
+// The two mirrors (generate_rv.py, turned_box: the heads of the side mirrors, 0.22 x 0.42 x 0.12, each
+// turned as a whole MIRROR_YAW about the vertical and MIRROR_PITCH about its own x, angles that bounce
+// the driver's line of sight straight back). Mirror 0 is the driver's (+x), mirror 1 the passenger's
+// (-x). The glass is a flat quad lying on the rear face of a head, MIRROR_HALF wide and tall, and the
+// picture on it is the view of a camera at the glass: MIRROR_FOV degrees (vertical), more than a flat
+// mirror would show, like a convex one.
+static const float MIRROR_X = 1.51f, MIRROR_Y = 2.01f, MIRROR_Z = 3.38f;
+static const float MIRROR_YAW[2] = {14.0f, -22.5f}, MIRROR_PITCH[2] = {4.8f, 3.7f}; // degrees (signed)
+static const float MIRROR_FOV = 30.0f;
+static const float MIRROR_DEPTH = 0.06f, MIRROR_PROUD = 0.004f; // the face is 6 cm from the centre
+static const vec2 MIRROR_HALF(0.095f, 0.19f);
+static vec3 mirrorCentre(int side) { return vec3(side == 0 ? MIRROR_X : -MIRROR_X, MIRROR_Y, MIRROR_Z); }
+// A head's own frame in the RV's: its x (along the glass), y (up it) and z (the rear face looks
+// along -z)
+static mat3 mirrorTurn(int side) {
+  return mat3(glm::rotate(mat4(1.0f), radians(MIRROR_YAW[side]), vec3(0.0f, 1.0f, 0.0f)) *
+              glm::rotate(mat4(1.0f), radians(MIRROR_PITCH[side]), vec3(1.0f, 0.0f, 0.0f)));
+}
 // How fast the needles and the key follow (1/s)
 static const float NEEDLE_RATE = 6.0f, KEY_RATE = 8.0f;
 
@@ -140,6 +175,7 @@ static const float CHASSIS_TOP = CHASSIS_HIGH + SKIN;
 
 RV::RV(std::shared_ptr<Model> model)
     : PlayableCharacter(model, chassisShape()), random(std::random_device()()) {
+  engineSim.setSeed((uint32_t)random()); // (so that the starts differ from run to run)
   ParticleSettings settings; // sand dust: tan, soft, heavy enough to fall
   settings.lifeMin = 1.0f;
   settings.lifeMax = 1.8f;
@@ -172,6 +208,36 @@ RV::RV(std::shared_ptr<Model> model)
   grain.maxParticles = 300;
   for (unsigned i = 0; i < 4; i++)
     grains.push_back(std::make_shared<ParticleEmitter>(grain, 200 + i));
+
+  ParticleSettings flames; // the burning front: hot, it rises
+  flames.lifeMin = 0.3f;
+  flames.lifeMax = 0.7f;
+  flames.speedMin = 2.0f;
+  flames.speedMax = 4.0f;
+  flames.spread = 0.5f;
+  flames.sizeStart = 0.5f;
+  flames.sizeEnd = 1.1f;
+  flames.color = vec3(1.0f, 0.5f, 0.1f);
+  flames.alpha = 0.9f;
+  flames.gravity = -4.0f;
+  flames.drag = 1.5f;
+  flames.maxParticles = 200;
+  ParticleSettings smoke;
+  smoke.lifeMin = 1.5f;
+  smoke.lifeMax = 3.0f;
+  smoke.speedMin = 1.0f;
+  smoke.speedMax = 2.5f;
+  smoke.spread = 0.4f;
+  smoke.sizeStart = 0.4f;
+  smoke.sizeEnd = 2.2f;
+  smoke.color = vec3(0.12f, 0.11f, 0.10f);
+  smoke.alpha = 0.7f;
+  smoke.gravity = -1.5f;
+  smoke.drag = 0.8f;
+  smoke.maxParticles = 160;
+  fire.push_back(std::make_shared<ParticleEmitter>(flames, 300));
+  fire.push_back(std::make_shared<ParticleEmitter>(smoke, 301));
+  blast = makeExplosionEmitters(302);
 }
 
 float RV::getMass() const { return RV_MASS; }
@@ -189,8 +255,7 @@ void RV::applyCollision(const vec3 &push, const vec3 &velocityChange) {
   vec3 away = length(vec2(velocityChange.x, velocityChange.z)) > 1e-3f ? velocityChange : push;
   impact.onCollision(speedBefore, speedAfter, vec3(rotation * vec4(0.0f, 0.0f, 1.0f, 0.0f)),
                      away);
-  if (impact.violent())
-    breakWindshield();
+  handleImpact();
 }
 
 // The slanted front face of the body (generate_rv.py: A = (z 3.55, y 1.7) to B = (z 3.0, y 2.95)),
@@ -257,6 +322,237 @@ void RV::breakWindshield() {
   damagedWindshield = true;
   impact.clear();
   updateWindshieldParts();
+}
+
+void RV::handleImpact() {
+  if (!impact.violent())
+    return;
+  if (!damagedWindshield) { // (this much at once; the rest when the crash is over)
+    damagedWindshield = true;
+    updateWindshieldParts();
+  }
+  if (impact.timerRunning())
+    return; // it may still get worse
+  bool severe = impact.severity() >= WRECK_SEVERITY;
+  impact.clear();
+  if (severe)
+    wreck();
+}
+
+// How the front of the body is crushed (rv.obj's frame, the front towards +z): from the cab
+// forward, more and more, and less up by the windshield (the cab does not fold into the driver);
+// with some jagged dents, a sag and a squeeze from the sides. Continuous, so it never tears.
+static vec3 crumple(const vec3 &p) {
+  float t = glm::clamp((p.z - 2.0f) / 1.9f, 0.0f, 1.0f);
+  float s = t * t;
+  if (s <= 0.0f)
+    return p;
+  float up = glm::smoothstep(1.4f, 2.6f, p.y);
+  float low = 1.0f - 0.8f * up;
+  float dentZ = std::sin(5.3f * p.x + 1.7f * p.y) * std::sin(4.1f * p.z + 2.3f * p.x) +
+                0.5f * std::sin(11.7f * p.y + 3.1f * p.z);
+  float dentY = std::sin(6.1f * p.z + 2.9f * p.x) * std::cos(3.3f * p.y);
+  float dentX = std::sin(4.7f * p.y + 5.9f * p.z);
+  vec3 q = p;
+  q.z -= s * (1.2f * low + 0.22f * dentZ);
+  q.y -= s * (0.30f * low + 0.12f * dentY);
+  q.x = q.x * (1.0f - 0.12f * s) + 0.15f * s * dentX + 0.12f * s * (p.y - 1.5f) * 0.3f;
+  return q;
+}
+
+void RV::wreck() {
+  if (wrecked)
+    return;
+  wrecked = true;
+  if (!damagedWindshield) {
+    damagedWindshield = true;
+    updateWindshieldParts();
+  }
+  // crumpled copies of everything at the front (the original models are not touched: other RVs
+  // share them)
+  parts[0].model = parts[0].model->deformed(crumple);
+  if (hasWindshield)
+    parts[brokenWindshieldPart].model = parts[brokenWindshieldPart].model->deformed(crumple);
+  if (hasGlow)
+    parts[glowPart].model = parts[glowPart].model->deformed(crumple);
+  if (hasCockpit) // the dashboard is inside the front: it folds with it, or it would stick out
+    for (size_t part : {dashboardGlowPart - 1, dashboardGlowPart})
+      parts[part].model = parts[part].model->deformed(crumple);
+  updateMirrorParts(); // (the glass is gone)
+  if (hasAlarm) // the lamp is in the dashboard, which folds with the front
+    parts[alarmPart].model = parts[alarmPart].model->deformed(crumple);
+  // the fire alarm goes off
+  onFire = true;
+  alarmTime = 0.0f;
+  if (soundEngine) {
+    alarmSound = soundEngine->play(alarmClip(), true, position, true);
+    if (alarmSound) {
+      alarmSound->setVolume(ALARM_VOLUME);
+      alarmSound->setDistances(4.0f, 60.0f);
+    }
+  }
+  fuse = uniform(FUSE_MIN, FUSE_MAX); // (evenly distributed)
+  // the engine stops now, and the key does nothing any more (see setEngine)
+  setEngine(false);
+  parkedLights = false;
+  updateLights();
+}
+
+// Every part but the shell becomes a prop of its own, thrown away from the blast
+void RV::ejectParts(const vec3 &from) {
+  std::vector<size_t> list;
+  if (hasWheels)
+    for (int i = 0; i < 4; i++)
+      list.push_back(wheelParts[i]);
+  if (hasCockpit)
+    for (size_t part : {dashboardGlowPart - 1, keyPart, speedNeedlePart, fuelNeedlePart})
+      list.push_back(part);
+  if (hasSteeringWheel)
+    list.push_back(steeringWheelPart);
+  if (hasWindshield)
+    list.push_back(brokenWindshieldPart);
+  if (hasHandbrake) {
+    list.push_back(handbrakeBasePart);
+    list.push_back(handbrakeLeverPart);
+  }
+  mat4 object = glm::translate(mat4(1.0f), position) * rotation;
+  vec3 carried = getVelocity();
+  for (size_t part : list) {
+    Debris d;
+    d.part = part;
+    d.world = object * parts[part].local;
+    vec3 low(1e9f), high(-1e9f);
+    for (const Mesh &mesh : parts[part].model->meshes)
+      for (const Vertex &v : mesh.getVertices()) {
+        low = glm::min(low, v.Position);
+        high = glm::max(high, v.Position);
+      }
+    if (low.x > high.x)
+      continue; // (an empty model)
+    d.centre = (low + high) * 0.5f;
+    vec3 size = high - low;
+    d.radius = 0.5f * std::min(size.x, std::min(size.y, size.z)) + 0.05f;
+    vec3 at = vec3(d.world * vec4(d.centre, 1.0f));
+    vec3 out = at - from;
+    out = length(out) > 1e-3f ? normalize(out) : vec3(0.0f, 1.0f, 0.0f);
+    float heavy = std::max(size.x, std::max(size.y, size.z)) > 1.5f ? 0.6f : 1.0f; // (the big ones are slower)
+    d.velocity = carried + (out + vec3(0.0f, 0.9f, 0.0f)) * uniform(5.0f, 12.0f) * heavy;
+    d.axis = normalize(vec3(uniform(-1.0f, 1.0f), uniform(-1.0f, 1.0f), uniform(-1.0f, 1.0f)) + vec3(0.0f, 0.01f, 0.0f));
+    d.spin = uniform(4.0f, 14.0f);
+    d.resting = false;
+    debris.push_back(d);
+  }
+}
+
+// The pieces fly, spin, fall and bounce on the floor until they lie still (like the mosquito's)
+void RV::updateDebris(const Stage &stage, double dt) {
+  float dtf = (float)dt;
+  mat4 toObject = glm::inverse(glm::translate(mat4(1.0f), position) * rotation);
+  for (Debris &d : debris) {
+    if (!d.resting) {
+      d.velocity.y -= 20.0f * dtf;
+      vec3 c = vec3(d.world * vec4(d.centre, 1.0f));
+      vec3 moved = c + d.velocity * dtf;
+      mat4 turn = glm::translate(mat4(1.0f), moved) * glm::rotate(mat4(1.0f), d.spin * dtf, d.axis) *
+                  glm::translate(mat4(1.0f), -c);
+      d.world = turn * d.world;
+      float ground = moved.y - d.radius - 1.0f;
+      float h;
+      if (stage.floorAt(moved.x, moved.z, h))
+        ground = h;
+      if (moved.y - d.radius < ground) { // a bounce, losing most of it
+        d.world = glm::translate(mat4(1.0f), vec3(0.0f, ground + d.radius - moved.y, 0.0f)) * d.world;
+        d.velocity = vec3(d.velocity.x * 0.5f, -d.velocity.y * 0.3f, d.velocity.z * 0.5f);
+        d.spin *= 0.5f;
+        if (length(d.velocity) < 0.8f)
+          d.resting = true;
+      }
+    }
+    setPartTransform(d.part, toObject * d.world);
+  }
+}
+
+vec3 RV::engineBay() const {
+  vec3 local = crumple(ENGINE_BAY);
+  return position + vec3(rotation * vec4(local, 0.0f));
+}
+
+// The fire follows the front of the vehicle; the fuse runs down and the engine blows up
+void RV::updateFire(double dt) {
+  flashTime = std::max(0.0f, flashTime - (float)dt);
+  if (!wrecked)
+    return;
+  vec3 at = engineBay();
+  vec3 carried = getVelocity() * 0.8f;
+  float big = exploded ? 2.0f : 1.0f;
+  fire[0]->setPosition(at + vec3(0.0f, 0.3f, 0.0f));
+  fire[0]->setBaseVelocity(carried);
+  fire[0]->setRate(90.0f * big);
+  fire[1]->setPosition(at + vec3(0.0f, 0.3f, 0.0f));
+  fire[1]->setBaseVelocity(carried);
+  fire[1]->setRate(30.0f * big);
+  if (onFire && !exploded) { // the alarm: the lamp blinks and the beep follows the dashboard
+    alarmTime += (float)dt;
+    if (hasAlarm)
+      setPartVisible(alarmPart, alarmLit());
+    if (alarmSound)
+      alarmSound->setPosition(position + vec3(rotation * vec4(crumple(ALARM_LAMP), 0.0f)));
+  }
+  if (!exploded) {
+    fuse -= (float)dt;
+    if (fuse <= 0.0f)
+      explodeEngine();
+  }
+}
+
+void RV::explodeEngine() {
+  if (exploded)
+    return;
+  wreck();
+  exploded = true;
+  alarmSound.reset(); // (the dashboard is gone: no more alarm)
+  if (hasAlarm)
+    setPartVisible(alarmPart, false);
+  vec3 centre = engineBay();
+  vec3 carried = getVelocity() * 0.5f;
+  const int counts[3] = {110, 60, 160};
+  for (size_t i = 0; i < blast.size() && i < 3; i++) {
+    blast[i]->setPosition(centre);
+    blast[i]->setBaseVelocity(carried);
+    blast[i]->burst(counts[i]);
+  }
+  flashTime = FLASH_TIME;
+  // the engine is dead for good: no key, no fuel, no lights
+  setFuel(0.0f);
+  setEngine(false);
+  setHeadlights(false);
+  parkedLights = false;
+  updateLights();
+  ejectParts(centre);
+  if (body) // the blast lifts the front
+    body->setVelocity(body->getVelocity() + vec3(0.0f, 3.0f, 0.0f));
+  if (soundEngine) {
+    bangSound = soundEngine->play(explosionBangClip(), true, centre);
+    if (bangSound)
+      bangSound->setVolume(BANG_VOLUME);
+  }
+  if (explosionCallback)
+    explosionCallback(centre, BLAST_RADIUS);
+}
+
+void RV::getFireLight(std::vector<SpotLight> &lights) const {
+  vec3 at = engineBay() + vec3(0.0f, 0.5f, 0.0f);
+  if (flashTime > 0.0f) {
+    float k = flashTime / FLASH_TIME;
+    lights.push_back(SpotLight::omni(at, vec3(1.0f, 0.6f, 0.2f) * (4.0f * k * k), 24.0f));
+  }
+  if (alarmLit()) // the red lamp lights the panel a little
+    lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(crumple(ALARM_LAMP) + vec3(0.0f, 0.0f, -0.1f), 0.0f)),
+                                     vec3(1.0f, 0.05f, 0.03f) * 0.6f, 0.6f));
+  if (!wrecked)
+    return;
+  float flicker = 1.6f + 0.5f * std::sin(23.0f * (float)time) + 0.3f * std::sin(37.0f * (float)time + 1.0f);
+  lights.push_back(SpotLight::omni(at, vec3(1.0f, 0.45f, 0.12f) * (flicker * (exploded ? 1.5f : 1.0f)), 14.0f));
 }
 
 void RV::repairWindshield() {
@@ -331,7 +627,98 @@ void RV::setHeadlightGlowModel(std::shared_ptr<Model> model) {
   setPartVisible(glowPart, lampsLit());
 }
 
+void RV::setHandbrakeModels(std::shared_ptr<Model> base, std::shared_ptr<Model> lever) {
+  handbrakeBasePart = addPart(base);
+  handbrakeLeverPart = addPart(lever);
+  hasHandbrake = true;
+  setPartTransform(handbrakeBasePart, glm::translate(mat4(1.0f), HANDBRAKE_PIVOT));
+  handbrakeAngle = radians(handbrakeOn ? HANDBRAKE_ENGAGED : HANDBRAKE_RELEASED);
+  updateHandbrake(0.0);
+}
+
+// The lever swings towards where the switch says (pulled up = more upright; down = leaning forward)
+void RV::updateHandbrake(double dt) {
+  if (!hasHandbrake || exploded)
+    return;
+  float target = radians(handbrakeOn ? HANDBRAKE_ENGAGED : HANDBRAKE_RELEASED);
+  float step = HANDBRAKE_SWING * (float)dt;
+  handbrakeAngle += glm::clamp(target - handbrakeAngle, -step, step);
+  mat4 lever = glm::translate(mat4(1.0f), HANDBRAKE_PIVOT);
+  setPartTransform(handbrakeLeverPart, glm::rotate(lever, handbrakeAngle, vec3(1.0f, 0.0f, 0.0f)));
+}
+
+// The alarm's beep: a harsh tone for the first half of ALARM_PERIOD, silence for the rest (it is
+// played in a loop); made once
+static std::shared_ptr<AudioClip> alarmClip() {
+  static std::shared_ptr<AudioClip> clip;
+  if (clip)
+    return clip;
+  clip = std::make_shared<AudioClip>();
+  clip->channels = 1;
+  clip->sampleRate = 44100;
+  const int n = (int)(44100 * ALARM_PERIOD);
+  clip->samples.assign(n, 0.0f);
+  for (int i = 0; i < n / 2; i++) {
+    float t = i / 44100.0f, half = ALARM_PERIOD / 2.0f;
+    float envelope = std::min(1.0f, std::min(t / 0.005f, (half - t) / 0.01f));
+    float phase = 2.0f * 3.14159265f * 1500.0f * t;
+    float tone = std::sin(phase) + 0.33f * std::sin(3.0f * phase); // (a little square)
+    clip->samples[i] = 0.5f * envelope * std::tanh(1.5f * tone);
+  }
+  return clip;
+}
+
+bool RV::alarmLit() const { return onFire && !exploded && std::fmod(alarmTime, ALARM_PERIOD) < ALARM_PERIOD / 2.0f; }
+
+void RV::setAlarmLampModel(std::shared_ptr<Model> lamp) {
+  alarmPart = addPart(lamp, 2); // emissive
+  hasAlarm = true;
+  setPartVisible(alarmPart, false);
+}
+
+void RV::setMirrorTexture(int side, unsigned int texture, float aspect) {
+  mirrorAspect = aspect;
+  mat3 turn = mirrorTurn(side);
+  vec3 across = turn * vec3(1.0f, 0.0f, 0.0f), up = turn * vec3(0.0f, 1.0f, 0.0f);
+  vec3 normal = turn * vec3(0.0f, 0.0f, -1.0f); // (out of the face, towards the driver)
+  vec3 centre = mirrorCentre(side) + normal * (MIRROR_DEPTH + MIRROR_PROUD);
+  // seen from the driver, +across is on the left; the picture is shown mirrored (u = 1 at the left)
+  float hw = MIRROR_HALF.x, hh = MIRROR_HALF.y;
+  std::vector<Vertex> vertices = {
+      {centre + across * hw - up * hh, normal, vec2(1.0f, 0.0f)},
+      {centre - across * hw - up * hh, normal, vec2(0.0f, 0.0f)},
+      {centre - across * hw + up * hh, normal, vec2(0.0f, 1.0f)},
+      {centre + across * hw + up * hh, normal, vec2(1.0f, 1.0f)}};
+  std::vector<unsigned int> indices = {0, 1, 2, 0, 2, 3};
+  Texture picture;
+  picture.id = texture;
+  picture.type = "texture_diffuse";
+  picture.path = "mirror";
+  auto model = std::make_shared<Model>();
+  model->meshes.push_back(Mesh(vertices, indices, {picture}));
+  mirrorPart[side] = addPart(model, 2); // emissive: it is a picture, lighting does not touch it
+  hasMirror[side] = true;
+  updateMirrorParts();
+}
+
+bool RV::rearMirror(int side, MirrorView &view) const {
+  if (side < 0 || side > 1 || !hasMirror[side] || wrecked)
+    return false;
+  mat3 body(rotation), turn = mirrorTurn(side);
+  vec3 normal = body * (turn * vec3(0.0f, 0.0f, -1.0f));
+  vec3 glass = position + body * (mirrorCentre(side) + turn * vec3(0.0f, 0.0f, -(MIRROR_DEPTH + MIRROR_PROUD)));
+  vec3 incoming = glass - eyePosition();
+  incoming = length(incoming) > 1e-3f ? normalize(incoming) : body * vec3(0.0f, 0.0f, 1.0f);
+  view.forward = glm::reflect(incoming, normal); // where the driver sees in it
+  view.position = glass + normal * 0.03f;
+  view.up = body * vec3(0.0f, 1.0f, 0.0f);
+  view.fov = MIRROR_FOV;
+  view.aspect = mirrorAspect;
+  return true;
+}
+
 void RV::setEngineSound(SoundEngine &sound) {
+  soundEngine = &sound;
   engineSound.reset(new EngineSound(sound));
   // the starter is a recording; the running engine, the synth
   if (engineSound->setStartClip(START_SOUND))
@@ -365,11 +752,13 @@ void RV::setEngineRunning(bool on) {
 // The light switch keeps what the player chose: switching the engine off puts the lights out
 // (lightsActive) but not the switch, so starting the engine again turns them back on
 void RV::setEngine(bool on) {
+  if (wrecked && on)
+    return; // a burning engine can't be started again
   if (on == keyOn)
     return;
   keyOn = on;
   if (on) {
-    engineSim.start(fuel > 0.0f); // engineOn follows when it catches
+    engineSim.startAttempt(fuel > 0.0f, START_FAIL_CHANCE); // engineOn follows if it catches
   } else {
     engineSim.stop();
     setEngineRunning(false);
@@ -628,11 +1017,20 @@ void RV::update(double dt) {
   updateCockpit(dt);
   placeSteeringWheel();
   updateHeadlights(dt);
+  updateHandbrake(dt);
+  updateFire(dt);
+  if (wrecked && !exploded) // the small things on the dashboard go where the crushed dashboard is
+    for (size_t part : {keyPart, speedNeedlePart, fuelNeedlePart, steeringWheelPart}) {
+      if (!hasCockpit || (part == steeringWheelPart && !hasSteeringWheel))
+        continue;
+      vec3 at = vec3(parts[part].local[3]);
+      parts[part].local = glm::translate(mat4(1.0f), crumple(at) - at) * parts[part].local;
+    }
 }
 
 // Wheel i hangs from its anchor at the length the suspension has now
 void RV::placeWheels() {
-  if (!hasWheels)
+  if (!hasWheels || exploded) // (after the explosion the wheels are props of their own)
     return;
   const VehicleBody::Params &p = body ? body->getParams() : vehicleParams(0, 0);
   for (int i = 0; i < 4; i++) {
@@ -733,9 +1131,8 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   // No fuel: the engine does not push (it can steer and coast, and the brake holds it
   // when it is nearly stopped)
   bool noEngine = fuel <= 0.0f || !engineOn; // no fuel, or the engine is switched off
-  float speedNow = body->getForwardSpeed();
-  body->setHandbrake(!occupied || handbrakeOn ||
-                     (noEngine && std::fabs(speedNow) < EMPTY_HOLD_SPEED));
+  // Only the lever brakes: getting out does not set it, and neither does an engine that is off
+  body->setHandbrake(handbrakeOn);
   body->setInput(noEngine ? 0.0f : throttle, -steering);
   body->step(dt, [&stage](float x, float z, float maxY, float &height,
                           vec3 &normal) {
@@ -750,8 +1147,7 @@ bool RV::contactFloor(const Stage &stage, double dt) {
 
   // The timer of a frontal collision follows the speed (after the physics of this frame)
   impact.update((float)dt, body->getForwardSpeed());
-  if (impact.violent())
-    breakWindshield();
+  handleImpact();
 
   // Not a number: something went wrong, start again from the last good place
   vec3 centre = body->getCentreOfMass(), v = body->getVelocity();
@@ -770,6 +1166,7 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   grounded = body->isOnGround();
   placeWheels();
   updateDust(stage);
+  updateDebris(stage, dt);
   return true;
 }
 
@@ -778,6 +1175,10 @@ void RV::describe(std::vector<std::string> &lines) const {
   if (hasWindshield)
     lines.push_back(std::string("Parabrisas: ") + (damagedWindshield ? "ROTO" : "intacto") +
                     (impact.timerRunning() ? "  (cronometro de choque en marcha)" : ""));
+  lines.push_back(std::string("En llamas (alarma): ") + (onFire ? "SI" : "no"));
+  if (wrecked)
+    lines.push_back(exploded ? "Motor: EXPLOTADO"
+                             : textFormat("Motor: EN LLAMAS, explota en %.1f s", fuse));
   if (hasCockpit)
     lines.push_back(textFormat("Combustible: %.0f %%  Llave: %s", fuel * 100.0f,
                                engineOn ? "puesta, motor en marcha" : "puesta, motor apagado"));
@@ -872,6 +1273,8 @@ void RV::getProperties(std::vector<Property> &properties) {
     punctureTire(std::uniform_int_distribution<int>(0, 3)(random));
   }));
   properties.push_back(Property::action("Reparar las ruedas", [this]() { repairTires(); }));
+  properties.push_back(Property::action("Estrellar de frente (incendio)", [this]() { wreck(); }));
+  properties.push_back(Property::action("Explotar el motor", [this]() { explodeEngine(); }));
   if (hasWindshield)
     properties.push_back(Property::toggle(
         "Parabrisas roto", [this]() { return damagedWindshield; },

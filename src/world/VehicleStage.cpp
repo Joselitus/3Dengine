@@ -118,6 +118,17 @@ void VehicleStage::endAlienHiss() {
     alien.bob->silenceHiss();
 }
 
+// The RV's two side mirrors, while somebody drives it
+bool VehicleStage::rearMirror(int side, MirrorView &view) const {
+  return inVehicle && rv->rearMirror(side, view);
+}
+
+void VehicleStage::setRearMirrorTexture(int side, unsigned int texture, float aspect) {
+  rv->setMirrorTexture(side, texture, aspect);
+}
+
+void VehicleStage::showRearMirror(int side, bool show) { rv->showMirror(side, show); }
+
 void VehicleStage::toggleHandbrake() {
   if (inVehicle)
     rv->toggleHandbrake();
@@ -136,6 +147,7 @@ void VehicleStage::getSpotLights(std::vector<SpotLight> &lights) const {
   if (alien.bob)
     alien.bob->getLight(lights);     // (his ray)
   rv->getHeadlights(lights);
+  rv->getFireLight(lights);
   rv->getDashboardLights(lights);
   for (const auto &c : creatures)
     c->getLight(lights); // (last: if the shader has no room, the creature's is the one left out)
@@ -203,6 +215,9 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
   rv->setEngineSound(sound);
   rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
+  rv->setHandbrakeModels(loadModel("../assets/rv/handbrake_base.obj"),
+                         loadModel("../assets/rv/handbrake_lever.obj"));
+  rv->setAlarmLampModel(loadModel("../assets/rv/dashboard_alarm.obj"));
   rv->setMaxSpeed(20.0f);
   rv->setGravity(25.0f);
   addDynamic(rv);
@@ -211,6 +226,19 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
     addEmitter(emitter);
   for (const auto &emitter : rv->getGrains())
     addEmitter(emitter);
+  // The fire of a wrecked front and the explosion of its engine (a blast kills whoever is in
+  // the RV or close to it)
+  for (const auto &emitter : rv->getFireEmitters())
+    addEmitter(emitter);
+  for (const auto &emitter : rv->getBlastEmitters())
+    addEmitter(emitter);
+  rv->setExplosionCallback([this](const vec3 &centre, float radius) {
+    if (isPlayerDead())
+      return;
+    vec3 player = inVehicle ? centre : walker->getPosition() + vec3(0.0f, 0.9f, 0.0f);
+    if (length(player - centre) < radius)
+      killPlayer();
+  });
   // Using its door gets the player in (see enterRV)
   rv->setEnterAction([this]() { enterRV(); });
   interactables.push_back(rv.get());

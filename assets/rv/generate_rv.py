@@ -33,6 +33,24 @@ def box(mat, x0, x1, y0, y1, z0, z1):
     hexa(mat, [(x0,y0,z0),(x1,y0,z0),(x1,y0,z1),(x0,y0,z1),
                (x0,y1,z0),(x1,y1,z0),(x1,y1,z1),(x0,y1,z1)])
 
+MIRROR_TURN = {1: (14.0, 4.8), -1: (22.5, 3.7)}  # side -> (yaw, pitch) in degrees: the driver's (+x) and passenger's (-x) heads, each
+# aimed so that the driver's line of sight bounces straight back (yaw is mirrored for the -x one: see turned_box)
+
+def turned_box(mat, centre, half, yaw, pitch, side=1):
+    """A box turned about its own centre: pitch about its x axis (positive tilts its rear face up),
+    then yaw about the vertical (positive turns the rear face towards -x, as seen on the +x side;
+    mirrored for side = -1)."""
+    ya, pa = math.radians(yaw) * side, math.radians(pitch)
+    cy, sy, cp, sp = math.cos(ya), math.sin(ya), math.cos(pa), math.sin(pa)
+    def turn(v):
+        x, y, z = v
+        y, z = y*cp - z*sp, y*sp + z*cp   # about x
+        x, z = x*cy + z*sy, -x*sy + z*cy  # about y
+        return (centre[0] + x, centre[1] + y, centre[2] + z)
+    hx, hy, hz = half
+    c = [(-hx,-hy,-hz),(hx,-hy,-hz),(hx,-hy,hz),(-hx,-hy,hz),(-hx,hy,-hz),(hx,hy,-hz),(hx,hy,hz),(-hx,hy,hz)]
+    hexa(mat, [turn(v) for v in c])
+
 def prism(mat, prof, x0, x1):
     n = len(prof)
     verts = [(x0, y, z) for z, y in prof] + [(x1, y, z) for z, y in prof]
@@ -223,8 +241,12 @@ for sx in (-1, 1):
     else:
         sbox('glass', 1.6, 2.35, -0.7, 0.0, 0.0, 0.03)
     # mirror: arm + head
-    sbox('mirror', 1.97, 2.03, 3.34, 3.40, 0.0, 0.2)
-    sbox('mirror', 1.80, 2.22, 3.32, 3.44, 0.2, 0.3)
+    sbox('mirror', 1.72, 1.80, 3.33, 3.43, 0.0, 0.25)  # (the arm joins the head from below, out of the glass's way)
+    # The head is 0.22 wide, 0.42 tall and 0.12 deep, turned as a whole (MIRROR_YAW about the vertical,
+    # then MIRROR_PITCH about its own x) so that the driver sees the road behind in it, and not the
+    # RV's flank. RV.cpp puts a glass, flat on the rear face of each (MIRROR_* there).
+    mx, my, mz = sx*(W+0.31), 2.01, 3.38
+    turned_box('mirror', (mx, my, mz), (0.11, 0.21, 0.06), MIRROR_TURN[sx][0], MIRROR_TURN[sx][1], sx)
     # wheels: dark arch disc on the body side, tire straddling the wall, hub caps
     # (the tire, hub and cap are separate models, see below: they move with
     # the suspension)

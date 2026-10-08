@@ -82,3 +82,31 @@ void Mesh::Draw(Shader * shader) {
         shader->setFloat("alpha", 1.0f);
     }
 }
+Mesh Mesh::deformed(const std::function<glm::vec3(const glm::vec3 &)> &move) const {
+  Mesh result = *this; // (the material is copied; setupMesh gives it buffers of its own)
+  std::vector<glm::vec3> sums(vertices.size(), glm::vec3(0.0f));
+  std::vector<float> moved(vertices.size(), 0.0f);
+  for (size_t i = 0; i < vertices.size(); i++) {
+    result.vertices[i].Position = move(vertices[i].Position);
+    moved[i] = glm::length(result.vertices[i].Position - vertices[i].Position);
+  }
+  // area-weighted normals of the new triangles, added at their corners
+  for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+    unsigned a = indices[i], b = indices[i + 1], c = indices[i + 2];
+    glm::vec3 n = glm::cross(result.vertices[b].Position - result.vertices[a].Position,
+                             result.vertices[c].Position - result.vertices[a].Position);
+    // (keep the winding's side: the old normal says which way is out)
+    glm::vec3 old = vertices[a].Normal + vertices[b].Normal + vertices[c].Normal;
+    if (glm::dot(n, old) < 0.0f)
+      n = -n;
+    sums[a] += n;
+    sums[b] += n;
+    sums[c] += n;
+  }
+  for (size_t i = 0; i < vertices.size(); i++)
+    if (moved[i] > 1e-4f && glm::length(sums[i]) > 1e-8f)
+      result.vertices[i].Normal = glm::normalize(
+          glm::mix(vertices[i].Normal, glm::normalize(sums[i]), glm::min(moved[i] * 10.0f, 1.0f)));
+  result.setupMesh();
+  return result;
+}

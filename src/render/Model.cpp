@@ -132,3 +132,13 @@ void Model::Draw(Shader * shader, bool translucent) {
         if (this->meshes[i].isTransparent() == translucent)
             this->meshes[i].Draw(shader);
 }  
+
+std::shared_ptr<Model> Model::deformed(const std::function<glm::vec3(const glm::vec3 &)> &move) const {
+    std::shared_ptr<Model> result = std::make_shared<Model>();
+    result->directory = directory;
+    result->textures_loaded = textures_loaded;
+    result->transparent = transparent;
+    for (const Mesh &mesh : meshes)
+        result->meshes.push_back(mesh.deformed(move));
+    return result;
+}

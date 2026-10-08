@@ -39,6 +39,7 @@ private:
 
   float farPlane = 300.0f;          // farthest distance drawn, metres
   float fov = DEFAULT_FOV;          // vertical field of view, degrees
+  float aspectOverride = 0.0f;      // > 0: this aspect, not the window's (a camera that draws to a texture)
   float sensitivity = SENSIVILITY;  // radians per pixel of mouse movement
 
   glm::mat4 projection;
@@ -70,6 +71,9 @@ public:
   // How far the camera sees (metres, default 300); the projection is rebuilt at once
   void setFarPlane(float distance) { farPlane = distance; setFov(fov); }
   float getFov() const { return fov; }
+  // A fixed aspect ratio (width / height) instead of the window's, for a camera drawing into a
+  // texture of its own (0 = the window's again)
+  void setAspect(float aspect) { aspectOverride = aspect; setFov(fov); }
   // How much the camera turns per pixel the mouse moves. Only stored here:
   // the Controller reads it when it turns the camera.
   void setSensitivity(float radiansPerPixel) { sensitivity = radiansPerPixel; }

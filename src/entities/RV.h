@@ -11,7 +11,9 @@
 #include "EngineSound.h"
 #include "ImpactDetector.h"
 #include "ParticleEmitter.h"
+#include "MirrorView.h"
 #include "PlayableCharacter.h"
+#include "SoundEngine.h"
 #include "SpotLight.h"
 #include "VehicleBody.h"
 
@@ -33,6 +35,35 @@
 // The windshield breaks in a violent frontal crash (an ImpactDetector, fed by
 // applyCollision and by the speed every frame): the damagedWindshield flag goes up
 // and the cracked-glass model is shown instead of the intact one (setWindshieldModels).
+//
+// A frontal crash twice as hard as the least that breaks the windshield (ImpactDetector::severity
+// >= 2) also wrecks the vehicle (wreck): the front of the body, the cracked glass and the lamps
+// are replaced by crumpled copies, and the engine bay catches fire (flames and smoke: particle
+// emitters, getFireEmitters, and an orange light, getFireLight). A fuse of 0.1 to 100 seconds (evenly distributed),
+// picked at random, starts to run; when it ends the engine explodes (explodeEngine): fire, smoke
+// and fuel splash like the mosquito's (effects/Explosion), a flash of light, a bang, a hop of the
+// vehicle, and whoever is inside or near dies (setExplosionCallback). The engine is dead after
+// that, and the fire goes on.
+//
+// The two side mirrors (0 = the driver's, +x; 1 = the passenger's, -x) show what is behind: each glass is
+// a part of the RV that shows a texture (setMirrorTexture) which the main loop draws every frame
+// (the two take turns) from rearMirror()'s camera,
+// at the glass, looking where the driver's line of sight bounces off it (a true reflection, a
+// bit wider than a flat mirror's, as a convex one). The glass breaks (it is gone) when the front
+// is wrecked.
+//
+// The handbrake lever, on the floor between the driver's seat and the middle of the cab (a rubber
+// boot and a lever, setHandbrakeModels), follows the brake's switch (isHandbrakeOn, the Space key):
+// pulled up and back (upright) while it is on, leaning forward when it is released, swinging between the two.
+//
+// From the moment the front is wrecked the RV is on fire (isOnFire, the flag onFire, which stays
+// up): a fire alarm goes off. A red lamp on the right of the driver's panel blinks (a model of
+// its own, setAlarmLampModel, with a dim red light on the dashboard each time it lights) and a
+// beeping alarm sounds in the cab (heard from outside too, but fainter). The explosion cuts both.
+//
+// The explosion also throws out everything that is not the shell: the wheels, the dashboard,
+// the steering wheel, the key, the needles and the broken windshield each fly off as a prop of
+// their own, tumble, bounce on the floor and lie still (updateDebris).
 //
 // The cockpit: the dashboard, the ignition key and the two needles of the gauges
 // (speed and fuel) are models of their own, added as parts of the RV
@@ -101,6 +132,55 @@ private:
 
   void breakWindshield();
   void updateWindshieldParts();
+  // A violent crash is found: breaks the windshield at once and, once the crash is over, wrecks
+  // the vehicle if it was severe
+  void handleImpact();
+
+  // the wreck: crumpled front, fire, fuse and explosion
+  size_t handbrakeBasePart = 0, handbrakeLeverPart = 0;
+  bool hasHandbrake = false;
+  float handbrakeAngle = 0.0f; // how far the lever is tipped forward from upright now (radians)
+  void updateHandbrake(double dt);
+  bool wrecked = false, exploded = false;
+  bool onFire = false;     // the front is burning (from wreck() on): the alarm is on
+  float alarmTime = 0.0f;  // seconds since the alarm went off
+  size_t alarmPart = 0;
+  bool hasAlarm = false;
+  std::unique_ptr<Sound> alarmSound;
+  bool alarmLit() const; // the lamp is lit now (it blinks)
+  float fuse = 0.0f;       // seconds until the engine explodes (while wrecked)
+  float flashTime = 0.0f;  // seconds left of the explosion's flash
+  std::vector<std::shared_ptr<ParticleEmitter>> fire;  // flames and smoke of the burning front
+  std::vector<std::shared_ptr<ParticleEmitter>> blast; // the explosion: fire, smoke, splash
+  SoundEngine *soundEngine = nullptr;
+  std::unique_ptr<Sound> bangSound;
+  std::function<void(const glm::vec3 &, float)> explosionCallback;
+  // A part thrown out by the explosion: where it is now (in the world), what it spins about
+  // (its middle, in the model's frame), how far its middle is from its lowest point, and how
+  // it moves
+  struct Debris {
+    size_t part;
+    glm::mat4 world;
+    glm::vec3 centre;
+    float radius;
+    glm::vec3 velocity;
+    glm::vec3 axis;
+    float spin; // rad/s
+    bool resting;
+  };
+  std::vector<Debris> debris;
+  void ejectParts(const glm::vec3 &from);
+  void updateDebris(const Stage &stage, double dt);
+  glm::vec3 engineBay() const; // where the fire is, in the world
+  size_t mirrorPart[2] = {0, 0};
+  bool hasMirror[2] = {false, false}, mirrorShown[2] = {true, true};
+  float mirrorAspect = 0.5f;
+  void updateMirrorParts() {
+    for (int i = 0; i < 2; i++)
+      if (hasMirror[i])
+        setPartVisible(mirrorPart[i], mirrorShown[i] && !wrecked);
+  }
+  void updateFire(double dt);
   // the cockpit (see setCockpitModels)
   bool hasCockpit = false;
   bool hasSteeringWheel = false;
@@ -149,6 +229,42 @@ public:
   // have them updated and drawn
   const std::vector<std::shared_ptr<ParticleEmitter>> &getDust() const {
     return dust;
+  }
+  // The glass of mirror `side` (0 = the driver's, +x; 1 = the passenger's, -x) shows this GL
+  // texture (RGBA, `aspect` = width / height of the picture)
+  void setMirrorTexture(int side, unsigned int texture, float aspect);
+  // Where the camera of mirror `side` goes (false if the glass is gone)
+  bool rearMirror(int side, MirrorView &view) const;
+  // Hides the glass while its own picture is drawn
+  void showMirror(int side, bool show) {
+    mirrorShown[side] = show;
+    updateMirrorParts();
+  }
+  // The flames and smoke of the burning front, and the explosion's fire, smoke and splash: give
+  // them to the stage too
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getFireEmitters() const { return fire; }
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getBlastEmitters() const { return blast; }
+  // The fire's light (it flickers) and the explosion's flash, while there are any
+  void getFireLight(std::vector<SpotLight> &lights) const;
+  // The handbrake's boot and lever (handbrake_base.obj, handbrake_lever.obj: in the frame of the
+  // lever's pivot, which this puts in place); the lever follows isHandbrakeOn
+  void setHandbrakeModels(std::shared_ptr<Model> base, std::shared_ptr<Model> lever);
+  // The red lamp of the fire alarm (dashboard_alarm.obj, in the frame of rv.obj): shown only
+  // while it blinks on
+  void setAlarmLampModel(std::shared_ptr<Model> lamp);
+  // The front is burning: the fire alarm is on (set by wreck(); the explosion does not clear it)
+  bool isOnFire() const { return onFire; }
+  // Crumples the front and sets the engine on fire, with a fuse for the explosion (a no-op if it
+  // is wrecked already). A severe frontal crash does it by itself.
+  void wreck();
+  bool isWrecked() const { return wrecked; }
+  // Blows the engine up now (wrecking it first if need be)
+  void explodeEngine();
+  bool hasExploded() const { return exploded; }
+  // What the explosion does to the people near it: called with its centre in the world and the
+  // radius (m) of the blast, for the stage to kill whoever is inside
+  void setExplosionCallback(std::function<void(const glm::vec3 &, float)> callback) {
+    explosionCallback = callback;
   }
   // The wheels' sand grain emitters (same use as getDust)
   const std::vector<std::shared_ptr<ParticleEmitter>> &getGrains() const {
@@ -262,7 +378,7 @@ public:
   // What happens when the player uses the RV (the stage hands it the controls)
   void setEnterAction(std::function<void()> action) { enterAction = action; }
   // The engine starts off and only the Engine key switches it on or off: getting out leaves it
-  // as it is (an empty RV with the engine running stays put, its handbrake on, and burns no
+  // as it is (an empty RV with the engine running burns no
   // fuel), so getting back in finds it running.
   // If its lights are on when the player gets out they stay on (parkedLights: the switch still
   // gives them power, even if the engine is off) until somebody gets in again.
@@ -279,7 +395,14 @@ public:
   // Turning the key on starts the engine only after the starter has cranked it (isEngineOn is
   // false meanwhile, and the lights, gauges and driving stay off); it may take several tries.
   bool isKeyOn() const { return keyOn; }
-  void toggleEngine() { setEngine(!keyOn); }
+  // One press of the engine key: with the engine off it turns the key for ONE try (it fails 40 % of
+  // the times: the key springs back and the next press tries again); running, it switches it off.
+  // A press while a try is going on is ignored (one try per press).
+  void toggleEngine() {
+    if (keyOn && !engineOn)
+      return;
+    setEngine(!keyOn);
+  }
   // Which way it faces (radians around +y, 0 = towards +z; the door is on its
   // +x side). Only before the first update: after it the physics rules.
   void setHeading(float radians) {
@@ -312,7 +435,7 @@ public:
   void control(glm::vec2 dir, float up, float cameraYaw) override;
   // The handbrake the driver pulls or releases (Space): while it is pulled every wheel brakes
   // (VehicleBody::setHandbrake), until it is released. It keeps its state when the driver gets
-  // out (an empty RV brakes anyway) and in.
+  // out and in; getting out does not set it (an empty RV rolls if the ground slopes).
   bool isHandbrakeOn() const { return handbrakeOn; }
   void setHandbrakeOn(bool on) { handbrakeOn = on; }
   void toggleHandbrake() { handbrakeOn = !handbrakeOn; }

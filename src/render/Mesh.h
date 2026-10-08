@@ -2,6 +2,7 @@
 #define MESH
 #define GLM_ENABLE_EXPERIMENTAL
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -58,6 +59,9 @@ public:
   // A translucent mesh is blended over what is already drawn (and does not
   // write depth), so draw those after everything opaque
   void Draw(Shader *shader);
+  // A copy with every vertex moved by `move` (its new position from the old one), and the normals
+  // of the moved vertices redone from the new shape (the same material and textures)
+  Mesh deformed(const std::function<glm::vec3(const glm::vec3 &)> &move) const;
 };
 
 #endif
