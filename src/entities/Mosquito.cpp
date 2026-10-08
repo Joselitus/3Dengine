@@ -911,6 +911,14 @@ void Mosquito::applyCollision(const vec3 &push, const vec3 &velocityChange) {
     kill();
 }
 
+void Mosquito::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
+  if (behavior == Behavior::Dead)
+    return;
+  health -= amount;
+  if (health <= 0.0f)
+    kill();
+}
+
 void Mosquito::teleport(const vec3 &where) {
   DynamicGameObject::teleport(where);
   hasWaypoint = false;

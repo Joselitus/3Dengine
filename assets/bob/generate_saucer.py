@@ -12,6 +12,11 @@ numbers, *_ in it):
   saucer_ramp.obj     the ramp, closed (flush with the underside); it hinges at RAMP_HINGE and
                       swings down to the ground (the engine turns it about +X)
   saucer_beam.obj     a cone of light from the underside to the ground (translucent, glowing)
+  saucer_gun_mount.obj  the ray gun's mount under the middle: a column and a ball (the engine slides
+                      it up into the hull, GUN_TRAVEL, when the gun is put away)
+  saucer_gun.obj      the ray gun's barrel, pointing along +z; it turns about GUN_PIVOT (the
+                      player's eye when he aims it: the barrel is below and in front of it)
+  saucer_shot.obj     the shot: a green rod along +z from the origin, 1 m long (glowing, stretched)
 (+ saucer.mtl). Needs numpy. Fixed seed.
 """
 import math
@@ -27,6 +32,7 @@ LEG_HEIGHT = 1.6
 RAMP_WIDTH, RAMP_LENGTH = 1.1, 2.9
 RAMP_HINGE = (0.0, LEG_HEIGHT + 0.08, 0.6)  # (y, z of its near edge; it runs towards +z)
 SEG = 40
+GUN_PIVOT = (0.0, LEG_HEIGHT - 0.5, 0.0)
 
 MATS = {
     'metal': ((0.70, 0.72, 0.76), 1.0),
@@ -35,6 +41,7 @@ MATS = {
     'glass': ((0.45, 0.65, 0.75), 0.45),
     'light': ((0.75, 1.0, 0.95), 1.0),
     'beam': ((0.65, 0.95, 1.0), 0.18),
+    'shot': ((0.45, 1.0, 0.55), 0.85),
 }
 
 
@@ -130,9 +137,31 @@ for k in range(6):  # ridges across it, to walk on
 beam = Mesh()
 lathe(beam, 'beam', [(2.6, 0.0), (1.2, H)], y0=0.0)
 
+# the ray gun: a column down from the middle of the underside to a ball above the eye, and a barrel
+# below the eye that turns with it
+px, py, pz = GUN_PIVOT
+mount = Mesh()
+tube(mount, 'metal_dark', [(0, H + 0.05, 0), (0, py + 0.35, 0)], [0.09, 0.09], seg=10, per_segment=1)
+ellipsoid(mount, 'metal', (0, py + 0.33, 0), (0.2, 0.17, 0.2), nlat=6, nlon=12)
+gun = Mesh()
+by = py - 0.3  # the barrel's axis, under the eye
+for side in (-1, 1):  # two arms from the ball down to the barrel's breech, at its sides
+    tube(gun, 'metal_dark', [(0.13 * side, py + 0.25, 0.0), (0.13 * side, by, 0.1)], [0.035, 0.035],
+         seg=6, per_segment=1)
+ellipsoid(gun, 'metal', (0, by, 0.2), (0.12, 0.1, 0.26), nlat=6, nlon=12)
+tube(gun, 'metal_dark', [(0, by, 0.45), (0, by, 1.6)], [0.05, 0.04], seg=10, per_segment=1)
+for zz in (0.75, 1.05, 1.35):  # cooling rings
+    ellipsoid(gun, 'metal', (0, by, zz), (0.07, 0.07, 0.03), nlat=4, nlon=10)
+ellipsoid(gun, 'light', (0, by, 1.61), (0.045, 0.045, 0.02), nlat=4, nlon=8)
+shot = Mesh()
+tube(shot, 'shot', [(0, 0, 0), (0, 0, 1.0)], [0.05, 0.05], seg=8, per_segment=1)
+
 write_mtl('saucer.mtl', MATS)
 hull.write('saucer_hull.obj', 'saucer.mtl', 'saucer_hull')
 lights.write('saucer_lights.obj', 'saucer.mtl', 'saucer_lights')
 legs.write('saucer_legs.obj', 'saucer.mtl', 'saucer_legs')
 ramp.write('saucer_ramp.obj', 'saucer.mtl', 'saucer_ramp')
 beam.write('saucer_beam.obj', 'saucer.mtl', 'saucer_beam')
+mount.write('saucer_gun_mount.obj', 'saucer.mtl', 'saucer_gun_mount')
+gun.write('saucer_gun.obj', 'saucer.mtl', 'saucer_gun')
+shot.write('saucer_shot.obj', 'saucer.mtl', 'saucer_shot')

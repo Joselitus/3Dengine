@@ -217,6 +217,8 @@ public:
   // The stage tells it how a collision moved it: too fast kills it (floor contacts are only
   // vertical, they never do)
   void applyCollision(const glm::vec3 &push, const glm::vec3 &velocityChange) override;
+  // Shot: once its health is gone it dies (kill)
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
   // The light of its eyes
   void getLight(std::vector<SpotLight> &lights) const;
   void describe(std::vector<std::string> &lines) const override;

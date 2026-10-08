@@ -21,6 +21,7 @@
 #include "DebugSelector.h"
 #include "CreditsOverlay.h"
 #include "DeathOverlay.h"
+#include "CrosshairOverlay.h"
 #include "FilmGrain.h"
 #include "StruggleOverlay.h"
 #include "EspeakSynthesizer.h"
@@ -546,6 +547,9 @@ int main(int argc, char **argv) {
   // Held by Bob: which key to hammer to get free, and how near he is
   StruggleOverlay struggleOverlay([&controls]() { return controls.keyName(Action::LeaveVehicle); });
   ui.addOverlay(&struggleOverlay);
+  // Aiming Bob's ship's ray gun: a crosshair in the middle
+  CrosshairOverlay crosshair;
+  ui.addOverlay(&crosshair);
   // Bob is near: the picture gets grainy (see GameStage::alienPresence)
   FilmGrain grain;
   // Abducted: a scream (not too loud) while he rises, and a rip as he goes into the ship
@@ -832,10 +836,21 @@ int main(int argc, char **argv) {
     controller.setEnabled(!ui.hasPanels() && !stage->isPlayerDead() && !stage->playerImmobilized());
     paralysisOverlay.setAmount(0.35f * stage->playerParalysis() * (0.8f + 0.2f * (float)std::sin(now * 9.0)));
     struggleOverlay.setProgress(stage->struggleProgress());
+    crosshair.setShown(stage->playerAiming() && !stage->isPlayerDead());
     // In the debug placement mode, the right button turns the selected object
     // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
+    // The left button fires (Bob's ship's ray gun), once per press: not over a panel, nor in a
+    // debug mode (they use the mouse)
+    {
+      static bool fireWasDown = false;
+      bool fireDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+      if (fireDown && !fireWasDown && !ui.hasPanels() && selector.getMode() == DebugSelector::Mode::Off &&
+          !stage->isPlayerDead())
+        stage->fire(camera.getPosition(), camera.getForward());
+      fireWasDown = fireDown;
+    }
     stage->setViewer(camera.getPosition(), camera.getViewProjection()); // (as it was the last frame)
     double tUpdate = glfwGetTime();
     stage->update(dt);

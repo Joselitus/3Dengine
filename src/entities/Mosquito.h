@@ -206,6 +206,7 @@ public:
 
 private:
   Behavior behavior = Behavior::Wander;
+  float health = 1.0f; // (shots: takeDamage)
   float stateTime = 0.0f;  // seconds in the current behaviour
   float diveWait = 0.0f;   // seconds left circling before the next dive
   float circleAngle = 0.0f; // where it is on the circle round the target (radians)
@@ -367,6 +368,8 @@ public:
 
   void update(double dt) override;
   void applyCollision(const glm::vec3 &push, const glm::vec3 &velocityChange) override;
+  // Shot: once its health is gone it dies (kill)
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
   void teleport(const glm::vec3 &position) override;
   float getHeading() const override { return yaw; }
   void turn(float radians) override;

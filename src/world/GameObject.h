@@ -12,6 +12,8 @@
 #include "Model.h"
 #include "Property.h"
 
+class Stage;
+
 // Anything that is placed in the world. It shares the models (parts) it is
 // made of, or an AnimatedModel, plus a position, a rotation and a scale, and
 // is in charge of rendering them: Draw() sets objposition/objrotation (which
@@ -137,6 +139,9 @@ public:
   // Property). The functions are bound to this object: they must not outlive
   // it. Subclasses add theirs after their parent's.
   virtual void getProperties(std::vector<Property> &properties);
+  // A shot (Bob's ship's ray gun) hits it, going along `direction`, in `stage`: it loses `amount`
+  // of its health (1 = all of it). Nothing happens by default; the creatures override it.
+  virtual void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) {}
   void Draw(Shader *shader); // the opaque meshes
   // The translucent meshes of its parts (windows...): the stage draws them
   // after every object's opaque ones

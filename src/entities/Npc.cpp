@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "Stage.h"
+
 using namespace std;
 using namespace glm;
 
@@ -29,6 +31,16 @@ void Npc::faceTowards(const vec3 &point) {
   // Same convention as Walker: yaw 0 looks towards +z
   facing = std::atan2(d.x, d.z);
   setYaw(facing);
+}
+
+void Npc::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
+  if (ragdoll || health <= 0.0f)
+    return;
+  health -= amount;
+  if (health > 0.0f)
+    return;
+  velocity += normalize(direction) * SHOT_KNOCK;
+  startRagdoll([&stage](float x, float z, float &height) { return stage.floorAt(x, z, height); });
 }
 
 bool Npc::startRagdoll(Ragdoll::FloorQuery floor, function<bool(vec3 &)> holdHead) {

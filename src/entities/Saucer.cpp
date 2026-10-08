@@ -42,6 +42,11 @@ Vent ventAt(int i) {
   return {vec3(0.0f, y, Saucer::RAMP_HINGE_Z + Saucer::RAMP_LENGTH), vec3(0.0f, -0.35f, 1.0f)};
 }
 const int VENTS = 6;
+// The ray gun (generate_saucer.py): the end of its barrel, in the gun's frame, and its lowest point
+// (the ball under the hull, not the barrel) under the pivot
+const vec3 MUZZLE(0.0f, Saucer::GUN_PIVOT_Y - 0.3f, 1.62f);
+const float GUN_BOTTOM = 0.42f;
+const vec3 SHOT_COLOR(0.45f, 1.0f, 0.55f);
 
 float ease(float t) {
   t = clamp(t, 0.0f, 1.0f);
@@ -59,13 +64,20 @@ float approach(float value, float target, float step) {
 } // namespace
 
 Saucer::Saucer(shared_ptr<Model> hull, shared_ptr<Model> lights, shared_ptr<Model> legs,
-               shared_ptr<Model> ramp, shared_ptr<Model> beam)
+               shared_ptr<Model> ramp, shared_ptr<Model> beam, shared_ptr<Model> gunMount,
+               shared_ptr<Model> gun, shared_ptr<Model> shot)
     : PlayableCharacter(hull, make_shared<Box>(HULL_HALF, HULL_CENTER)), random(random_device()()) {
   hullPart = 0;
   lightsPart = addPart(lights, 2); // glowing
   legsPart = addPart(legs);
   rampPart = addPart(ramp);
   beamPart = addPart(beam, 2);
+  gunMountPart = addPart(gunMount);
+  gunPart = addPart(gun);
+  shotPart = addPart(shot, 2);
+  setPartVisible(gunMountPart, false);
+  setPartVisible(gunPart, false);
+  setPartVisible(shotPart, false);
   // steam: white puffs that spread, slow down and rise a little as they fade
   ParticleSettings steamPuff;
   steamPuff.lifeMin = 1.6f;
@@ -83,6 +95,23 @@ Saucer::Saucer(shared_ptr<Model> hull, shared_ptr<Model> lights, shared_ptr<Mode
   steamPuff.maxParticles = 150;
   for (int i = 0; i < VENTS; i++)
     smoke.push_back(make_shared<ParticleEmitter>(steamPuff, 300 + i));
+  // sparks where a shot hits: small green specks thrown back, that fall
+  ParticleSettings spark;
+  spark.lifeMin = 0.25f;
+  spark.lifeMax = 0.5f;
+  spark.speedMin = 2.0f;
+  spark.speedMax = 6.0f;
+  spark.spread = 1.1f;
+  spark.sizeStart = 0.07f;
+  spark.sizeEnd = 0.02f;
+  spark.color = vec3(0.6f, 1.0f, 0.65f);
+  spark.alpha = 0.95f;
+  spark.gravity = 6.0f;
+  spark.drag = 1.0f;
+  spark.maxParticles = 120;
+  sparks = make_shared<ParticleEmitter>(spark, 310);
+  emitters = smoke;
+  emitters.push_back(sparks);
   setGravity(0.0f);
   setMass(1e6f); // nothing pushes it
   setVisible(false);
@@ -100,6 +129,7 @@ void Saucer::setSounds(SoundEngine &engine) {
   humClip = load("saucer_hum.wav");
   powerDownClip = load("saucer_power_down.wav");
   steamClip = load("saucer_steam.wav");
+  shotClip = load("saucer_shot.wav");
 }
 
 void Saucer::setLanding(const vec3 &spot, float yaw) {
@@ -192,6 +222,8 @@ void Saucer::setPiloted(bool piloted) {
     lift = 0.0f;
   } else if (!piloted && phase == Phase::Piloted) {
     engineOn = false;
+    gunWanted = false;
+    aiming = false;
     velocity = vec3(0.0f);
     enter(Phase::Landed);
   }
@@ -206,6 +238,11 @@ void Saucer::toggleLegs() {
   // (only in the air: on the ground it stands on them)
   if (phase == Phase::Piloted && !onGround)
     legsWanted = !legsWanted;
+}
+
+void Saucer::toggleGun() {
+  if (phase == Phase::Piloted)
+    gunWanted = !gunWanted;
 }
 
 void Saucer::attachCamera(Camera *cam, float distance, float height) {
@@ -301,9 +338,88 @@ void Saucer::update(double dt) {
   }
   if (phase != Phase::Piloted)
     velocity = vec3(0.0f);
-  place(); // (its turn, legs, ramp and beam, as they are now)
+  updateGun(dt);
+  place(); // (its turn, legs, ramp, beam and gun, as they are now)
   updateSounds(dt);
   updateSmoke(dt);
+}
+
+// The gun comes down or goes up; once it is down the camera goes to it (and back behind the ship
+// as soon as it goes up); the gun turns to where the camera looks
+void Saucer::updateGun(double dt) {
+  float dtf = (float)dt;
+  bool out = gunWanted && phase == Phase::Piloted;
+  gunOut = approach(gunOut, out ? 1.0f : 0.0f, dtf / GUN_TIME);
+  bool aim = out && gunOut >= 1.0f;
+  if (aim != aiming && camera) {
+    if (aim)
+      camera->attachTo(this, 0.0f, GUN_PIVOT_Y);
+    else
+      camera->attachTo(this, CAMERA_DISTANCE, CAMERA_HEIGHT);
+  }
+  aiming = aim;
+  // the barrel turns about the pivot, to look where the camera looks (in the ship's frame)
+  if (aiming && camera) {
+    vec3 f = transpose(mat3(rotation)) * camera->getForward();
+    float yawL = std::atan2(f.x, f.z), pitchL = std::asin(clamp(-f.y, -1.0f, 1.0f));
+    vec3 pivot(0.0f, GUN_PIVOT_Y, 0.0f);
+    gunLocal = glm::translate(mat4(1.0f), pivot) * glm::rotate(mat4(1.0f), yawL, vec3(0.0f, 1.0f, 0.0f)) *
+               glm::rotate(mat4(1.0f), pitchL, vec3(1.0f, 0.0f, 0.0f)) * glm::translate(mat4(1.0f), -pivot);
+  }
+  shotCooldown = std::max(0.0f, shotCooldown - dtf);
+  if (shotTime >= 0.0f) {
+    shotTime += dtf;
+    if (shotTime > 2.0f * SHOT_SHOW)
+      shotTime = -1.0f;
+  }
+}
+
+vec3 Saucer::muzzle() const {
+  vec3 slide(0.0f, (1.0f - ease(gunOut)) * GUN_TRAVEL, 0.0f);
+  return position + vec3(rotation * vec4(vec3(gunLocal * vec4(MUZZLE, 1.0f)) + slide, 0.0f));
+}
+
+bool Saucer::fire(const Stage &stage, const vec3 &eye, const vec3 &direction) {
+  if (!aiming || shotCooldown > 0.0f || length(direction) < 1e-4f)
+    return false;
+  shotCooldown = SHOT_COOLDOWN;
+  vec3 dir = normalize(direction);
+  // the first solid thing along it (not the ship itself, nor what can't be seen: the player in it)
+  float best = SHOT_RANGE;
+  shared_ptr<GameObject> hit;
+  auto consider = [&](const shared_ptr<GameObject> &object) {
+    if (object.get() == static_cast<const GameObject *>(this) || !object->isVisible() || !object->isCollidable())
+      return;
+    float distance;
+    if (object->getShape().raycast(object->getPose(), eye, dir, distance) && distance < best) {
+      best = distance;
+      hit = object;
+    }
+  };
+  for (const auto &object : stage.getObjects())
+    consider(object);
+  for (const auto &object : stage.getDynamicObjects())
+    consider(object);
+  // or the ground, if that comes first
+  for (float t = 0.25f; t < best; t += 0.25f) {
+    vec3 p = eye + dir * t;
+    float ground;
+    if (stage.floorAt(p.x, p.z, ground) && p.y <= ground) {
+      best = t;
+      hit.reset();
+      break;
+    }
+  }
+  shotTo = eye + dir * best;
+  shotTime = 0.0f;
+  if (hit)
+    hit->takeDamage(SHOT_DAMAGE, dir, stage);
+  sparks->setPosition(shotTo - dir * 0.1f);
+  sparks->setDirection(-dir);
+  sparks->burst(30);
+  if (soundEngine && shotClip && (shotSound = soundEngine->play(shotClip, true, muzzle())))
+    shotSound->setVolume(SHOT_VOLUME);
+  return true;
 }
 
 // It stands on its legs on the ground: a release of steam, and smoke from its feet and its ramp
@@ -394,6 +510,9 @@ void Saucer::fly(const Stage &stage, double dt) {
     ground = position.y - LEG_HEIGHT;
   // the lowest it can be: on its legs, or as they go in, down to its belly
   float lowest = ground - (LEG_HEIGHT - 0.12f) * (1.0f - legsOut);
+  // (and with its gun down, never below it)
+  float gunLowest = GUN_PIVOT_Y - GUN_BOTTOM + (1.0f - ease(gunOut)) * GUN_TRAVEL;
+  lowest = std::max(lowest, ground - gunLowest + 0.02f);
   if (position.y <= lowest) {
     position.y = lowest;
     if (velocity.y < 0.0f)
@@ -433,6 +552,34 @@ void Saucer::place() {
   ramp = rotate(ramp, ease(rampOpen) * RAMP_ANGLE, vec3(1.0f, 0.0f, 0.0f));
   setPartTransform(rampPart, glm::translate(ramp, -hinge));
   setPartVisible(beamPart, beamOn());
+  // the gun slides down from the hull, and its barrel turns
+  mat4 slide = glm::translate(mat4(1.0f), vec3(0.0f, (1.0f - ease(gunOut)) * GUN_TRAVEL, 0.0f));
+  setPartVisible(gunMountPart, gunOut > 0.01f);
+  setPartVisible(gunPart, gunOut > 0.01f);
+  setPartTransform(gunMountPart, slide);
+  setPartTransform(gunPart, slide * gunLocal);
+  // the shot: a rod stretched from the muzzle to where it hit (in its frame)
+  bool shooting = shotTime >= 0.0f && shotTime <= SHOT_SHOW;
+  setPartVisible(shotPart, shooting);
+  if (shooting) {
+    mat3 toShip = transpose(mat3(rotation));
+    vec3 from = toShip * (muzzle() - position), to = toShip * (shotTo - position);
+    vec3 d = to - from;
+    float len = length(d);
+    if (len > 0.05f) {
+      vec3 z = d / len;
+      vec3 x = cross(vec3(0.0f, 1.0f, 0.0f), z);
+      x = length(x) > 1e-4f ? normalize(x) : vec3(1.0f, 0.0f, 0.0f);
+      mat4 m(1.0f);
+      m[0] = vec4(x, 0.0f);
+      m[1] = vec4(cross(z, x), 0.0f);
+      m[2] = vec4(z * len, 0.0f); // (the rod is 1 m long)
+      m[3] = vec4(from, 1.0f);
+      setPartTransform(shotPart, m);
+    } else {
+      setPartVisible(shotPart, false);
+    }
+  }
 }
 
 bool Saucer::beamOn() const {
@@ -455,6 +602,10 @@ vec3 Saucer::hatch() const { return position + vec3(0.0f, LEG_HEIGHT + 0.1f, 0.0
 void Saucer::getLights(vector<SpotLight> &lights) const {
   if (phase == Phase::Away)
     return;
+  if (shotTime >= 0.0f) { // the flash where a shot hits (it lights its sparks too)
+    float k = 1.0f - shotTime / (2.0f * SHOT_SHOW);
+    lights.push_back(SpotLight::omni(shotTo - normalize(shotTo - muzzle()) * 0.3f, SHOT_COLOR * 3.0f * k, 7.0f));
+  }
   if (beamOn()) {
     SpotLight beam;
     beam.position = position + vec3(0.0f, LEG_HEIGHT - 0.05f, 0.0f);

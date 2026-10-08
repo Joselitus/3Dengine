@@ -97,6 +97,28 @@ void Bob::teleport(const vec3 &where) {
   lastPosition = where;
 }
 
+void Bob::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
+  switch (behavior) {
+  case Behavior::Prowl:
+  case Behavior::Chase:
+  case Behavior::Firing:
+  case Behavior::Grabbing:
+  case Behavior::Returning:
+    knockDown();
+    break;
+  default: // (in the ship, on its ramp, or down already)
+    break;
+  }
+}
+
+// He falls over on his back, gets up after a while and leaves the player alone for a bit
+void Bob::knockDown() {
+  leaveAlone = LEAVE_ALONE + FALLEN_TIME;
+  setCollidable(false);
+  velocity = vec3(0.0f);
+  enter(Behavior::Fallen);
+}
+
 void Bob::struggleOnce() {
   if (behavior == Behavior::Grabbing)
     struggle = std::min(1.0f, struggle + STRUGGLE_PER_PRESS);
@@ -233,11 +255,7 @@ void Bob::update(double dt) {
     if (dead || inVehicle) {
       enter(Behavior::Prowl);
     } else if (struggle >= 1.0f) { // (before it wears off this frame)
-      // free: Bob falls over on his back
-      leaveAlone = LEAVE_ALONE + FALLEN_TIME;
-      setCollidable(false);
-      velocity = vec3(0.0f);
-      enter(Behavior::Fallen);
+      knockDown(); // free: Bob falls over on his back
     } else if (stateTime >= GRAB_TIME) {
       take();
     } else {
