@@ -145,6 +145,8 @@ Una línea por hito (AAAA-MM-DD); el detalle completo está en el historial de g
 - 2026-10-08 (`scayuelas`): grito a 1.2. **Arreglo:** `Saucer::place()` (giro, patas, rampa y haz) solo se llamaba en `setLanding`, así que la nave aterrizaba sin patas, sin rampa visible ni cono de luz (ya en el commit `bb8ef7f`); ahora se llama al final de `Saucer::update`. Verificado con capturas en Xephyr (de día con la noche forzada, parches revertidos): haz al bajar, patas y rampa en tierra, Bob bajando.
 - 2026-10-08 (`scayuelas`): **sonidos y humo de la nave.** Zumbido al moverse (`saucer_hum.wav`), apagado al bajar (`saucer_power_down.wav`, 6 s), vapor al posarse (`saucer_steam.wav`) con humo de las patas y la rampa (6 emisores, `Saucer::getSmoke`); `Sound::setDistances` nuevo. Los audios originales ya usados se movieron de la raíz a `assets/bob/source_audio/` (el código no los lee). Verificado en Xephyr (de día con la noche forzada, salida virtual, parches revertidos): zumbido llegando, se apaga a los ~2.8 s del descenso, el apagado acaba justo al posarse, vapor y humo en las capturas (se disipa en ~3 s). **No probado:** el humo y el vapor aterrizando pilotada, ni cómo se ve el humo de noche (oscuro, previsiblemente).
 
+- 2026-10-08 (`main`): **créditos al morir.** Tras la caída el rojo se funde a negro (3.5 s + 6 s) y ruedan los créditos (`ui/CreditsOverlay`, tras el secuestro también). Se leen de `assets/credits/credits.txt` (formato en su cabecera: `title =`, `[Rol]`, un nombre por línea); para añadir gente solo se edita ese fichero. Solo compilado, **no visto en pantalla**.
+
 ## Próximos pasos / ideas
 
 - Resolver los conflictos de git pendientes y compilar.

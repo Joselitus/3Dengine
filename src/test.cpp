@@ -19,6 +19,7 @@
 #include "Commands.h"
 #include "TextFormat.h"
 #include "DebugSelector.h"
+#include "CreditsOverlay.h"
 #include "DeathOverlay.h"
 #include "FilmGrain.h"
 #include "StruggleOverlay.h"
@@ -505,6 +506,10 @@ int main(int argc, char **argv) {
   // The player's death: the screen goes red (the camera falls: see the main loop)
   DeathOverlay deathOverlay;
   ui.addOverlay(&deathOverlay);
+  // After it, the end credits (read from a file) roll over the black screen
+  CreditsOverlay credits;
+  credits.load("../assets/credits/credits.txt");
+  ui.addOverlay(&credits);
   // Paralysed by Bob's ray: the screen goes yellow for a while (the same kind of tint)
   DeathOverlay paralysisOverlay;
   paralysisOverlay.setColor(vec3(1.0f, 0.9f, 0.15f));
@@ -652,6 +657,7 @@ int main(int argc, char **argv) {
     if (dayDuration >= 0.0f)
       stage->setDayDuration(dayDuration);
     deathTime = -1.0; // (a new map: the player is alive)
+    credits.stop();
     scream.reset();
     rip.reset();
     mapLoaded = true;
@@ -811,7 +817,7 @@ int main(int argc, char **argv) {
     if (stage->isPlayerDead() && stage->isPlayerAbducted()) {
       // Abducted (Bob caught him): he floats up in the ship's beam towards its hatch, turning
       // slowly and looking up into the light; the screen goes white, then black
-      const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f;
+      const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f, CREDITS_PAUSE = 1.5f;
       if (deathTime < 0.0) {
         deathTime = 0.0;
         abductFrom = camera.getPosition();
@@ -841,8 +847,13 @@ int main(int argc, char **argv) {
         deathOverlay.setColor(vec3(0.0f));
         deathOverlay.setAmount(glm::min((time - BLACK_FROM) / BLACK_TIME, 1.0f));
       }
+      if (time > BLACK_FROM + BLACK_TIME + CREDITS_PAUSE && !credits.isRunning())
+        credits.start();
     } else if (stage->isPlayerDead()) {
-      deathOverlay.setColor(vec3(0.7f, 0.0f, 0.02f));
+      // After the fall, the red fades slowly to black and the credits start rolling
+      const float FADE_FROM = 3.5f, FADE_TIME = 6.0f, CREDITS_PAUSE = 1.5f;
+      float fade = glm::clamp(((float)deathTime - FADE_FROM) / FADE_TIME, 0.0f, 1.0f);
+      deathOverlay.setColor(glm::mix(vec3(0.7f, 0.0f, 0.02f), vec3(0.0f), fade));
       const float G = 9.81f, FALL_BOUNCE = 0.3f, LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
       const float START_ANGLE = 0.04f, START_SPEED = 0.3f; // (the blow that starts it)
       const float HALF_TURN = 1.5707963f;
@@ -872,10 +883,13 @@ int main(int argc, char **argv) {
       // a little roll, most while it tips over (a turn about the way it looked)
       float roll = ROLL * std::sin(2.0f * deathAngle);
       camera.setCarrier(mat3(rotate(mat4(1.0f), roll, flatForward)));
-      deathOverlay.setAmount(TINT * glm::min((float)deathTime / 0.4f, 1.0f));
+      deathOverlay.setAmount(glm::mix(TINT * glm::min((float)deathTime / 0.4f, 1.0f), 1.0f, fade));
+      if (fade >= 1.0f && deathTime > FADE_FROM + FADE_TIME + CREDITS_PAUSE && !credits.isRunning())
+        credits.start();
     } else {
       deathOverlay.setAmount(0.0f);
     }
+    credits.update((float)dt);
     // The camera is a body too: it can't sink into the floor (e.g. behind
     // the RV on a dune, or when the player walks up a slope)
     vec3 eye = camera.getPosition();
