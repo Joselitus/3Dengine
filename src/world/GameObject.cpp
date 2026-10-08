@@ -166,6 +166,11 @@ void GameObject::describe(vector<string> &lines) const {
     lines.push_back(textFormat("Forma: caja %.2f x %.2f x %.2f", 2 * h.x,
                                2 * h.y, 2 * h.z));
     lines.push_back("  centro: " + textOf(c));
+  } else if (const CompoundShape *compound = dynamic_cast<const CompoundShape *>(shape.get())) {
+    int enabled = 0;
+    for (const CompoundShape::Part &part : compound->getParts())
+      enabled += part.enabled ? 1 : 0;
+    lines.push_back(textFormat("Forma: %d cajas (de %d)", enabled, (int)compound->getParts().size()));
   }
   vec3 min, max;
   shape->bounds(pose, min, max);

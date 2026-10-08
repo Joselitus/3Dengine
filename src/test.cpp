@@ -19,6 +19,7 @@
 #include "Commands.h"
 #include "TextFormat.h"
 #include "DebugSelector.h"
+#include "CreditsOverlay.h"
 #include "DeathOverlay.h"
 #include "CrosshairOverlay.h"
 #include "FilmGrain.h"
@@ -483,6 +484,35 @@ int main(int argc, char **argv) {
 
   // Draws the particles (dust...) of the current map
   ParticleRenderer particles;
+  // The rear-view mirrors of the vehicle (two): a camera of its own draws the world behind into
+  // each one's texture (see the main loop, where they take turns); the vehicle's glass shows it
+  const int MIRROR_W = 320, MIRROR_H = 640, MIRRORS = 2;
+  GLuint mirrorTexture[MIRRORS] = {0, 0}, mirrorFbo[MIRRORS] = {0, 0}, mirrorDepth = 0;
+  bool mirrorWorks = true;
+  glGenRenderbuffers(1, &mirrorDepth); // (one depth buffer for both: they are never drawn together)
+  glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepth);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, MIRROR_W, MIRROR_H);
+  for (int i = 0; i < MIRRORS; i++) {
+    glGenTextures(1, &mirrorTexture[i]);
+    glBindTexture(GL_TEXTURE_2D, mirrorTexture[i]);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, MIRROR_W, MIRROR_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &mirrorFbo[i]);
+    glBindFramebuffer(GL_FRAMEBUFFER, mirrorFbo[i]);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mirrorTexture[i], 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mirrorDepth);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+      mirrorWorks = false;
+  }
+  if (!mirrorWorks)
+    fprintf(stderr, "The mirrors' framebuffer is not complete: no mirrors\n");
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  glBindTexture(GL_TEXTURE_2D, 0);
+  Camera mirrorCamera(window, &shader);
+  mirrorCamera.setAspect((float)MIRROR_W / MIRROR_H);
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
@@ -506,6 +536,10 @@ int main(int argc, char **argv) {
   // The player's death: the screen goes red (the camera falls: see the main loop)
   DeathOverlay deathOverlay;
   ui.addOverlay(&deathOverlay);
+  // After it, the end credits (read from a file) roll over the black screen
+  CreditsOverlay credits;
+  credits.load("../assets/credits/credits.txt");
+  ui.addOverlay(&credits);
   // Paralysed by Bob's ray: the screen goes yellow for a while (the same kind of tint)
   DeathOverlay paralysisOverlay;
   paralysisOverlay.setColor(vec3(1.0f, 0.9f, 0.15f));
@@ -648,6 +682,10 @@ int main(int argc, char **argv) {
     for (Interactable *object : stage->getInteractables())
       interaction.add(object);
     camera.setFarPlane(stage->getFarPlane());
+    mirrorCamera.setFarPlane(stage->getFarPlane());
+    if (mirrorWorks)
+      for (int i = 0; i < MIRRORS; i++)
+        stage->setRearMirrorTexture(i, mirrorTexture[i], (float)MIRROR_W / MIRROR_H);
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                       stage->getCameraHeight(), stage->getCameraYaw());
 
@@ -656,6 +694,7 @@ int main(int argc, char **argv) {
     if (dayDuration >= 0.0f)
       stage->setDayDuration(dayDuration);
     deathTime = -1.0; // (a new map: the player is alive)
+    credits.stop();
     scream.reset();
     rip.reset();
     mapLoaded = true;
@@ -826,7 +865,7 @@ int main(int argc, char **argv) {
     if (stage->isPlayerDead() && stage->isPlayerAbducted()) {
       // Abducted (Bob caught him): he floats up in the ship's beam towards its hatch, turning
       // slowly and looking up into the light; the screen goes white, then black
-      const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f;
+      const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f, CREDITS_PAUSE = 1.5f;
       if (deathTime < 0.0) {
         deathTime = 0.0;
         abductFrom = camera.getPosition();
@@ -856,8 +895,13 @@ int main(int argc, char **argv) {
         deathOverlay.setColor(vec3(0.0f));
         deathOverlay.setAmount(glm::min((time - BLACK_FROM) / BLACK_TIME, 1.0f));
       }
+      if (time > BLACK_FROM + BLACK_TIME + CREDITS_PAUSE && !credits.isRunning())
+        credits.start();
     } else if (stage->isPlayerDead()) {
-      deathOverlay.setColor(vec3(0.7f, 0.0f, 0.02f));
+      // After the fall, the red fades slowly to black and the credits start rolling
+      const float FADE_FROM = 3.5f, FADE_TIME = 6.0f, CREDITS_PAUSE = 1.5f;
+      float fade = glm::clamp(((float)deathTime - FADE_FROM) / FADE_TIME, 0.0f, 1.0f);
+      deathOverlay.setColor(glm::mix(vec3(0.7f, 0.0f, 0.02f), vec3(0.0f), fade));
       const float G = 9.81f, FALL_BOUNCE = 0.3f, LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
       const float START_ANGLE = 0.04f, START_SPEED = 0.3f; // (the blow that starts it)
       const float HALF_TURN = 1.5707963f;
@@ -887,10 +931,13 @@ int main(int argc, char **argv) {
       // a little roll, most while it tips over (a turn about the way it looked)
       float roll = ROLL * std::sin(2.0f * deathAngle);
       camera.setCarrier(mat3(rotate(mat4(1.0f), roll, flatForward)));
-      deathOverlay.setAmount(TINT * glm::min((float)deathTime / 0.4f, 1.0f));
+      deathOverlay.setAmount(glm::mix(TINT * glm::min((float)deathTime / 0.4f, 1.0f), 1.0f, fade));
+      if (fade >= 1.0f && deathTime > FADE_FROM + FADE_TIME + CREDITS_PAUSE && !credits.isRunning())
+        credits.start();
     } else {
       deathOverlay.setAmount(0.0f);
     }
+    credits.update((float)dt);
     // The camera is a body too: it can't sink into the floor (e.g. behind
     // the RV on a dune, or when the player walks up a slope)
     vec3 eye = camera.getPosition();
@@ -903,6 +950,36 @@ int main(int argc, char **argv) {
     const vec3 &horizon = stage->getEnvironment().horizon;
     applyEnvironment();
     applySpotLights();
+    // A mirror's picture first (if the vehicle has one to show now): the world seen from the glass,
+    // into its texture; then everything back as it was for the real view. The mirrors take turns, one
+    // each frame, so that both together cost what one would (each is a frame late at most)
+    static unsigned mirrorTurn = 0;
+    int mirrorSide = (int)(mirrorTurn++ % MIRRORS);
+    MirrorView mirror;
+    if (mirrorWorks && stage->rearMirror(mirrorSide, mirror)) {
+      stage->showRearMirror(mirrorSide, false);
+      glBindFramebuffer(GL_FRAMEBUFFER, mirrorFbo[mirrorSide]);
+      glViewport(0, 0, MIRROR_W, MIRROR_H);
+      glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      vec3 right = glm::normalize(glm::cross(mirror.forward, mirror.up));
+      vec3 up = glm::cross(right, mirror.forward);
+      mirrorCamera.setFov(mirror.fov);
+      mirrorCamera.setCarrier(mat3(right, up, -mirror.forward));
+      mirrorCamera.reposition(mirror.position.x, mirror.position.y, mirror.position.z);
+      shader.setFloat("time", (float)now);
+      stage->render(&shader, mirror.position, now);
+      const Environment &mirrorEnv = stage->getEnvironment();
+      particles.setLighting(mirrorEnv.lightColor, mirrorEnv.lightDir, lights);
+      particles.draw(stage->getEmitters(), mirrorCamera);
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      int fbw, fbh;
+      glfwGetFramebufferSize(window, &fbw, &fbh);
+      glViewport(0, 0, fbw, fbh);
+      shader.use();
+      camera.update(); // (the real camera's matrices to the shader again)
+      stage->showRearMirror(mirrorSide, true);
+    }
     glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

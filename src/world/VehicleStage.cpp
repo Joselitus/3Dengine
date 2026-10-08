@@ -56,16 +56,19 @@ void VehicleStage::leaveVehicle() {
       alien.bob->struggleOnce(); // (held by Bob: he fights to get free)
     return;
   }
+  if (std::fabs(rv->forwardSpeed()) > 2.0f)
+    return; // (not while it moves: the penguin would be left inside it as it drives off)
   inVehicle = false;
   rv->control(vec2(0.0f), 0.0f, 0.0f); // the RV stops being driven
   rv->setOccupied(false);
-  vec3 door = rv->doorPosition(1.5f); // beside the door, clear of the body
-  walker->setPosition(door.x, groundAt(door.x, door.z), door.z);
+  // Out of the seat, onto the floor of the cab behind the wheel (the way out is the door)
+  vec3 stand = rv->driverStand();
+  walker->setPosition(stand.x, stand.y, stand.z);
   walker->setVelocity(vec3(0.0f));
   walker->setGravity(25.0f);
   walker->setCollidable(true);
-  // (attaching it hides its model); it looks away from the RV
-  setPlayer(walker, 0.0f, EYE_HEIGHT, rv->doorYaw());
+  // (attaching it hides its model); it looks forward, along the RV
+  setPlayer(walker, 0.0f, EYE_HEIGHT, rv->headingYaw());
 }
 
 void VehicleStage::apply(DynamicGameObject &object, double dt) {
@@ -125,6 +128,17 @@ void VehicleStage::endAlienHiss() {
     alien.bob->silenceHiss();
 }
 
+// The RV's two side mirrors, while somebody drives it
+bool VehicleStage::rearMirror(int side, MirrorView &view) const {
+  return inVehicle && rv->rearMirror(side, view);
+}
+
+void VehicleStage::setRearMirrorTexture(int side, unsigned int texture, float aspect) {
+  rv->setMirrorTexture(side, texture, aspect);
+}
+
+void VehicleStage::showRearMirror(int side, bool show) { rv->showMirror(side, show); }
+
 void VehicleStage::toggleHandbrake() {
   if (inVehicle)
     rv->toggleHandbrake();
@@ -143,6 +157,7 @@ void VehicleStage::getSpotLights(std::vector<SpotLight> &lights) const {
   if (alien.bob)
     alien.bob->getLight(lights);     // (his ray)
   rv->getHeadlights(lights);
+  rv->getFireLight(lights);
   rv->getDashboardLights(lights);
   for (const auto &c : creatures)
     c->getLight(lights); // (last: if the shader has no room, the creature's is the one left out)
@@ -196,6 +211,7 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   rv = make_shared<RV>(loadModel("../assets/rv/rv.obj"));
   rv->setPosition(x, groundAt(x, z), z);
   rv->setHeading(heading); // 0: facing +z, its door (+x side) towards the start
+  rv->setHandbrakeOn(true); // parked: the lever is up (nothing else holds it on a slope)
   // The wheels are separate models so they follow the suspension
   rv->setWheelModels(loadModel("../assets/rv/wheel_negx.obj"),
                      loadModel("../assets/rv/wheel_posx.obj"));
@@ -210,6 +226,10 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   rv->setSteeringWheelModel(loadModel("../assets/rv/steering_wheel.obj"));
   rv->setEngineSound(sound);
   rv->setHeadlightGlowModel(loadModel("../assets/rv/headlight_glow.obj"));
+  rv->setHandbrakeModels(loadModel("../assets/rv/handbrake_base.obj"),
+                         loadModel("../assets/rv/handbrake_lever.obj"));
+  rv->setDoorModel(loadModel("../assets/rv/door.obj"));
+  rv->setAlarmLampModel(loadModel("../assets/rv/dashboard_alarm.obj"));
   rv->setMaxSpeed(20.0f);
   rv->setGravity(25.0f);
   addDynamic(rv);
@@ -218,9 +238,24 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
     addEmitter(emitter);
   for (const auto &emitter : rv->getGrains())
     addEmitter(emitter);
-  // Using its door gets the player in (see enterRV)
+  // The fire of a wrecked front and the explosion of its engine (a blast kills whoever is in
+  // the RV or close to it)
+  for (const auto &emitter : rv->getFireEmitters())
+    addEmitter(emitter);
+  for (const auto &emitter : rv->getBlastEmitters())
+    addEmitter(emitter);
+  rv->setExplosionCallback([this](const vec3 &centre, float radius) {
+    if (isPlayerDead())
+      return;
+    vec3 player = inVehicle ? centre : walker->getPosition() + vec3(0.0f, 0.9f, 0.0f);
+    if (length(player - centre) < radius)
+      killPlayer();
+  });
+  // Its door opens and closes (E next to it); to drive, the penguin walks in and uses the steering
+  // wheel (see enterRV)
   rv->setEnterAction([this]() { enterRV(); });
   interactables.push_back(rv.get());
+  interactables.push_back(rv->steeringInteraction());
 }
 
 void VehicleStage::createWalker(float x, float z) {

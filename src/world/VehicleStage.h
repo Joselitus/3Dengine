@@ -108,6 +108,9 @@ public:
   void toggleHeadlights() override;
   // R: the engine, only while the penguin is driving
   void toggleEngine() override;
+  bool rearMirror(int side, MirrorView &view) const override;
+  void setRearMirrorTexture(int side, unsigned int texture, float aspect) override;
+  void showRearMirror(int side, bool show) override;
   // Space: the handbrake, only while the penguin is driving
   void toggleHandbrake() override;
   // C: inside the RV or behind it, only while the penguin is driving

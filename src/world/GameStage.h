@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "Interactable.h"
+#include "MirrorView.h"
 #include "SpotLight.h"
 #include "PlayableCharacter.h"
 #include "Stage.h"
@@ -157,6 +158,14 @@ public:
   // The engine key was pressed: a map with a vehicle the player is driving switches its
   // engine on or off
   virtual void toggleEngine() {}
+  // Rear-view mirrors (`side` 0, 1: see RV; as many as the map has) that show what is behind, drawn by the main loop from a camera of its
+  // own into a texture (see RV): true, and where that camera is, if there is one to draw now
+  virtual bool rearMirror(int side, MirrorView &view) const { return false; }
+  // The GL texture (2D, RGBA) the mirror's glass shows, and its aspect (width / height); given
+  // once, when the map is made
+  virtual void setRearMirrorTexture(int side, unsigned int texture, float aspect) {}
+  // The glass hides itself while the picture it shows is being drawn (it would draw itself)
+  virtual void showRearMirror(int side, bool show) {}
   // The handbrake key was pressed: a map with a vehicle the player is driving pulls or
   // releases its handbrake
   virtual void toggleHandbrake() {}

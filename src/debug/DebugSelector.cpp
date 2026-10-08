@@ -342,6 +342,15 @@ void DebugSelector::outline(const CollisionShape &shape, const Pose &pose,
     vec3 c, h;
     box->world(pose, c, h);
     lines.box(c, pose.rotation, h, color);
+  } else if (const CompoundShape *compound = dynamic_cast<const CompoundShape *>(&shape)) {
+    for (const CompoundShape::Part &part : compound->getParts()) {
+      if (!part.enabled)
+        continue;
+      Pose partPose = compound->partPose(part, pose);
+      vec3 c, h;
+      part.box.world(partPose, c, h);
+      lines.box(c, partPose.rotation, h, color);
+    }
   }
 }
 

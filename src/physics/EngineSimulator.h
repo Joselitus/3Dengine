@@ -15,6 +15,9 @@
 // (from then on the vehicle can use it). With no fuel it never catches: after
 // the attempts it gives up (hasGivenUp()).
 //
+// startAttempt() is the other way to turn the key: ONE try only, that fails with a given chance (and
+// then the driver lets the key go: hasGivenUp()) or catches.
+//
 // Running, it idles at IDLE_RPM, climbs when the driver accelerates (it can rev
 // freely while the vehicle is slow, the clutch slipping), follows the wheels
 // in gear (so it rises with speed and falls at each upshift) and, stopped with
@@ -36,6 +39,7 @@ private:
   int attempt = 0;          // 0-based, of this start
   int failures = 0;         // attempts that will fail before one works
   bool failAll = false;     // no fuel
+  bool singleTry = false;   // one attempt only (see startAttempt)
   bool gaveUp = false;
   float rpm = 0.0f;
   float load = 0.0f;
@@ -58,6 +62,11 @@ private:
 public:
   // Turns the key: the starting sequence begins (from Off only)
   void start(bool fuel);
+  // Turns the key for ONE attempt (from Off only): it fails with probability `failChance` (always,
+  // with no fuel) and then the driver lets the key go (hasGivenUp()); otherwise the engine catches
+  void startAttempt(bool fuel, float failChance);
+  // Seeds the random numbers of the attempts (they start the same every run otherwise)
+  void setSeed(uint32_t value) { seed = value ? value : 1u; }
   // Makes every attempt crank exactly `seconds` (the length of a recorded starter
   // sound, which includes the key's pause) with no sputter after a failed one: the
   // sound of the start is then the recording. 0 = the synthesized start (default).

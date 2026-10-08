@@ -556,6 +556,23 @@ void Stage::collideBodies(int a, int b, vector<long long> &tested) {
                                B.object->getShape(), poseB, contact))
     return;
 
+  // Whoever can step up onto low ledges (the penguin) climbs a box whose top is within reach of its
+  // feet, instead of being stopped by its side: the contact becomes one that pushes it straight up
+  for (int side = 0; side < 2; side++) {
+    Body &X = side == 0 ? A : B;
+    if (!X.dynamic || X.dynamic->getStepHeight() <= 0.0f || contact.top > 1e8f ||
+        std::fabs(contact.normal.y) > 0.7f)
+      continue;
+    vec3 low, high;
+    X.object->getShape().bounds(X.object->getPose(), low, high);
+    float rise = contact.top - low.y;
+    if (rise > 0.0f && rise <= X.dynamic->getStepHeight()) {
+      contact.normal = vec3(0.0f, side == 0 ? -1.0f : 1.0f, 0.0f); // (X moves along -normal if A)
+      contact.depth = rise + 0.01f;
+    }
+    break;
+  }
+
   // Who moves: all of it for a dynamic object against a static one, shared
   // (more for the lighter one) between two dynamic objects
   float invA = A.dynamic ? 1.0f / A.dynamic->getMass() : 0.0f;

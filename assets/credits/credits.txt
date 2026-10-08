@@ -1,0 +1,15 @@
+# Credits of the game, read at run time by CreditsOverlay (src/ui/CreditsOverlay.*).
+# Format (UTF-8, one entry per line):
+#   title = text          the heading at the very start (optional)
+#   [Role]                starts a section: the role, as a heading
+#   Name                  every following line is a person with that role
+#   (blank line)          separates sections; blank lines inside are ignored
+#   # comment             ignored
+# To add someone: write their name under their role (or add a new [Role]
+# section). Order in the file = order on screen.
+
+title = Creditos
+
+[Programadores principales]
+Salvador Cayuela
+José Manuel Merlos

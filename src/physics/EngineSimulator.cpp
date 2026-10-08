@@ -35,9 +35,21 @@ void EngineSimulator::enter(Phase next, float length) {
   phaseLength = length;
 }
 
+void EngineSimulator::startAttempt(bool fuel, float failChance) {
+  if (phase != Phase::Off)
+    return;
+  attempt = 0;
+  gaveUp = false;
+  singleTry = true;
+  failAll = !fuel;
+  failures = random01() < failChance ? 1 : 0; // (attempt 0 fails if there is a failure)
+  enter(Phase::KeyDelay, crankTime > 0.0f ? 0.0f : random(0.45f, 0.8f));
+}
+
 void EngineSimulator::start(bool fuel) {
   if (phase != Phase::Off)
     return;
+  singleTry = false;
   attempt = 0;
   gaveUp = false;
   failAll = !fuel;
@@ -56,7 +68,7 @@ float EngineSimulator::crankLength(bool fails) {
 
 // A failed attempt is over: the driver tries again after a pause, or gives up
 void EngineSimulator::endAttempt() {
-  if (failAll && attempt >= 2) { // enough: the driver lets the key go
+  if (singleTry || (failAll && attempt >= 2)) { // enough: the driver lets the key go
     gaveUp = true;
     stop();
   } else {

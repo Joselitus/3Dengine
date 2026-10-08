@@ -119,6 +119,12 @@ public:
   // wheel is on a good road). It is asked in every physics step.
   void setSurfaceQuery(const SurfaceQuery &query) { surfaces = query; }
 
+  // A wrecked vehicle has no wheels any more: no suspension, no tyres, no engine, and nothing rights
+  // it. Only the chassis' corners touch the floor (the bumpers), so it falls, tumbles and drags on
+  // them like any rigid box.
+  void setWrecked(bool on) { wrecked = on; }
+  bool isWrecked() const { return wrecked; }
+
   // Holds the vehicle still: the tyres brake it (nobody is driving it)
   void setHandbrake(bool on) { handbrake = on; }
 
@@ -169,6 +175,7 @@ private:
   glm::vec3 angular = glm::vec3(0.0f);
   float throttle = 0.0f, steering = 0.0f;
   bool handbrake = false;
+  bool wrecked = false;
   SurfaceQuery surfaces;
   float steerAngle = 0.0f;
   std::vector<WheelState> wheelStates;

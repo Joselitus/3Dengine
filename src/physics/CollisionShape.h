@@ -20,13 +20,16 @@ struct Pose {
 struct Contact {
   glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
   float depth = 0.0f;
+  // The world height of the top of the box that was hit (a huge number for anything else): whoever
+  // can step up onto low ledges (Stage::collideBodies) compares it with where its feet are
+  float top = 1e9f;
 };
 
 // The volume that stands for an object in collisions. Capsule (a pill) is the
 // default of every GameObject; Box is for long or flat things, like the RV.
 class CollisionShape {
 public:
-  enum Type { CAPSULE, BOX };
+  enum Type { CAPSULE, BOX, COMPOUND };
 
   virtual ~CollisionShape() {}
   virtual Type type() const = 0;
@@ -98,6 +101,47 @@ public:
                const glm::vec3 &direction, float &distance) const override;
   const glm::vec3 &getHalfExtents() const { return halfExtents; }
   const glm::vec3 &getCenter() const { return center; }
+};
+
+// Several boxes that make up one shape, each with its own place and turn in the object's frame, and
+// each of which can be switched off (a door): a hollow box is a compound of its floor, roof and
+// walls. Contacts are the deepest of those of the enabled boxes.
+class CompoundShape : public CollisionShape {
+public:
+  struct Part {
+    Box box;            // (centred on its own origin)
+    glm::vec3 centre;   // where it is, in the object's frame
+    glm::mat3 rotation; // how it is turned, in the object's frame
+    bool enabled = true;
+    bool floorContact = true; // false: it may hang below the floor level without lifting the object
+    Part(const glm::vec3 &half, const glm::vec3 &centre, const glm::mat3 &rotation)
+        : box(half), centre(centre), rotation(rotation) {}
+  };
+
+private:
+  std::vector<Part> parts;
+
+public:
+  // Adds a box; returns its index (for setEnabled)
+  size_t add(const glm::vec3 &halfExtents, const glm::vec3 &centre,
+             const glm::mat3 &rotation = glm::mat3(1.0f)) {
+    parts.push_back(Part(halfExtents, centre, rotation));
+    return parts.size() - 1;
+  }
+  void setEnabled(size_t part, bool enabled) { parts[part].enabled = enabled; }
+  bool isEnabled(size_t part) const { return parts[part].enabled; }
+  // A part that is not meant to touch the floor (the step under a door, which hangs low): the stage
+  // does not lift the object to keep it above the floor (see floorSamples)
+  void setFloorContact(size_t part, bool touches) { parts[part].floorContact = touches; }
+  const std::vector<Part> &getParts() const { return parts; }
+  // The pose of a part in the world (for its own box)
+  Pose partPose(const Part &part, const Pose &pose) const;
+
+  Type type() const override { return COMPOUND; }
+  void bounds(const Pose &pose, glm::vec3 &min, glm::vec3 &max) const override;
+  void floorSamples(const Pose &pose, std::vector<glm::vec3> &out) const override;
+  bool raycast(const Pose &pose, const glm::vec3 &origin, const glm::vec3 &direction,
+               float &distance) const override;
 };
 
 #endif

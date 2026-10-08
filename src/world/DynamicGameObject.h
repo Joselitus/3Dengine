@@ -87,6 +87,11 @@ public:
   // itself (e.g. a vehicle on its suspension), moving itself dt seconds.
   virtual bool contactFloor(const Stage &stage, double dt) { return false; }
 
+  // How high a ledge it climbs without jumping (m): when its side hits a box whose top is within
+  // this reach of its feet, the stage lifts it onto it instead of stopping it (see
+  // Stage::collideBodies). 0 = it is stopped by anything.
+  virtual float getStepHeight() const { return 0.0f; }
+
   // The stage calls this when the object's collision shape has hit something:
   // it has to be moved by `push` and its velocity changed by `velocityChange`.
   // Objects that keep their own state (like a vehicle) override it.

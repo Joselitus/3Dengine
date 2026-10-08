@@ -116,6 +116,8 @@ bool capsuleBox(const Capsule &cap, const Pose &pc, const Box &box,
       return false;
     out.normal = axes * (d / dist);
     out.depth = r - dist;
+    out.top = ob.centre.y + (abs(ob.axis[0].y) * ob.half.x + abs(ob.axis[1].y) * ob.half.y +
+                             abs(ob.axis[2].y) * ob.half.z);
     return true;
   }
   // The core touches the box: leave through the face that needs the least
@@ -141,6 +143,8 @@ bool capsuleBox(const Capsule &cap, const Pose &pc, const Box &box,
   // the capsule moves along bestSign * axis, so the box is the other way
   out.normal = -bestSign * ob.axis[bestAxis];
   out.depth = bestPush;
+  out.top = ob.centre.y + (abs(ob.axis[0].y) * ob.half.x + abs(ob.axis[1].y) * ob.half.y +
+                           abs(ob.axis[2].y) * ob.half.z);
   return true;
 }
 
@@ -184,6 +188,8 @@ bool boxBox(const Box &ba, const Pose &pa, const Box &bb, const Pose &pb,
         return false;
   out.normal = bestNormal;
   out.depth = bestDepth;
+  out.top = B.centre.y + (abs(B.axis[0].y) * B.half.x + abs(B.axis[1].y) * B.half.y +
+                          abs(B.axis[2].y) * B.half.z);
   return bestDepth > 0.0f;
 }
 
@@ -192,6 +198,27 @@ bool boxBox(const Box &ba, const Pose &pa, const Box &bb, const Pose &pb,
 bool CollisionShape::collide(const CollisionShape &a, const Pose &pa,
                              const CollisionShape &b, const Pose &pb,
                              Contact &contact) {
+  // A compound is tested box by box; the deepest contact is the one that counts
+  if (a.type() == COMPOUND || b.type() == COMPOUND) {
+    if (a.type() == COMPOUND && b.type() == COMPOUND)
+      return false; // (never needed)
+    bool compoundIsA = a.type() == COMPOUND;
+    const CompoundShape &compound = static_cast<const CompoundShape &>(compoundIsA ? a : b);
+    bool hit = false;
+    for (const CompoundShape::Part &part : compound.getParts()) {
+      if (!part.enabled)
+        continue;
+      Contact c;
+      bool touching = compoundIsA
+                          ? collide(part.box, compound.partPose(part, pa), b, pb, c)
+                          : collide(a, pa, part.box, compound.partPose(part, pb), c);
+      if (touching && (!hit || c.depth > contact.depth)) {
+        contact = c;
+        hit = true;
+      }
+    }
+    return hit;
+  }
   if (a.type() == CAPSULE && b.type() == CAPSULE)
     return capsuleCapsule(static_cast<const Capsule &>(a), pa,
                           static_cast<const Capsule &>(b), pb, contact);
@@ -384,4 +411,48 @@ bool Box::raycast(const Pose &pose, const vec3 &origin, const vec3 &direction,
   }
   distance = near;
   return true;
+}
+
+// ------------------------------------------------------------- CompoundShape
+Pose CompoundShape::partPose(const Part &part, const Pose &pose) const {
+  Pose p;
+  p.position = pose.position + pose.rotation * (pose.scale * part.centre);
+  p.rotation = pose.rotation * part.rotation;
+  p.scale = pose.scale;
+  return p;
+}
+
+void CompoundShape::bounds(const Pose &pose, vec3 &min, vec3 &max) const {
+  bool first = true;
+  for (const Part &part : parts) {
+    if (!part.enabled)
+      continue;
+    vec3 lo, hi;
+    part.box.bounds(partPose(part, pose), lo, hi);
+    min = first ? lo : glm::min(min, lo);
+    max = first ? hi : glm::max(max, hi);
+    first = false;
+  }
+  if (first)
+    min = max = pose.position; // (nothing enabled)
+}
+
+void CompoundShape::floorSamples(const Pose &pose, std::vector<vec3> &out) const {
+  for (const Part &part : parts)
+    if (part.enabled && part.floorContact)
+      part.box.floorSamples(partPose(part, pose), out);
+}
+
+bool CompoundShape::raycast(const Pose &pose, const vec3 &origin, const vec3 &direction,
+                            float &distance) const {
+  bool hit = false;
+  for (const Part &part : parts) {
+    float t;
+    if (part.enabled && part.box.raycast(partPose(part, pose), origin, direction, t) &&
+        (!hit || t < distance)) {
+      distance = t;
+      hit = true;
+    }
+  }
+  return hit;
 }

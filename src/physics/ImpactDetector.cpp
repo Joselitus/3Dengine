@@ -20,6 +20,7 @@ void ImpactDetector::onCollision(float speedBefore, float speedAfter, const vec3
     running = true;
     elapsed = 0.0f;
     speedAtImpact = speedBefore;
+    peak = 0.0f;
   }
   check(speedAfter); // most of the drop is in the hit itself
 }
@@ -37,9 +38,8 @@ void ImpactDetector::check(float speedNow) {
   if (!running)
     return;
   float drop = speedAtImpact - speedNow;
+  peak = std::max(peak, drop);
   // as fast as `decel` over the time since the hit, and not just a scratch
-  if (drop >= std::max(params.minDrop, params.decel * elapsed)) {
-    wasViolent = true;
-    running = false;
-  }
+  if (drop >= std::max(params.minDrop, params.decel * elapsed))
+    wasViolent = true; // (the window goes on: the crash may get worse, see severity)
 }
