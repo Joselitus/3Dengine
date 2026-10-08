@@ -97,6 +97,8 @@ public:
   // Objects that keep their own state (like a vehicle) override it.
   virtual void applyCollision(const glm::vec3 &push,
                               const glm::vec3 &velocityChange) {
+    if (replica)
+      return; // (the server decides what pushes it)
     position += push;
     velocity += velocityChange;
   }

@@ -47,7 +47,10 @@ void InteractionSystem::update(const glm::vec3 &playerPosition, bool enabled) {
       inUse = nullptr;
     } else if (target && !ui->hasPanels()) {
       if (target->usesDirectly()) {
-        target->onUse(playerPosition); // no panel
+        if (directUse)
+          directUse(*target);
+        else
+          target->onUse(playerPosition); // no panel
       } else {
         panel = ui->open(*target);
         inUse = target;

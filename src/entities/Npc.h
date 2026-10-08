@@ -34,6 +34,7 @@ private:
   std::function<bool(glm::vec3 &)> headHold;
   bool wasHeld = false;       // its head was held and let go: it is itself again
   bool wasIdle = false;       // (its model was in the breathing pose before)
+  Ragdoll::FloorQuery replicaFloor;
   float savedGravity = 0.0f;  // what it had before it was a ragdoll
   bool savedCollidable = true;
   void endRagdoll();
@@ -81,6 +82,12 @@ public:
   // False if its model can't be made into one (or it already is).
   bool startRagdoll(Ragdoll::FloorQuery floor, std::function<bool(glm::vec3 &)> holdHead = nullptr);
   bool isRagdolling() const { return ragdoll != nullptr; }
+  // A client: where a ragdoll falls to (the floor), for the copy of an NPC that was shot
+  void setReplicaFloor(Ragdoll::FloorQuery floor) { replicaFloor = floor; }
+  // The server tells the clients whether it lies for good (shot); one that a creature carries is
+  // told by the creature
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   // It stopped being a ragdoll and is itself again (see startRagdoll: its head let go): a subclass
   // puts its animation back
   virtual void onRagdollEnded() {}

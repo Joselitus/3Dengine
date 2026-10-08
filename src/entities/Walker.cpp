@@ -45,6 +45,9 @@ void Walker::update(double dt) {
     facing = std::atan2(heading.x, heading.y);
     setYaw(facing);
   }
+  // standing still it breathes in its idle pose (the others' penguins, seen from outside)
+  if (aniModel)
+    aniModel->setIdle(length(vec2(velocity.x, velocity.z)) < 0.3f && heading == vec2(0.0f));
   float speed = running ? maxSpeed * RUN_FACTOR : maxSpeed;
   vec3 wanted = vec3(heading.x, 0.0f, heading.y) * speed;
   // Under gravity only the stage decides its height
@@ -68,6 +71,11 @@ void Walker::getFlashlight(std::vector<SpotLight> &lights) const {
     light.direction = normalize(camera->getForward());
     light.position = camera->getPosition() + camera->getRight() * FLASHLIGHT_RIGHT -
                      camera->getUp() * FLASHLIGHT_DOWN;
+  } else if (hasLook) {
+    // (the camera's forward: see Camera::getForward)
+    float cp = std::cos(lookPitch);
+    light.direction = vec3(cp * std::sin(lookYaw), -std::sin(lookPitch), -cp * std::cos(lookYaw));
+    light.position = position + vec3(0.0f, FLASHLIGHT_HEIGHT, 0.0f);
   } else {
     light.direction = vec3(std::sin(facing), 0.0f, std::cos(facing));
     light.position = position + vec3(0.0f, FLASHLIGHT_HEIGHT, 0.0f);
@@ -77,4 +85,23 @@ void Walker::getFlashlight(std::vector<SpotLight> &lights) const {
   light.outerCos = FLASHLIGHT_OUTER;
   light.range = FLASHLIGHT_RANGE;
   lights.push_back(light);
+}
+
+void Walker::writeNetState(NetWriter &out) const {
+  out.boolean(flashlightOn);
+  out.f32(lookYaw);
+  out.f32(lookPitch);
+  out.boolean(running);
+}
+
+void Walker::readNetState(NetReader &in) {
+  bool light = in.boolean();
+  float yaw = in.f32(), pitch = in.f32();
+  bool run = in.boolean();
+  if (!in.isOk())
+    return;
+  flashlightOn = light;
+  running = run;
+  if (!camera) // (our own walker looks where our camera does)
+    setLook(yaw, pitch);
 }

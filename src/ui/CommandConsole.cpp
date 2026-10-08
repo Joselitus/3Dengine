@@ -11,8 +11,8 @@ using namespace std;
 
 CommandConsole::CommandConsole(const Commands &commands,
                                vector<string> &history, float width,
-                               const string &text)
-    : UIPanel("Consola", width), commands(commands), history(history) {
+                               const string &text, function<void(const string &)> forward)
+    : UIPanel("Consola", width), commands(commands), history(history), forward(forward) {
   for (int i = 0; i < OUTPUT_LINES; i++)
     add(new UILabel(
         [this, i]() {
@@ -48,6 +48,8 @@ bool CommandConsole::onKey(int key) {
     if (history.empty() || history.back() != line)
       history.push_back(line);
     print("> " + line);
+    if (forward)
+      forward(line);
     string answer = commands.run(line);
     if (!answer.empty())
       print(answer);

@@ -1,4 +1,5 @@
 #include "AnimatedMesh.h"
+#include "Gfx.h"
 using namespace std;
 
 AnimatedMesh::AnimatedMesh(std::vector<AnimatedVertex> anivertices,
@@ -11,6 +12,8 @@ AnimatedMesh::AnimatedMesh(std::vector<AnimatedVertex> anivertices,
 }
 
 void AnimatedMesh::setupMesh() {
+  if (Gfx::headless)
+    return; // (the server keeps the geometry only)
   glGenVertexArrays(1, &VAO);
   glGenBuffers(1, &VBO);
   glGenBuffers(1, &EBO);
@@ -53,6 +56,8 @@ void AnimatedMesh::setupMesh() {
 }
 
 void AnimatedMesh::Draw(Shader *shader) {
+  if (Gfx::headless)
+    return;
   unsigned int diffuseNr = 1;
   unsigned int specularNr = 1;
   for (unsigned int i = 0; i < textures.size(); i++) {

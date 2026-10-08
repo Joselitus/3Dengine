@@ -119,8 +119,8 @@ void Bob::knockDown() {
   enter(Behavior::Fallen);
 }
 
-void Bob::struggleOnce() {
-  if (behavior == Behavior::Grabbing)
+void Bob::struggleOnce(int id) {
+  if (behavior == Behavior::Grabbing && id == victimId)
     struggle = std::min(1.0f, struggle + STRUGGLE_PER_PRESS);
 }
 
@@ -128,8 +128,8 @@ void Bob::struggleOnce() {
 void Bob::take() {
   tookPlayer = true;
   velocity = vec3(0.0f);
-  if (takePlayer)
-    takePlayer();
+  if (takePlayer && victimId >= 0)
+    takePlayer(victimId);
   if (ship)
     ship->takePlayer();
   enter(Behavior::Returning);
@@ -156,6 +156,10 @@ void Bob::faceTowards(const vec3 &point, double dt) {
 }
 
 void Bob::update(double dt) {
+  if (replica) {
+    updateReplica(dt);
+    return;
+  }
   float dtf = (float)dt;
   stateTime += dtf;
   if (behavior == Behavior::Inside) {
@@ -165,10 +169,17 @@ void Bob::update(double dt) {
     return;
   }
   bool night = isNight ? isNight() : true;
-  bool inVehicle = playerInVehicle && playerInVehicle();
-  bool dead = playerDead && playerDead();
-  bool paralysed = playerParalysed && playerParalysed();
-  vec3 target = targetPosition ? targetPosition() : position;
+  // Whom he goes for: the nearest player alive (the one he fires at or holds, till he is done)
+  Victim victim;
+  bool someone = findVictim && findVictim(position, behavior == Behavior::Firing || behavior == Behavior::Grabbing ? victimId : -1, victim);
+  victimAbsent = !someone;
+  if (someone)
+    victimId = victim.id;
+  bool inVehicle = someone && victim.inVehicle;
+  bool dead = !someone; // (nobody alive is as good as dead)
+  bool paralysed = someone && victim.paralysed;
+  vec3 target = someone ? victim.position : position;
+  victimHead = target + vec3(0.0f, HEAD_HEIGHT, 0.0f);
   float distance = length(vec2(target.x - position.x, target.z - position.z));
   bool goHome = !night || tookPlayer;
   rayCooldown = std::max(0.0f, rayCooldown - dtf);
@@ -240,8 +251,8 @@ void Bob::update(double dt) {
     rays = stateTime >= RAY_CHARGE && !dead && !inVehicle;
     if (rays && !rayHit) {
       rayHit = true;
-      if (paralyse)
-        paralyse(PARALYSIS_TIME);
+      if (paralyse && victimId >= 0)
+        paralyse(victimId, PARALYSIS_TIME);
     }
     if (stateTime >= RAY_CHARGE + RAY_TIME || goHome || inVehicle || dead) {
       rayCooldown = RAY_COOLDOWN;
@@ -363,8 +374,8 @@ float Bob::watching(const vec3 &eye) const {
 
 void Bob::updatePresence(double dt) {
   float wanted = 0.0f;
-  bool dead = playerDead && playerDead();
-  if (tookPlayer) {
+  bool dead = viewerDead && viewerDead();
+  if (viewerTaken ? viewerTaken() : tookPlayer) {
     wanted = 1.0f; // (he has him: it stays at its highest)
   } else if (behavior != Behavior::Inside && !dead && viewerPosition && viewerProjection) {
     vec3 eye = viewerPosition();
@@ -385,6 +396,8 @@ void Bob::updatePresence(double dt) {
 void Bob::updateSounds() {
   if (!soundEngine)
     return;
+  if (viewerTaken && !viewerTaken())
+    hissSilenced = false; // (the player here is not the one he took: it sounds again)
   if (behavior == Behavior::Firing && beamClip) {
     if (!beam)
       beam = soundEngine->play(beamClip, true, eyesPosition());
@@ -410,9 +423,9 @@ void Bob::updateSounds() {
 void Bob::aimRays(bool shining) {
   for (int i = 0; i < 2; i++)
     setPartVisible(rayParts[i], shining);
-  if (!shining || !targetPosition)
+  if (!shining)
     return;
-  vec3 head = targetPosition() + vec3(0.0f, HEAD_HEIGHT, 0.0f);
+  vec3 head = victimHead;
   mat3 toBody = transpose(mat3(rotation));
   vec3 aim = toBody * (head - position);
   for (int i = 0; i < 2; i++) {
@@ -482,4 +495,56 @@ void Bob::describe(vector<string> &lines) const {
   lines.push_back(string("Bob: ") + names[(int)behavior] + (tookPlayer ? " (te lleva)" : ""));
   if (behavior == Behavior::Grabbing)
     lines.push_back(textFormat("Forcejeo: %.0f %%", struggle * 100.0f));
+}
+
+// What the server tells the clients about him: what he is doing (the rest, his walk, his arms,
+// the fall, is worked out here from where he goes), whom he goes for and where his ray aims
+void Bob::writeNetState(NetWriter &out) const {
+  out.u8((uint8_t)behavior);
+  out.f32(stateTime);
+  out.f32(yaw);
+  out.boolean(tookPlayer);
+  out.i32(victimId);
+  out.vec3(victimHead);
+}
+
+void Bob::readNetState(NetReader &in) {
+  Behavior was = behavior;
+  uint8_t b = in.u8();
+  float time = in.f32();
+  float heading = in.f32();
+  bool took = in.boolean();
+  int victim = in.i32();
+  vec3 head = in.vec3();
+  if (!in.isOk() || b > (uint8_t)Behavior::Boarding)
+    return;
+  behavior = (Behavior)b;
+  if (behavior != was)
+    stateTime = time; // (a new state starts: its own clock, which then runs by itself)
+  else
+    stateTime += clamp(time - stateTime, -0.2f, 0.2f); // (and is held to the server's)
+  yaw = heading;
+  tookPlayer = took;
+  victimId = victim;
+  victimHead = head;
+}
+
+// The copy of him on a client: where he is and what he does come from the server; here he only
+// moves his limbs and eyes, and shows and sounds his presence
+void Bob::updateReplica(double dt) {
+  float dtf = (float)dt;
+  GameObject::update(dt);
+  stateTime += dtf;
+  bool night = isNight ? isNight() : true;
+  bool firing = behavior == Behavior::Firing;
+  bool rays = firing && stateTime >= RAY_CHARGE;
+  fall = approach(fall, behavior == Behavior::Fallen && stateTime < FALLEN_TIME ? 1.0f : 0.0f,
+                  dtf / (behavior == Behavior::Fallen ? 0.5f : 1.0f));
+  reach = approach(reach, behavior == Behavior::Grabbing || firing ? 1.0f : 0.0f, 4.0f * dtf);
+  setPartVisible(glowPart, night || firing);
+  setPartVisible(eyesPart, !(night || firing));
+  aimRays(rays);
+  animate(dt);
+  updatePresence(dt);
+  updateSounds();
 }

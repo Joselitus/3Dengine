@@ -124,6 +124,16 @@ private:
   std::shared_ptr<ParticleEmitter> sparks;
   std::vector<std::shared_ptr<ParticleEmitter>> emitters; // (smoke and sparks)
   std::mt19937 random;
+  // the server has no camera: where the pilot looks comes from his controls (setAim)
+  glm::vec3 aimForward = glm::vec3(0.0f, 0.0f, 1.0f);
+  // network (see writeNetState): how many times it has touched down and fired, so that a client
+  // does the smoke and the sparks of each once; what the server says the parts are doing now
+  unsigned touchdowns = 0, shots = 0;
+  bool netPrimed = false;
+  float legsOutWanted = 0.0f, rampOpenWanted = 0.0f, gunOutWanted = 0.0f;
+  float gunYaw = 0.0f, gunPitch = 0.0f;
+  void updateReplica(double dt);
+  void setBarrel(float yawL, float pitchL);
   // sounds and smoke
   SoundEngine *soundEngine = nullptr;
   std::shared_ptr<AudioClip> humClip, powerDownClip, steamClip;
@@ -152,6 +162,8 @@ public:
   // 0 = +z)
   void setLanding(const glm::vec3 &spot, float yaw);
   void setNightQuery(std::function<bool()> night) { isNight = night; }
+  // (the server) where the pilot looks, which the ray gun follows
+  void setAim(const glm::vec3 &forward) { aimForward = forward; }
   void setBob(std::shared_ptr<Bob> alien) { bob = alien; }
   // What using its ramp does (the map puts the player in it)
   void setEnterAction(std::function<void()> action) { enterAction = action; }
@@ -174,6 +186,8 @@ public:
   // Where the player is taken to, and where he rides while he flies it: the middle of its
   // underside (world)
   glm::vec3 hatch() const;
+  // Where the ray gun's pivot is (the pilot's eye while he aims), in the world
+  glm::vec3 gunPivot() const { return position + glm::vec3(rotation * glm::vec4(0.0f, GUN_PIVOT_Y, 0.0f, 0.0f)); }
 
   // Flying it: the player gets in (it stands, its ramp down) or out
   void setPiloted(bool piloted);
@@ -208,6 +222,8 @@ public:
   void buildInterface(UIPanel &panel) override {}
 
   void update(double dt) override;
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   bool contactFloor(const Stage &stage, double dt) override;
   void applyCollision(const glm::vec3 &push, const glm::vec3 &velocityChange) override;
   // Its beam (a spot light pointing down) while it lands, takes off or takes the player, and a

@@ -46,6 +46,13 @@ class Saucer;
 // over the screen.
 class Bob : public DynamicGameObject {
 public:
+  // Someone he may go for: a player (the stage tells Bob who is about, see setVictimQuery)
+  struct Victim {
+    int id = -1;
+    glm::vec3 position = glm::vec3(0.0f); // his feet (or the vehicle he is in)
+    bool inVehicle = false;
+    bool paralysed = false;
+  };
   enum class Behavior { Inside, Exiting, Prowl, Chase, Firing, Grabbing, Fallen, Returning, Boarding };
 
   static constexpr float WALK_SPEED = 1.3f, CHASE_SPEED = 3.8f; // m/s (the player walks at 4)
@@ -108,11 +115,18 @@ private:
   std::unique_ptr<Sound> beam, grain;
   std::function<glm::vec3()> viewerPosition;
   std::function<glm::mat4()> viewerProjection;
+  std::function<bool()> viewerTaken, viewerDead;
 
-  std::function<glm::vec3()> targetPosition;
-  std::function<bool()> playerInVehicle, playerDead, playerParalysed, isNight;
-  std::function<void()> takePlayer;
-  std::function<void(float)> paralyse;
+  // Who he goes for (the nearest player alive, or the one he already has while he fires at him or
+  // holds him: `keep` is his id, else -1); false if there is nobody
+  std::function<bool(const glm::vec3 &, int, Victim &)> findVictim;
+  std::function<bool()> isNight;
+  std::function<void(int)> takePlayer;
+  std::function<void(int, float)> paralyse;
+  int victimId = -1;             // the player he goes for now
+  glm::vec3 victimHead = glm::vec3(0.0f); // (where his ray aims)
+  bool victimAbsent = true;      // there is nobody to go for
+  void updateReplica(double dt);
 
   size_t eyesPart = 0, glowPart = 0;
   size_t rayParts[2] = {0, 0};
@@ -139,15 +153,12 @@ public:
       const std::vector<std::shared_ptr<Model>> &limbs, std::shared_ptr<Model> ray);
 
   void setShip(Saucer *saucer) { ship = saucer; }
-  void setTarget(std::function<glm::vec3()> where) { targetPosition = where; }
-  void setPlayerInVehicleQuery(std::function<bool()> q) { playerInVehicle = q; }
-  void setPlayerDeadQuery(std::function<bool()> q) { playerDead = q; }
-  void setPlayerParalysedQuery(std::function<bool()> q) { playerParalysed = q; }
+  void setVictimQuery(std::function<bool(const glm::vec3 &, int, Victim &)> q) { findVictim = q; }
   void setNightQuery(std::function<bool()> q) { isNight = q; }
-  // What happens when he takes the player (the stage: he is abducted)
-  void setTakePlayerCallback(std::function<void()> take) { takePlayer = take; }
-  // What his ray does to the player (the stage paralyses him for that many seconds)
-  void setParalyseCallback(std::function<void(float)> p) { paralyse = p; }
+  // What happens when he takes a player (the stage: he is abducted; the argument is his id)
+  void setTakePlayerCallback(std::function<void(int)> take) { takePlayer = take; }
+  // What his ray does to a player (the stage paralyses him for that many seconds)
+  void setParalyseCallback(std::function<void(int, float)> p) { paralyse = p; }
   // His sounds (assets/bob), played on `engine`; without this he is silent
   void setSounds(SoundEngine &engine);
   // Where the player's camera is and what it sees (its view-projection matrix): for his presence
@@ -162,11 +173,24 @@ public:
 
   // The ship has landed and its ramp is down: he comes out
   void disembark();
-  // The player hammers the key while Bob holds him
-  void struggleOnce();
-  // He holds the player: how near the player is to getting free (0..1), or < 0
-  float struggleProgress() const { return behavior == Behavior::Grabbing ? struggle : -1.0f; }
-  bool isHolding() const { return behavior == Behavior::Grabbing; }
+  // Player `id` hammers the key while Bob holds him
+  void struggleOnce(int id);
+  // He holds player `id`: how near he is to getting free (0..1), or < 0
+  float struggleProgress(int id) const {
+    return behavior == Behavior::Grabbing && id == victimId ? struggle : -1.0f;
+  }
+  bool isHolding(int id) const { return behavior == Behavior::Grabbing && id == victimId; }
+  // The player he took (he is taking him to the ship), or -1
+  int getVictim() const { return victimId; }
+  bool hasTakenPlayer() const { return tookPlayer; }
+  // The client: whether the player at this computer is the one he took (the presence stays at its
+  // highest) and whether he is dead (there is no presence)
+  void setViewerState(std::function<bool()> taken, std::function<bool()> dead) {
+    viewerTaken = taken;
+    viewerDead = dead;
+  }
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   Behavior getBehavior() const { return behavior; }
   bool isOut() const { return behavior != Behavior::Inside; }
 

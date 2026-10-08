@@ -10,9 +10,19 @@
 #include "AnimatedModel.h"
 #include "CollisionShape.h"
 #include "Model.h"
+#include "NetBuffer.h"
 #include "Property.h"
 
 class Stage;
+
+// What kind of thing a dynamic object that appears while the game runs is, for the network (a
+// client has to make the same thing when the server says so: see Stage::trackNet). The objects a
+// map makes when it is made are not these: every client makes them itself.
+enum NetKind : unsigned char {
+  NET_NONE = 0, // not announced (the map's own objects, the players' bodies)
+  NET_MOSQUITO = 1,
+  NET_EGG = 2,
+};
 
 // Anything that is placed in the world. It shares the models (parts) it is
 // made of, or an AnimatedModel, plus a position, a rotation and a scale, and
@@ -55,6 +65,10 @@ protected:
     std::shared_ptr<Model> model;
   };
   std::vector<Detail> details; // by increasing distance; the part's own model is used before the first
+  // Network: a replica is the copy a client keeps of an object the server rules (see net/): it is
+  // moved by what the server tells it and does not think or move by itself, it only animates
+  bool replica = false;
+  int netId = -1; // the number the server and the clients call it by (dynamic objects)
 
 public:
   // `shape` is the collision shape, in the object's frame; without it, a
@@ -128,6 +142,28 @@ public:
   // Which way it faces around the vertical, radians (as setYaw: 0 = its +z
   // towards the world's +z); turn(r) adds r to it
   virtual float getHeading() const;
+
+  // --- Network
+  void setReplica(bool isReplica) { replica = isReplica; }
+  bool isReplica() const { return replica; }
+  int getNetId() const { return netId; }
+  void setNetId(int id) { netId = id; }
+  // What the server tells the clients about the object at every snapshot, besides where it is
+  // (its position, turn, scale, velocity and visibility go with every dynamic object): whatever
+  // else the clients need to show it. The reader gets back what the writer wrote; each class adds
+  // its own after its parent's. Nothing by default.
+  virtual void writeNetState(NetWriter &out) const {}
+  virtual void readNetState(NetReader &in) {}
+  // For an object that appears while the game runs: what it is (NetKind) and a number that tells
+  // a client how to make it (a mosquito's growth)
+  virtual unsigned char netKind() const { return NET_NONE; }
+  virtual float netSpawnArg() const { return 0.0f; }
+  void setNetPose(const glm::vec3 &where, const glm::mat4 &turn) {
+    position = where;
+    rotation = turn;
+  }
+  const glm::mat4 &getRotationMatrix() const { return rotation; }
+  float getScale() const { return scale; }
 
   // Advances the object by dt seconds
   virtual void update(double dt);

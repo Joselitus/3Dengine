@@ -57,10 +57,32 @@ shared_ptr<GameObject> Stage::add(shared_ptr<GameObject> object) {
 }
 
 shared_ptr<DynamicGameObject>
-Stage::addDynamic(shared_ptr<DynamicGameObject> object) {
+Stage::addDynamic(shared_ptr<DynamicGameObject> object, int netId) {
+  if (netId < 0)
+    netId = nextNetId;
+  nextNetId = std::max(nextNetId, netId + 1);
+  object->setNetId(netId);
+  dynamicByNetId[netId] = object.get();
+  if (netTracking && object->netKind() != NET_NONE) {
+    NetEvent event = {true, netId, object->netKind(), object->getPosition(), object->netSpawnArg()};
+    netEvents.push_back(event);
+    liveSpawns[netId] = event;
+  }
   dynamicObjects.push_back(object);
   registerBody(object.get(), object.get());
   return object;
+}
+
+DynamicGameObject *Stage::findDynamic(int netId) const {
+  auto found = dynamicByNetId.find(netId);
+  return found == dynamicByNetId.end() ? nullptr : found->second;
+}
+
+std::shared_ptr<DynamicGameObject> Stage::findDynamicShared(int netId) const {
+  for (const auto &o : dynamicObjects)
+    if (o->getNetId() == netId)
+      return o;
+  return nullptr;
 }
 
 void Stage::setTimeOfDay(float hours) {
@@ -78,13 +100,16 @@ void Stage::update(double dt) {
     object->update(dt);
   for (auto &object : dynamicObjects) {
     object->update(dt);
+    if (object->isReplica())
+      continue; // (the server moves it)
     apply(*object, dt);
     collideShapeWithFloor(*object);
   }
   resolveCollisions();
   // The collisions may have pushed them into the floor
   for (auto &object : dynamicObjects)
-    collideShapeWithFloor(*object);
+    if (!object->isReplica())
+      collideShapeWithFloor(*object);
   // The emitters, once their owners have moved them
   for (auto &emitter : emitters)
     emitter->update(dt);
@@ -99,6 +124,12 @@ void Stage::flushPending() {
     objects.erase(std::remove_if(objects.begin(), objects.end(),
                                  [&](const shared_ptr<GameObject> &o) { return gone(o.get()); }),
                   objects.end());
+    for (auto &o : dynamicObjects)
+      if (gone(o.get())) {
+        dynamicByNetId.erase(o->getNetId());
+        if (netTracking && liveSpawns.erase(o->getNetId()))
+          netEvents.push_back({false, o->getNetId(), o->netKind(), glm::vec3(0.0f), 0.0f});
+      }
     dynamicObjects.erase(std::remove_if(dynamicObjects.begin(), dynamicObjects.end(),
                                         [&](const shared_ptr<DynamicGameObject> &o) { return gone(o.get()); }),
                          dynamicObjects.end());
@@ -575,8 +606,10 @@ void Stage::collideBodies(int a, int b, vector<long long> &tested) {
 
   // Who moves: all of it for a dynamic object against a static one, shared
   // (more for the lighter one) between two dynamic objects
-  float invA = A.dynamic ? 1.0f / A.dynamic->getMass() : 0.0f;
-  float invB = B.dynamic ? 1.0f / B.dynamic->getMass() : 0.0f;
+  // (a replica is the server's business: for us it is as immovable as a wall)
+  bool movesA = A.dynamic && !A.dynamic->isReplica(), movesB = B.dynamic && !B.dynamic->isReplica();
+  float invA = movesA ? 1.0f / A.dynamic->getMass() : 0.0f;
+  float invB = movesB ? 1.0f / B.dynamic->getMass() : 0.0f;
   float sum = invA + invB;
   if (sum <= 0.0f)
     return;
@@ -594,9 +627,9 @@ void Stage::collideBodies(int a, int b, vector<long long> &tested) {
     changeA = -n * (impulse * invA);
     changeB = n * (impulse * invB);
   }
-  if (A.dynamic)
+  if (movesA)
     A.dynamic->applyCollision(pushA, changeA);
-  if (B.dynamic)
+  if (movesB)
     B.dynamic->applyCollision(pushB, changeB);
 }
 

@@ -260,6 +260,18 @@ private:
   void updateDust(const Stage &stage);
 
   void placeWheels();
+  void placeDoor();
+  void ensureBody();
+  // A client's copy (see writeNetState): what the server last said about it and how it shows it
+  void updateReplica(double dt);
+  const Stage *stage = nullptr;
+  float netWheelLength[4] = {0.35f, 0.35f, 0.35f, 0.35f}, netWheelSteer[4] = {0, 0, 0, 0};
+  bool netWheelGround[4] = {true, true, true, true};
+  glm::vec3 netAngular = glm::vec3(0.0f);
+  float netRpm = 0.0f, netLoad = 0.0f, netStarter = 0.0f, netFire = 0.0f;
+  bool netCranking = false;
+  float doorWanted = 0.0f; // the door's angle the server said
+  float starterNow() const { return replica ? netStarter : engineSim.getStarter(); }
 
 public:
   // The RV is a hollow box (see the class comment)
@@ -278,6 +290,12 @@ public:
   glm::vec3 driverStand() const;
 
   float getMass() const override;
+  // The stage the RV is in (a client's copy needs it for the dust and the pieces that fly off)
+  void setStage(const Stage *s) { stage = s; }
+  // What the server tells the clients about it (where it is goes with every object): its wheels,
+  // its engine and lights, the door, the damage and the fuel
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   // The wheels' dust emitters: give them to the stage (Stage::addEmitter) to
   // have them updated and drawn
   const std::vector<std::shared_ptr<ParticleEmitter>> &getDust() const {

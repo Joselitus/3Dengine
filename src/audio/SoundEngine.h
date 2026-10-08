@@ -69,7 +69,8 @@ private:
   float channelVolume[2] = {1.0f, 1.0f};
 
 public:
-  SoundEngine();
+  // silent: opens no audio device at all (the server has nobody to hear it)
+  explicit SoundEngine(bool silent = false);
   SoundEngine(const SoundEngine &) = delete;
   SoundEngine &operator=(const SoundEngine &) = delete;
   ~SoundEngine();

@@ -116,7 +116,11 @@ void Route66Stage::buildStation() {
   // The pumps: each fills the RV's tank if it is parked by the pumps
   FuelPump::Tank tank;
   tank.level = [this]() { return rv->getFuel(); };
-  tank.fill = [this]() { rv->setFuel(1.0f); };
+  // (the server fills it; on a client the button asks)
+  tank.fill = [this]() {
+    if (refuelRequest)
+      refuelRequest();
+  };
   tank.distance = [this](const vec3 &from) {
     vec3 d = rv->getPosition() - from;
     return std::sqrt(d.x * d.x + d.z * d.z);
@@ -259,10 +263,7 @@ Route66Stage::Route66Stage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer
   createRV(sound, start.x, start.z, heading);
   rv->setFuel(1.0f);
   vec3 door = rv->doorPosition(1.6f);
-  createWalker(door.x, door.z - 0.5f);
-  cameraDistance = 0.0f; // first person
-  cameraHeight = EYE_HEIGHT;
-  cameraYaw = heading + 3.14159265f; // (0 looks towards -z: this is along the road)
+  createWalker(door.x, door.z - 0.5f, heading + 3.14159265f); // (looking along the road: 0 looks towards -z)
 
   addSign(10.0f, -1.0f, {
       "RUTA 66. La Carretera Madre: veinte kilometros de asfalto viejo y ni un alma.",

@@ -89,6 +89,16 @@ void Npc::endRagdoll() {
   onRagdollEnded();
 }
 
+void Npc::writeNetState(NetWriter &out) const {
+  out.boolean(ragdoll && !headHold); // (lies for good)
+}
+
+void Npc::readNetState(NetReader &in) {
+  bool lies = in.boolean();
+  if (in.isOk() && lies && !ragdoll && replicaFloor)
+    startRagdoll(replicaFloor, nullptr);
+}
+
 void Npc::update(double dt) {
   if (ragdoll) {
     vec3 hold;

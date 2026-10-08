@@ -1,4 +1,5 @@
 #include "myopengl.h"
+#include "Gfx.h"
 
 #include <sstream>
 
@@ -19,6 +20,8 @@ string fileToString(const char * file) {
 }
 
 unsigned int TextureFromFile(const char * name, string directory) {
+	if (Gfx::headless)
+		return 0; // (no graphics: no textures)
 	return loadTexture((directory + "/" + name).c_str());
 }
 

@@ -257,6 +257,10 @@ vec3 Mosquito::stalkVelocity(const vec3 &target, double dt) {
 }
 
 void Mosquito::update(double dt) {
+  if (replica) {
+    updateReplica(dt);
+    return;
+  }
   if (exploded) {
     GameObject::update(dt);
     updateDebris(dt);
@@ -981,4 +985,66 @@ void Mosquito::getProperties(vector<Property> &properties) {
       [this](float v) { setGrowth(v / 100.0f); }, "%"));
   properties.push_back(Property::action("Explotar", [this]() { explode(); }));
   properties.push_back(Property::action("Matar", [this]() { kill(); }));
+}
+
+// What the server tells the clients about it (where it is goes with every object): what it does,
+// how grown and how full it is, what its claw aims at and whether it has blown up
+void Mosquito::writeNetState(NetWriter &out) const {
+  out.u8((uint8_t)behavior);
+  out.f32(growth);
+  out.f32(stomach);
+  out.f32(blood);
+  out.f32(diveWait);
+  out.u8((uint8_t)tireTarget);
+  out.vec3(biteDir);
+  out.f32(biteHeight);
+  out.boolean(sucking);
+  out.boolean(exploded);
+}
+
+void Mosquito::readNetState(NetReader &in) {
+  uint8_t b = in.u8();
+  float g = in.f32(), fuel = in.f32(), blood_ = in.f32(), wait = in.f32();
+  uint8_t tyre = in.u8();
+  vec3 dir = in.vec3();
+  float height = in.f32();
+  bool suck = in.boolean(), blown = in.boolean();
+  if (!in.isOk() || b > (uint8_t)Behavior::Dead)
+    return;
+  if ((Behavior)b != behavior) {
+    behavior = (Behavior)b;
+    stateTime = 0.0f;
+    if (behavior == Behavior::Dead)
+      buzzSound.reset();
+  }
+  if (g != growth)
+    setGrowth(g);
+  stomach = fuel;
+  blood = blood_;
+  diveWait = wait;
+  tireTarget = std::min<int>(tyre, 3);
+  biteDir = dir;
+  biteHeight = height;
+  sucking = suck;
+  if (blown && !exploded)
+    explode();
+}
+
+// The copy on a client: it is where the server says (and turned as it says), and here only its
+// wings beat, its legs swing, its abdomen swells and it buzzes
+void Mosquito::updateReplica(double dt) {
+  GameObject::update(dt);
+  stateTime += (float)dt;
+  if (exploded) {
+    updateDebris(dt);
+    return;
+  }
+  updateWings(dt);
+  updateLegs(dt);
+  if (behavior == Behavior::Dead) {
+    buzzSound.reset();
+    return;
+  }
+  updateAbdomen(dt);
+  updateBuzz();
 }

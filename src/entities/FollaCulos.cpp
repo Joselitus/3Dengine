@@ -1,6 +1,7 @@
 #include "FollaCulos.h"
 #include "FollaCulosRig.h"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace std;
@@ -249,8 +250,8 @@ void FollaCulos::update(double dt) {
       splatClock += dt;
       if (aniModel)
         aniModel->Update(splatClock);
-      // The vehicle slows down: it lets go
-      if (carrierVelocity) {
+      // The vehicle slows down: it lets go (a copy waits to be told)
+      if (carrierVelocity && !replica) {
         vec3 v = carrierVelocity();
         if (length(vec2(v.x, v.z)) < RAGDOLL_SPEED)
           startRagdoll();
@@ -265,6 +266,10 @@ void FollaCulos::update(double dt) {
         aniModel->setBoneGlobals(pose);
     }
     return; // (otherwise it stays where it died)
+  }
+  if (replica) { // (the server thinks for it: here it only walks, and screeches)
+    animate(dt);
+    return;
   }
   // The state machine: which behaviour now, and what it does
   vec3 wanted(0.0f);
@@ -328,6 +333,10 @@ void FollaCulos::update(double dt) {
   }
   wanted.y = velocity.y; // (falling is not steered)
   steerTowards(wanted, 12.0f);
+  animate(dt);
+}
+
+void FollaCulos::animate(double dt) {
   DynamicGameObject::update(dt);
   updateScreech(dt);
   // The pose: made by the gait from where its body is (its feet stay where they landed)
@@ -384,4 +393,63 @@ void FollaCulos::describe(vector<string> &lines) const {
   lines.push_back(string("Comportamiento: ") + state);
   lines.push_back("Cabezas en la boca: " + to_string(devoured.size()));
   lines.push_back(string("En movimiento: ") + (running ? "si" : "no"));
+}
+
+void FollaCulos::writeNetState(NetWriter &out) const {
+  Npc::writeNetState(out);
+  uint8_t flags = (dead ? 1 : 0) | (stuck ? 2 : 0) | (criticalCondition ? 4 : 0) | (ragdolling ? 8 : 0) |
+                  (running ? 16 : 0) | (pursuing ? 32 : 0);
+  out.u8(flags);
+  out.u8((uint8_t)std::min<size_t>(devoured.size(), 255));
+  for (size_t i = 0; i < devoured.size() && i < 255; i++)
+    out.i32(devoured[i]->getNetId());
+}
+
+void FollaCulos::readNetState(NetReader &in) {
+  Npc::readNetState(in);
+  uint8_t flags = in.u8();
+  uint8_t eaten = in.u8();
+  std::vector<int> ids;
+  for (int i = 0; i < eaten; i++)
+    ids.push_back(in.i32());
+  if (!in.isOk())
+    return;
+  running = flags & 16;
+  pursuing = flags & 32;
+  // The ones it carries in its mouth
+  for (int id : ids) {
+    Npc *npc = npcLookup ? npcLookup(id) : nullptr;
+    if (npc && std::find(devoured.begin(), devoured.end(), npc) == devoured.end() && !dead && !stuck)
+      devour(*npc);
+  }
+  // What happened to it: stuck on a windshield, dead, a ragdoll (the pieces it does itself)
+  bool wasDead = dead || stuck || ragdolling;
+  if ((flags & 2) && !stuck && !ragdolling) {
+    devoured.clear();
+    running = false;
+    screech.reset();
+    velocity = acceleration = vec3(0.0f);
+    setCollidable(false);
+    criticalCondition = true;
+    stuck = true;
+    setMesh(Splat);
+  }
+  if ((flags & 8) && !ragdolling) {
+    if (!stuck && !dead) { // (it was never seen stuck here: it starts from the splat pose)
+      stuck = true;
+      setMesh(Splat);
+    }
+    if (stuck)
+      startRagdoll();
+  } else if ((flags & 1) && !(flags & 2) && !(flags & 8) && !dead && !stuck && !ragdolling) {
+    if (!wasDead) {
+      devoured.clear();
+      running = false;
+      screech.reset();
+      setCollidable(false);
+      dead = true;
+      die();
+      setVisible(false);
+    }
+  }
 }

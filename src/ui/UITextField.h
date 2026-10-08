@@ -13,6 +13,7 @@ class UITextField : public UIElement {
 private:
   std::string text;
   size_t maxLength;
+  bool focused = true; // the one that gets the typing: it shows the cursor
 
 public:
   explicit UITextField(size_t maxLength = 200) : maxLength(maxLength) {}
@@ -20,6 +21,8 @@ public:
   const std::string &getText() const { return text; }
   void setText(const std::string &value);
   void clear() { text.clear(); }
+  void setFocused(bool value) { focused = value; }
+  bool isFocused() const { return focused; }
   // Appends a typed character; false if it can't be shown or there is no room
   bool add(unsigned int codepoint);
   void backspace();

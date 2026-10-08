@@ -8,17 +8,22 @@ TOOL_DIR = ../tools/creature_testing
 CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR)
 LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
-# The two programs: the game (test.cpp is its main) and the creature testing tool (all of
-# ../tools/creature_testing); everything else in src/ is shared
+# The three programs: the game's server (server.cpp is its main: it rules the world, with no
+# window), the game's client (client.cpp: draws it and takes the player's input) and the creature
+# testing tool (all of ../tools/creature_testing); everything else in src/ is shared
 SRCS = $(shell find . -name '*.cpp')
-SHARED_OBJS = $(filter-out ./test.o,$(SRCS:%.cpp=%.o))
+SHARED_OBJS = $(filter-out ./client.o ./server.o,$(SRCS:%.cpp=%.o))
 TOOL_SRCS = $(wildcard $(TOOL_DIR)/*.cpp)
 TOOL_OBJS = $(TOOL_SRCS:%.cpp=%.o)
 
-all: test creature_testing
+all: server client creature_testing
 
 # The binaries go to ../test/; they can be run from any directory
-test: test.o $(SHARED_OBJS)
+server: server.o $(SHARED_OBJS)
+	mkdir -p ../test
+	$(CC) -o ../test/$@ $^ $(LIBS) -g
+
+client: client.o $(SHARED_OBJS)
 	mkdir -p ../test
 	$(CC) -o ../test/$@ $^ $(LIBS) -g
 
@@ -39,6 +44,6 @@ clean:
 	find . -name '*.o' -delete
 	find . -name '*.d' -delete
 	find $(TOOL_DIR) -name '*.o' -delete -o -name '*.d' -delete
-	rm -f ../test/test ../test/creature_testing
+	rm -f ../test/server ../test/client ../test/test ../test/creature_testing
 
-.PHONY: all clean test creature_testing
+.PHONY: all clean server client creature_testing

@@ -1,4 +1,5 @@
 #include "PineForestStage.h"
+#include "Gfx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -72,8 +73,6 @@ PineForestStage::PineForestStage(FloorMode mode, SoundEngine &sound) : VehicleSt
   // foot beside it, in first person
   createRV(sound, 0.0f, 0.0f, 0.0f);
   createWalker(3.0f, 4.0f);
-  cameraDistance = 0.0f;
-  cameraHeight = EYE_HEIGHT;
 
   // Bob's ship lands in the clearing, away from the RV, its ramp towards the start
   vec3 landing(-9.0f, 0.0f, -9.0f);
@@ -122,6 +121,8 @@ void PineForestStage::plantTrees() {
 // them, that shade everything (the pines too) except where the sun gets through, in the gaps
 // between those crowns and between their leaves (see the class comment)
 void PineForestStage::buildCanopy() {
+  if (Gfx::headless)
+    return; // (the shade is only drawn)
   const int N = CANOPY_TEXELS;
   const float size = 2.0f * HALF_SIZE, texel = size / N;
   std::vector<float> open(N * N * 3, 1.0f); // 1 = open sky

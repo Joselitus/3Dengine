@@ -1,7 +1,5 @@
 #include <GL/glew.h>
-#include <climits>
 #include <cstdlib>
-#include <unistd.h>
 #include <GLFW/glfw3.h>
 #include <cmath>
 #include <functional>
@@ -16,6 +14,12 @@
 #include "Controller.h"
 #include "Controls.h"
 #include "CommandConsole.h"
+#include "ConnectMenu.h"
+#include "MapList.h"
+#include "NetClient.h"
+#include "NetOverlay.h"
+#include "NetRole.h"
+#include "Paths.h"
 #include "Commands.h"
 #include "TextFormat.h"
 #include "DebugSelector.h"
@@ -29,34 +33,19 @@
 #include "GameObject.h"
 #include "InteractionSystem.h"
 #include "Light.h"
-#include "MapSelector.h"
 #include "PlayableCharacter.h"
-#include "RV.h"
-#include "Readable.h"
 #include "RenderStats.h"
-#include "Satellite.h"
 #include "Model.h"
-#include "FollaCulos.h"
-#include "ForestStage.h"
-#include "PineForestStage.h"
-#include "Mosquito.h"
-#include "MosquitoEgg.h"
-#include "Pingu.h"
 #include "AudioMenu.h"
 #include "CameraMenu.h"
 #include "PauseMenu.h"
-#include "Route66Stage.h"
-#include "SceneStage.h"
 #include "Settings.h"
 #include "Shader.h"
 #include "Stage.h"
-#include "Skeleton.h"
 #include "MusicPlayer.h"
 #include "ParticleRenderer.h"
 #include "SoundEngine.h"
 #include "UIManager.h"
-#include "VehicleStage.h"
-#include "Walker.h"
 #include "myopengl.h"
 
 using namespace std;
@@ -133,329 +122,42 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   // Ensure we can capture the escape key being pressed below
   glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
 
-  // Disable cursor
-  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  // The cursor is free until the game starts (the first thing to do is to type the server's address)
+  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
 
   return window;
 }
 
-// The desert: dunes with a road winding through them, cacti and rocks, an RV,
-// a satellite the player can orient, a sign, an NPC and the player: a penguin
-// on foot, in first person. Using the RV's door (Use key) puts the penguin
-// inside it and hands the controls and the camera (third person) to the RV;
-// the leave-vehicle key (Left Shift) puts the penguin on foot at the door and
-// goes back to first person. The rest (the RV, the day cycle, the controls)
-// is VehicleStage's.
-class TestStage : public VehicleStage {
-private:
-  // The giant mosquitoes: the first one and those born of its eggs, the eggs waiting to hatch, the
-  // pool they are laid in, and how many there may be at most (eggs included)
-  std::vector<std::shared_ptr<Mosquito>> mosquitoes;
-  int eggsWaiting = 0;
-  vec3 pool = vec3(0.0f);
-  static constexpr int MAX_MOSQUITOES = 8;
-  SoundEngine *soundEngine = nullptr;
-  // The places round the player's head where young mosquitoes bite (shared by all of them)
-  std::shared_ptr<Mosquito::BiteSlots> biteSlots = std::make_shared<Mosquito::BiteSlots>();
 
-  // A mosquito at `where`, roaming round `home`, `growth` grown (0 = just hatched). `later`: while
-  // the stage is updating (a hatching egg), it joins at the end of the frame
-  std::shared_ptr<Mosquito> addMosquito(const vec3 &where, const vec3 &home, float growth, bool later) {
-    std::vector<std::shared_ptr<Model>> legSegments;
-    for (int pair = 0; pair < 3; pair++)
-      for (const char *side : {"L", "R"})
-        for (int segment = 0; segment < 4; segment++)
-          legSegments.push_back(loadModel("../assets/mosquito/mosquito_leg_" + std::string(side) +
-                                          std::to_string(pair) + "_" + std::to_string(segment) + ".obj"));
-    auto mosquito = make_shared<Mosquito>(loadModel("../assets/mosquito/mosquito.obj"),
-                                          loadModel("../assets/mosquito/mosquito_abdomen.obj"),
-                                          loadModel("../assets/mosquito/mosquito_wing_l.obj"),
-                                          loadModel("../assets/mosquito/mosquito_wing_r.obj"),
-                                          legSegments, *soundEngine);
-    mosquito->setGrowth(growth);
-    mosquito->setWaterSpots({pool});
-    // It sucks the RV's fuel while the player is away from it, and bursts its tyres now and then
-    // while he drives (and blows up doing it)
-    mosquito->setVehicle(rv.get());
-    mosquito->setHourQuery([this]() { return getTimeOfDay(); });
-    mosquito->setHome(home);
-    mosquito->setPosition(where.x, where.y, where.z);
-    mosquito->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
-    mosquito->setTarget([this]() { return player->getPosition(); });
-    mosquito->setPlayerInVehicleQuery([this]() { return inVehicle; });
-    mosquito->setPlayerCaughtCallback([this]() { killPlayer(); });
-    mosquito->setPlayerDeadQuery([this]() { return isPlayerDead(); });
-    mosquito->setEggLayer([this](const vec3 &at) { return layEgg(at); });
-    mosquito->setBiteSlots(biteSlots); // (several can bite the player at once)
-    for (const auto &emitter : mosquito->getEmitters())
-      addEmitter(emitter);
-    mosquitoes.push_back(mosquito);
-    if (later)
-      addDynamicLater(mosquito);
-    else
-      addDynamic(mosquito);
-    return mosquito;
-  }
-
-  // An egg floating on the water at `at`; in a few seconds it hatches into a young mosquito. False
-  // if there are as many mosquitoes and eggs as there may be
-  bool layEgg(const vec3 &at) {
-    int alive = eggsWaiting;
-    for (const auto &m : mosquitoes)
-      if (!m->isDead())
-        alive++;
-    if (alive >= MAX_MOSQUITOES)
-      return false;
-    eggsWaiting++;
-    auto egg = make_shared<MosquitoEgg>(loadModel("../assets/mosquito/mosquito_egg.obj"), [this](MosquitoEgg &e) {
-      eggsWaiting--;
-      vec3 p = e.getPosition();
-      addMosquito(p + vec3(0.0f, Mosquito::MIN_CLEARANCE * Mosquito::BABY_SCALE + 0.05f, 0.0f), p, 0.0f, true);
-      removeLater(&e);
-    });
-    egg->setPosition(at.x, pool.y + 0.04f, at.z);
-    egg->setYaw((float)std::fmod(at.x * 12.9898f + at.z * 78.233f, 6.2831853f)); // (any way round)
-    addDynamicLater(egg);
-    return true;
-  }
-  static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
-  // What is within this many metres of the edge of the terrain is not drawn
-  static constexpr float EDGE_CULL_MARGIN = 12.0f;
-
-public:
-  void getSpotLights(std::vector<SpotLight> &lights) const override {
-    VehicleStage::getSpotLights(lights);
-    for (const auto &mosquito : mosquitoes) // the flash of an explosion (only for a moment)
-      mosquito->getLight(lights);
-  }
-
-  // The NPCs speak through `sound` with voices made by `speech`
-  TestStage(FloorMode mode, SoundEngine &sound, SpeechSynthesizer &speech)
-      : VehicleStage(mode) {
-    soundEngine = &sound;
-    groundFallback = GROUND_Y;
-    // The desert's background music: an arid guitar and banjo loop
-    loadMusic("../assets/music/desert.wav");
-    // ...and the wind, which never stops (it is all that is left at night)
-    loadAmbience("../assets/music/wind.wav");
-
-    startDay();
-    setEdgeCulling(EDGE_CULL_MARGIN); // (once the floor is known)
-    // First person: the camera at the penguin's eyes, 1.6 above its feet
-    cameraDistance = 0.0f;
-    cameraHeight = EYE_HEIGHT;
-
-    // Desert scenery
-    auto ground = make_shared<GameObject>(loadModel("../assets/desert/dunes_loop.obj"));
-    ground->setPosition(0.0f, GROUND_Y, 0.0f);
-    ground->setCollidable(false); // it is the floor, not an obstacle
-    add(ground);
-    // The dunes are a regular grid of heights, so they are the height map
-    // and a height field needs a material map: asphalt where the road is, sand
-    // everywhere else (the RV is slower on sand)
-    auto materials =
-        MaterialMap::loadImage("../assets/desert/dunes_loop_materials.png");
-    if (!materials) {
-      fprintf(stderr, "No material map: the whole floor is sand\n");
-      materials = MaterialMap::uniform(FloorMaterial::Sand);
-    }
-    setFloor(loadModel("../assets/desert/dunes_loop.obj"),
-             vec3(0.0f, GROUND_Y, 0.0f), materials);
-    // The road: 8 m wide, a closed loop winding round the starting clearing
-    // (about 250 m long), carved into the dunes
-    auto road = make_shared<GameObject>(loadModel("../assets/desert/road.obj"));
-    road->setPosition(0.0f, GROUND_Y, 0.0f);
-    road->setCollidable(false);
-    add(road);
-
-    // model, x, z, rotation around y, uniform scale. Scattered by a script
-    // (seeded) over the dunes, never on the road (at least 7 m from its centre
-    // line) nor in the starting clearing: 14 inside the loop, 30 outside it
-    struct Prop {
-      const char *model;
-      float x, z, yaw, scale;
-    };
-    const char *cactusA = "../assets/desert/cactus_a.obj";
-    const char *cactusB = "../assets/desert/cactus_b.obj";
-    const char *rockA = "../assets/desert/rock_a.obj";
-    const char *rockB = "../assets/desert/rock_b.obj";
-    const Prop propList[] = {
-        {rockA, 7.1f, -18.7f, 0.3f, 1.3f},
-        {cactusA, -13.3f, 8.6f, 6.3f, 0.9f},
-        {cactusB, 1.8f, 18.4f, 5.6f, 1.8f},
-        {cactusA, -7.5f, -15.2f, 1.7f, 1.4f},
-        {rockA, 19.1f, 8.2f, 1.4f, 2.2f},
-        {cactusA, 14.6f, -15.1f, 0.0f, 1.5f},
-        {rockB, -6.4f, 12.5f, 0.9f, 1.4f},
-        {cactusB, -17.1f, -0.7f, 5.9f, 0.9f},
-        {cactusB, 7.2f, -10.6f, 2.5f, 1.8f},
-        {cactusB, -20.0f, -7.4f, 4.2f, 1.6f},
-        {rockB, 16.9f, -6.6f, 5.1f, 2.0f},
-        {cactusB, -8.9f, 19.7f, 2.6f, 0.9f},
-        {rockB, 8.4f, 20.2f, 2.5f, 1.1f},
-        {rockA, 13.0f, 15.6f, 3.1f, 1.3f},
-        {rockB, 8.7f, -64.6f, 2.8f, 1.3f},
-        {cactusA, -72.6f, -81.5f, 5.8f, 1.2f},
-        {rockA, 63.9f, -3.2f, 5.4f, 1.9f},
-        {cactusB, -26.7f, 48.2f, 4.6f, 1.4f},
-        {cactusA, 32.4f, -81.1f, 1.3f, 1.0f},
-        {cactusA, -48.7f, -74.0f, 5.6f, 1.4f},
-        {cactusB, 46.8f, 72.3f, 2.1f, 1.5f},
-        {rockB, 53.1f, -44.2f, 4.6f, 1.7f},
-        {cactusA, -0.9f, -73.7f, 3.0f, 1.4f},
-        {rockA, 54.6f, -78.7f, 3.8f, 1.6f},
-        {rockB, -50.7f, 80.4f, 1.8f, 2.3f},
-        {cactusA, -41.5f, 59.2f, 1.6f, 1.5f},
-        {rockA, -71.2f, -50.4f, 3.4f, 1.7f},
-        {cactusA, -1.9f, 69.3f, 1.6f, 1.6f},
-        {cactusA, -50.3f, -28.9f, 2.3f, 1.7f},
-        {cactusA, -53.2f, -82.0f, 2.6f, 1.1f},
-        {rockB, 16.7f, 78.9f, 3.8f, 1.3f},
-        {rockB, 69.1f, -65.3f, 4.9f, 1.5f},
-        {rockA, 42.6f, 53.0f, 6.0f, 1.5f},
-        {cactusB, -20.6f, 62.3f, 2.3f, 1.2f},
-        {cactusB, -72.2f, -36.5f, 3.4f, 1.0f},
-        {cactusA, -9.5f, -77.9f, 0.8f, 1.7f},
-        {cactusA, -20.8f, 73.9f, 5.0f, 1.3f},
-        {rockB, -78.9f, -70.9f, 1.6f, 1.9f},
-        {cactusA, 64.4f, 73.8f, 1.2f, 1.4f},
-        {cactusB, 35.0f, -50.9f, 2.4f, 1.3f},
-        {cactusB, 29.9f, 47.3f, 0.4f, 1.3f},
-        {rockA, -30.1f, 63.4f, 0.9f, 2.3f},
-        {cactusB, -60.6f, 2.4f, 5.1f, 1.2f},
-        {rockB, -79.8f, 81.9f, 1.2f, 1.9f},
-    };
-    for (const Prop &p : propList) {
-      auto o = make_shared<GameObject>(loadModel(p.model));
-      // sink the base a little so nothing floats on the slopes
-      o->setPosition(p.x, groundAt(p.x, p.z) - 0.05f, p.z);
-      o->setYaw(p.yaw);
-      o->setScale(p.scale);
-      add(o);
-    }
-
-    // The creature, standing in the distance and facing the camera (disabled)
-    // auto creature = make_shared<DynamicGameObject>(
-    //     loadModel("../assets/creature/creature.obj"));
-    // creature->addPart(loadModel("../assets/creature/creature_eyes.obj"),
-    //                   2); // the eyes glow
-    // creature->setPosition(1.5f, GROUND_Y + 0.91f, -13.0f); // see terrain_height()
-    // creature->setYaw(0.25f);
-    // creature->setBreathAmp(2.0f); // the creature breathes
-    // addDynamic(creature);
-
-    // The RV, facing +z: its door (+x side) is towards the start
-    createRV(sound, 0.0f, 0.0f, 0.0f);
-    createWalker(3.0f, 4.0f);
-
-    // A satellite next to the start, within reach (see Interactable)
-    auto satellite = make_shared<Satellite>(
-        loadModel("../assets/antenna/antenna_dish.obj"),
-        loadModel("../assets/antenna/antenna_base.obj"),
-        vec3(4.5f, groundAt(4.5f, 2.0f), 2.0f));
-    add(satellite);
-    add(satellite->getMount());
-    interactables.push_back(satellite.get());
-
-    // An NPC a few steps ahead of the start, facing it: talk to it with the
-    // Use key. Same model as the player, standing on its feet.
-    VoiceSettings voice;
-    voice.pitch = 62; // a bit higher than the default
-    // Pingu dances; while he talks to the player he stands still, breathing
-    // calmly (the same model in its idle pose): both are loaded
-    auto dancing = make_shared<AnimatedModel>(
-        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
-    auto standing = make_shared<AnimatedModel>(
-        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
-    standing->setIdle(true);
-    auto guide = make_shared<Pingu>(
-        dancing, standing,
-        "Pingu", std::vector<std::string>{
-            "¡Hola, viajero! Soy Pingu y vigilo esta antena en mitad del desierto.",
-            "Acércate al satélite y úsalo: puedes girarlo en azimut y en cénit para apuntar a cualquier punto del cielo.",
-            "Dicen que de noche este desierto cambia por completo. Yo, por si acaso, me quedo aquí.",
-        },
-        sound, speech, voice);
-    guide->setPosition(3.0f, groundAt(3.0f, 0.5f), 0.5f);
-    guide->faceTowards(vec3(3.0f, 0.0f, 4.0f));
-    guide->setGravity(25.0f);
-    addDynamic(guide);
-    interactables.push_back(guide.get());
-
-    createCreature(sound, speech, 18.0f, 24.0f);
-    // The other NPCs are its prey if they come near
-    Npc *pingu = guide.get();
-    creature->setPreyQuery([pingu]() { return std::vector<Npc *>{pingu}; });
-
-    // A pool of water (for now a blue square, flat on a flat bit of sand): the mosquito lays its
-    // eggs in it
-    pool = vec3(-44.0f, 0.0f, 67.0f);
-    pool.y = std::max(std::max(groundAt(pool.x - 2.0f, pool.z - 2.0f), groundAt(pool.x + 2.0f, pool.z - 2.0f)),
-                      std::max(groundAt(pool.x - 2.0f, pool.z + 2.0f), groundAt(pool.x + 2.0f, pool.z + 2.0f)));
-    auto puddle = make_shared<GameObject>(loadModel("../assets/water/puddle.obj"));
-    puddle->setPosition(pool.x, pool.y + 0.03f, pool.z);
-    puddle->setCollidable(false); // (before add: a static is registered when added)
-    add(puddle);
-
-    // A giant mosquito: it roams its corner of the desert looking for water to lay its eggs in,
-    // and at dawn and at dusk, when the player comes near, it circles him and dives to bite (see
-    // Mosquito). Running it over with the RV kills it. Its eggs hatch into more (layEgg).
-    vec3 nest(-35.0f, 0.0f, 40.0f);
-    nest.y = groundAt(nest.x, nest.z);
-    // (it starts with blood in its stomach: it can lay its eggs)
-    addMosquito(nest + vec3(0.0f, 5.0f, 0.0f), nest, 1.0f, false)->setBlood(1.0f);
-
-    // A sign to read (no voice: the text types itself out), past the
-    // satellite, turned towards the start
-    auto sign = make_shared<Readable>(
-        loadModel("../assets/sign/sign.obj"), "Cartel",
-        std::vector<std::string>{
-            "AVISO: estación de seguimiento del desierto. Prohibido el paso a personal no autorizado.",
-            "La antena se orienta con el azimut y el cénit. No la apuntéis nunca directamente al sol.",
-            "Si de noche veis algo moverse entre las dunas, no os acerquéis. Volved a la carretera.",
-        },
-        1.3f); // the board's height
-    sign->setPosition(7.5f, groundAt(7.5f, -1.0f), -1.0f);
-    sign->setYaw(std::atan2(3.0f - 7.5f, 4.0f + 1.0f)); // face (3, 4)
-    add(sign);
-    interactables.push_back(sign.get());
-  }
-};
-
-// Shaders and assets are loaded with paths relative to src/. The binary is
-// built into test/, next to src/, so move there whatever the launch directory.
-bool enterSourceDir() {
-  char exe[PATH_MAX];
-  ssize_t length = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-  if (length <= 0)
-    return false;
-  exe[length] = '\0';
-  std::string dir(exe);
-  dir = dir.substr(0, dir.find_last_of('/')) + "/../src";
-  return chdir(dir.c_str()) == 0;
-}
+// The game's client: the window. It asks where the server is, connects, makes the same map as the
+// server and shows it: the objects of the world are copies that move as the server says (see
+// net/NetClient), the player's own penguin moves at once with his controls and is corrected
+// from what the server says. What he does (his controls, E, F, R...) is sent to the server,
+// which carries it out. Sound, speech and everything that is only drawn or heard is the client's.
 
 int main(int argc, char **argv) {
   FloorMode floorMode = FloorMode::HeightField; // pass --ray for DownwardRay
-  float startHour = -1.0f;   // --time H: hour a map starts at (default: its own)
-  float dayDuration = -1.0f; // --day-duration S: seconds per day (0 = stopped)
-  std::string startMap;      // --map N|NAME: the map to start in (number in the list from 0, or name)
   bool profile = false;      // --profile: print where the time of each frame goes
+  std::string connectTo;     // --connect ADDRESS: connect at once, without asking
+  std::string playerName;    // --name NAME
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
       FULLSCREEN = false;
     else if (std::string(argv[i]) == "--ray")
       floorMode = FloorMode::DownwardRay;
-    else if (std::string(argv[i]) == "--time" && i + 1 < argc)
-      startHour = (float)atof(argv[++i]);
-    else if (std::string(argv[i]) == "--day-duration" && i + 1 < argc)
-      dayDuration = (float)atof(argv[++i]);
-    else if (std::string(argv[i]) == "--map" && i + 1 < argc)
-      startMap = argv[++i];
+    else if (std::string(argv[i]) == "--connect" && i + 1 < argc)
+      connectTo = argv[++i];
+    else if (std::string(argv[i]) == "--name" && i + 1 < argc)
+      playerName = argv[++i];
     else if (std::string(argv[i]) == "--profile")
       profile = true;
+    else {
+      printf("Uso: %s [--windowed] [--connect DIRECCION[:PUERTO]] [--name NOMBRE] [--ray] [--profile]\n", argv[0]);
+      return std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h" ? 0 : 1;
+    }
   if (!enterSourceDir())
     fprintf(stderr, "Could not find src/, using the current directory\n");
+  setNetRole(NetRole::Client);
 
   // Creation of window and it's context
   GLFWwindow *window;
@@ -530,8 +232,8 @@ int main(int argc, char **argv) {
   UIManager ui(window);
   // Objects the player can use (key E), each with its own panel
   InteractionSystem interaction(window, &ui, controls);
-  // Debug: select objects, see their data, move them and change their values
-  // (keys 1, 2 and 0, see DebugSelector)
+  // Debug: select objects and see their data (key 1, see DebugSelector). Moving things and
+  // changing their values are not allowed here: the world is the server's
   DebugSelector selector(window, ui, controls);
   // The player's death: the screen goes red (the camera falls: see the main loop)
   DeathOverlay deathOverlay;
@@ -550,6 +252,9 @@ int main(int argc, char **argv) {
   // Aiming Bob's ship's ray gun: a crosshair in the middle
   CrosshairOverlay crosshair;
   ui.addOverlay(&crosshair);
+  // The other players' names, and the server's messages
+  NetOverlay netOverlay;
+  ui.addOverlay(&netOverlay);
   // Bob is near: the picture gets grainy (see GameStage::alienPresence)
   FilmGrain grain;
   // Abducted: a scream (not too loud) while he rises, and a rip as he goes into the ship
@@ -566,48 +271,16 @@ int main(int argc, char **argv) {
   float deathEyeHeight = 1.6f;   // ...how high it was above his feet
   float deathAngle = 0.0f, deathSpeed = 0.0f; // the fall: how far over it is and how fast it tips (radians)
 
-  // The maps, in the order the debug selector (key Z) lists them
-  struct Map {
-    std::string name;
-    std::function<std::unique_ptr<GameStage>()> create; // nullptr on error
-  };
-  const std::vector<Map> maps = {
-      {"Desierto de dia",
-       [floorMode, &sound, &speech]() {
-         return std::unique_ptr<GameStage>(
-             new TestStage(floorMode, sound, speech));
-       }},
-      {"Bosque",
-       [floorMode, &sound]() -> std::unique_ptr<GameStage> {
-         std::unique_ptr<ForestStage> forest(new ForestStage(floorMode, sound));
-         if (!forest->isValid())
-           return nullptr;
-         return std::unique_ptr<GameStage>(forest.release());
-       }},
-      {"Ruta 66",
-       [floorMode, &sound, &speech]() -> std::unique_ptr<GameStage> {
-         std::unique_ptr<Route66Stage> route(new Route66Stage(floorMode, sound, speech));
-         if (!route->isValid())
-           return nullptr;
-         return std::unique_ptr<GameStage>(route.release());
-       }},
-      {"Desierto de noche",
-       [floorMode]() -> std::unique_ptr<GameStage> {
-         return SceneStage::load("../assets/scenes/desert.scene",
-                                 "../assets", floorMode);
-       }},
-      {"Bosque de pinos",
-       [floorMode, &sound]() {
-         return std::unique_ptr<GameStage>(new PineForestStage(floorMode, sound));
-       }},
-  };
-  std::unique_ptr<GameStage> stage;
-  int currentMap = -1;
-  int requestedMap = 0; // switched to at a safe point of the main loop
-  for (size_t i = 0; i < maps.size() && !startMap.empty(); i++)
-    if (startMap == maps[i].name || startMap == std::to_string(i))
-      requestedMap = (int)i;
-  bool resetRequested = false; // start the current map again, there too
+  const std::vector<MapEntry> &maps = mapList();
+  std::unique_ptr<NetClient> net;     // the connection (null: not connecting)
+  std::unique_ptr<GameStage> stage;   // the world, once connected (null: the connect screen)
+  ConnectMenu *connectMenu = nullptr; // (owned by the UI)
+  std::string lastAddress = connectTo.empty() ? settings.getString("net.server", "127.0.0.1") : connectTo;
+  if (playerName.empty()) {
+    const char *user = getenv("USER");
+    playerName = settings.getString("net.name", user && *user ? user : "Pingu");
+  }
+  bool autoConnect = !connectTo.empty(); // (once: --connect)
 
   // Hands the map's light and sky colours to the shader (they change with
   // its time of day, so this is done every frame)
@@ -661,127 +334,151 @@ int main(int argc, char **argv) {
     shader.setFloat("forestHorizon", env.forestHorizon);
   };
 
-  // Replaces the current map: nothing may still point into the old one (its
-  // panels, the interaction targets, the controller's character)
-  bool mapLoaded = false; // switchMap ran this frame (see the main loop)
-  auto switchMap = [&](int index) {
-    std::unique_ptr<GameStage> next = maps[index].create();
-    if (!next) {
-      fprintf(stderr, "Could not load the map '%s'\n", maps[index].name.c_str());
-      return;
-    }
+  // --- The connect screen
+  auto quit = [window]() { glfwSetWindowShouldClose(window, true); };
+  auto openConnectMenu = [&](const std::string &status) {
     ui.closeAll();
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    connectMenu = static_cast<ConnectMenu *>(ui.open(new ConnectMenu(
+        lastAddress, playerName,
+        [&](const std::string &address, const std::string &name) {
+          lastAddress = address;
+          playerName = name.empty() ? "Pingu" : name;
+          net.reset(new NetClient(lastAddress, playerName));
+          connectMenu->setBusy(true);
+          connectMenu->setStatus("Conectando con " + lastAddress + "...");
+        },
+        quit)));
+    connectMenu->setStatus(status);
+  };
+
+  // The map the server said is made and attached to the connection: the game starts
+  auto startGame = [&]() -> std::string {
+    int index = net->getMapIndex();
+    if (index < 0 || index >= (int)maps.size())
+      return "El servidor usa un mapa que este cliente no tiene";
+    MapContext context = {floorMode, sound, speech};
+    std::unique_ptr<GameStage> next = maps[index].create(context);
+    if (!next)
+      return "No puedo cargar el mapa '" + maps[index].name + "'";
+    if (!net->attach(*next))
+      return net->getError();
+    ui.closeAll();
+    connectMenu = nullptr;
     interaction.clear();
     selector.clear();
     stage = std::move(next);
-    currentMap = index;
     // Each map brings its own music (or none, which silences the previous)
-    music.play(stage->getMusic(), stage->isMusicLooping(),
-               stage->getMusicVolume());
+    music.play(stage->getMusic(), stage->isMusicLooping(), stage->getMusicVolume());
     ambience.play(stage->getAmbience(), true, stage->getAmbienceVolume());
-    for (Interactable *object : stage->getInteractables())
+    const std::vector<Interactable *> &targets = stage->getInteractables();
+    for (Interactable *object : targets)
       interaction.add(object);
+    // Things that act at once (the RV's door, the ship's ramp) are done by the server
+    interaction.setDirectUse([&](Interactable &target) {
+      const std::vector<Interactable *> &list = stage->getInteractables();
+      for (size_t i = 0; i < list.size(); i++)
+        if (list[i] == &target)
+          net->sendUse((unsigned)i, stage->getPlayer()->getPosition());
+    });
+    stage->setRefuelRequest([&]() { net->sendAction(Net::A_REFUEL); });
     camera.setFarPlane(stage->getFarPlane());
     mirrorCamera.setFarPlane(stage->getFarPlane());
     if (mirrorWorks)
       for (int i = 0; i < MIRRORS; i++)
         stage->setRearMirrorTexture(i, mirrorTexture[i], (float)MIRROR_W / MIRROR_H);
-    controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
-                      stage->getCameraHeight(), stage->getCameraYaw());
-
-    if (startHour >= 0.0f)
-      stage->setTimeOfDay(startHour);
-    if (dayDuration >= 0.0f)
-      stage->setDayDuration(dayDuration);
-    deathTime = -1.0; // (a new map: the player is alive)
+    deathTime = -1.0;
     credits.stop();
     scream.reset();
     rip.reset();
-    mapLoaded = true;
+    // The mouse is the camera's now (the controller takes it when it is enabled again)
+    controller.setEnabled(false);
+    controller.setEnabled(true);
+    settings.setString("net.server", lastAddress);
+    settings.setString("net.name", playerName);
+    settings.save();
+    printf("Conectado a %s: mapa '%s', jugador %d\n", lastAddress.c_str(), maps[index].name.c_str(), net->getPlayerId());
+    return std::string();
+  };
+
+  // Back to the connect screen (the server went, or the connection was lost)
+  auto leaveGame = [&](const std::string &why) {
+    controller.detach();
+    ui.setHint("");
+    camera.attachTo(nullptr, 0.0f, 0.0f);
+    camera.setCarrier(mat3(1.0f));
+    interaction.clear();
+    selector.turnOff();
+    selector.clear();
+    music.play(nullptr);
+    ambience.play(nullptr);
+    scream.reset();
+    rip.reset();
+    credits.stop();
+    deathOverlay.setAmount(0.0f);
+    paralysisOverlay.setAmount(0.0f);
+    struggleOverlay.setProgress(-1.0f);
+    crosshair.setShown(false);
+    netOverlay.setTags({});
+    stage.reset();
+    net.reset();
+    openConnectMenu(why);
+    printf("%s\n", why.c_str());
   };
 
   // Keys with no panel open: Esc shows the pause menu (whose "Salir" / Quit
-  // key ends the game), the Maps key (Z) the debug map selector
-  auto quit = [window]() { glfwSetWindowShouldClose(window, true); };
-  MenuContext menus = {ui, camera, controls, settings, sound, quit};
-  ui.bindKey(GLFW_KEY_ESCAPE, [&]() { ui.open(new PauseMenu(menus)); });
-  std::vector<std::string> mapNames;
-  for (const Map &map : maps)
-    mapNames.push_back(map.name);
-  ui.bindKey([&controls]() { return controls.key(Action::Maps); }, [&]() {
-    ui.open(new MapSelector(mapNames, currentMap, controls.key(Action::Maps),
-                            [&](int index) { requestedMap = index; }));
+  // key ends the game)
+  bool disconnectRequested = false; // (done at the start of the next frame, not inside the menu's button)
+  MenuContext menus = {ui, camera, controls, settings, sound, quit, [&]() { disconnectRequested = true; }};
+  ui.bindKey(GLFW_KEY_ESCAPE, [&]() {
+    if (stage)
+      ui.open(new PauseMenu(menus));
   });
 
   // Debug select key (1): turns the object selection mode on and off
   ui.bindKey([&controls]() { return controls.key(Action::DebugSelect); },
-             [&]() { selector.toggleSelect(); });
-  // Debug place key (2): moves the selected object where the camera points
-  ui.bindKey([&controls]() { return controls.key(Action::DebugPlace); },
-             [&]() { selector.togglePlace(); });
-  // Debug properties key (0): see the values of what the crosshair points at,
-  // and change them with a click
-  ui.bindKey([&controls]() { return controls.key(Action::DebugInspect); },
-             [&]() { selector.toggleInspect(); });
-
-  // Leave-vehicle key (with no panel open): the map puts the player back on
-  // foot, if it was driving
-  // (not while the debug placement mode turns an object: Shift snaps it
-  // then)
-  ui.bindKey([&controls]() { return controls.key(Action::LeaveVehicle); },
              [&]() {
-               if (!selector.capturesMouse())
-                 stage->leaveVehicle();
+               if (stage)
+                 selector.toggleSelect();
              });
 
-  // Headlights key: the map turns its vehicle's lights on or off
-  ui.bindKey([&controls]() { return controls.key(Action::Headlights); },
-             [&]() { stage->toggleHeadlights(); });
-
-  // Engine key: switches the vehicle's engine on or off
-  ui.bindKey([&controls]() { return controls.key(Action::Engine); },
-             [&]() { stage->toggleEngine(); });
-
-  // Handbrake key: pulls or releases the vehicle's handbrake
-  ui.bindKey([&controls]() { return controls.key(Action::Handbrake); },
-             [&]() { stage->toggleHandbrake(); });
-
-  // Vehicle camera key: inside the vehicle or from behind
-  ui.bindKey([&controls]() { return controls.key(Action::VehicleCamera); },
-             [&]() { stage->toggleVehicleCamera(); });
-
-  // Ship-legs key: flying Bob's ship, its legs go in or out
-  ui.bindKey([&controls]() { return controls.key(Action::ShipLegs); },
-             [&]() { stage->toggleShipLegs(); });
-
-  // The command console (key T): the commands it knows, and what has been
-  // typed in it (kept while the game runs)
-  Commands commands;
-  commands.add("reset", "empieza el mapa de nuevo, como al arrancar el juego",
-               [&](const std::vector<std::string> &) {
-                 resetRequested = true; // not from inside the UI's update
-                 return std::string("Reiniciando el mapa...");
-               });
-  // "day" and "night": the clock of the map jumps to the middle of the day or
-  // of the night and goes on from there. In the day map (TestStage) the sun
-  // rises at 6:00 and sets at 18:00; it is full day from about 7:30 to 16:30
-  // and full night (dark, all the stars) from about 19:00 to 5:00.
-  const float DAY_HOUR = 12.0f, NIGHT_HOUR = 0.0f;
-  auto setHour = [&](float hour) {
-    stage->setTimeOfDay(hour);
-    return textFormat("Hora: %02d:00", (int)hour);
+  // The keys that act in the world are the server's business: they are sent to it. (Not while the
+  // debug selection mode uses the mouse, nor when the player is not in a game.)
+  auto act = [&](Action key, uint8_t what) {
+    ui.bindKey([&controls, key]() { return controls.key(key); }, [&, what]() {
+      if (stage && net && !stage->isPlayerDead() && !selector.capturesMouse())
+        net->sendAction(what);
+    });
   };
-  commands.add("day", "pone el mediodía (12:00)",
-               [&](const std::vector<std::string> &) { return setHour(DAY_HOUR); });
-  commands.add("night", "pone la medianoche (0:00)",
-               [&](const std::vector<std::string> &) { return setHour(NIGHT_HOUR); });
+  // Leave-vehicle key: the player gets out, or hammers it to get free of Bob
+  act(Action::LeaveVehicle, Net::A_LEAVE);
+  // Headlights key: the flashlight, the vehicle's lights or the ship's gun
+  act(Action::Headlights, Net::A_HEADLIGHTS);
+  // Engine key
+  act(Action::Engine, Net::A_ENGINE);
+  // Handbrake key
+  act(Action::Handbrake, Net::A_HANDBRAKE);
+  // Vehicle camera key: inside the vehicle or from behind
+  act(Action::VehicleCamera, Net::A_VEHICLE_CAMERA);
+  // Ship-legs key: flying Bob's ship, its legs go in or out
+  act(Action::ShipLegs, Net::A_SHIP_LEGS);
+
+  // The command console (key T): what is typed goes to the server, which knows the commands
+  Commands commands;
+  auto sendToServer = [&](const std::vector<std::string> &) {
+    return std::string("Enviado al servidor");
+  };
+  for (const char *name : {"day", "night", "time"})
+    commands.add(name, "se lo pide al servidor", sendToServer);
   std::vector<std::string> commandHistory;
   auto openConsole = [&](const std::string &text) {
+    if (!stage)
+      return;
     int width, height;
     glfwGetWindowSize(window, &width, &height);
     const float MARGIN = 16.0f;
-    UIPanel *console = ui.open(new CommandConsole(commands, commandHistory,
-                                                  width - 2 * MARGIN, text));
+    UIPanel *console = ui.open(new CommandConsole(
+        commands, commandHistory, width - 2 * MARGIN, text, [&](const std::string &line) { net->sendCommand(line); }));
     console->moveTo(MARGIN, height - console->preferredHeight() - MARGIN);
   };
   ui.bindKey([&controls]() { return controls.key(Action::Console); },
@@ -790,45 +487,82 @@ int main(int argc, char **argv) {
   // command already written
   ui.bindChar('/', [&]() { openConsole("/"); });
 
+  openConnectMenu("");
+  if (autoConnect) {
+    net.reset(new NetClient(lastAddress, playerName));
+    connectMenu->setBusy(true);
+    connectMenu->setStatus("Conectando con " + lastAddress + "...");
+  }
+
+  // The player's controls in the last input sent (the number the server will answer with)
+  unsigned lastInputSeq = 0;
+
   // Main loop
   double lastTime = glfwGetTime();
   while (!glfwWindowShouldClose(window)) {
-    // Clear the screen. It can cause flickering, so it's there nonetheless.
     double now = glfwGetTime();
-    double dt = now - lastTime;
+    double dt = std::min(now - lastTime, 0.25);
     lastTime = now;
-
-    // "reset" (console): a new copy of the current map, as if the game had
-    // just started (also without the debug modes)
-    if (resetRequested) {
-      resetRequested = false;
-      selector.turnOff();
-      switchMap(currentMap);
-    }
-    // A map change asked for (at start, or from the selector) happens here,
-    // outside of any UI callback
-    if (requestedMap >= 0) {
-      if (requestedMap != currentMap)
-        switchMap(requestedMap);
-      requestedMap = -1;
-      if (!stage)
-        break; // not even the first map could be loaded
-    }
-    // Loading a map takes a while: that time must not reach the next frame as
-    // one huge step of the physics
-    if (mapLoaded) {
-      mapLoaded = false;
-      lastTime = glfwGetTime();
-      dt = 0.0;
-    }
-
     camera.resize();
+
+    // What the server sends (and what we send it)
+    if (net) {
+      net->update();
+      for (const std::string &text : net->takeNotices())
+        netOverlay.showNotice(text);
+    }
+    netOverlay.update((float)dt);
+
+    // --- The connect screen: until the server accepts us and the map is ready
+    if (!stage) {
+      if (net && net->isFailed()) {
+        std::string why = net->getError();
+        net.reset();
+        if (!ui.isOpen(connectMenu))
+          openConnectMenu(why);
+        connectMenu->setBusy(false);
+        connectMenu->setStatus(why);
+      } else if (net && net->isReady()) {
+        connectMenu->setStatus("Cargando el mapa...");
+        std::string problem = startGame();
+        if (!problem.empty()) {
+          net.reset();
+          connectMenu->setBusy(false);
+          connectMenu->setStatus(problem);
+        } else {
+          lastTime = glfwGetTime(); // (loading took a while: not one huge step of the physics)
+          continue;
+        }
+      }
+      ui.update();
+      glClearColor(0.05f, 0.07f, 0.12f, 1.0f);
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+      ui.draw();
+      glfwSwapBuffers(window);
+      glfwPollEvents();
+      continue;
+    }
+
+    // --- In the game
+    if (disconnectRequested) {
+      disconnectRequested = false;
+      leaveGame("Te has desconectado del servidor");
+      continue;
+    }
+    if (net->isFailed()) {
+      leaveGame(net->getError().empty() ? "Desconectado del servidor" : net->getError());
+      continue;
+    }
+    // The world as the server has it now
+    net->apply(dt);
+    Player *me = stage->getLocalPlayer();
+
     // The interface first: while any panel (menu or object) is open, the
     // player's controls are paused and the cursor is free
     interaction.update(stage->getPlayer()->getPosition(),
                        stage->interactionsEnabled());
     ui.update();
-    // The map handed the controls to another character (got in or out of a
+    // The server handed the controls to another character (got in or out of a
     // vehicle): the controller and the camera follow it
     if (stage->takePlayerChange())
       controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
@@ -837,28 +571,44 @@ int main(int argc, char **argv) {
     paralysisOverlay.setAmount(0.35f * stage->playerParalysis() * (0.8f + 0.2f * (float)std::sin(now * 9.0)));
     struggleOverlay.setProgress(stage->struggleProgress());
     crosshair.setShown(stage->playerAiming() && !stage->isPlayerDead());
-    // In the debug placement mode, the right button turns the selected object
-    // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
+    // The controls go to the server
+    {
+      unsigned sent = net->sendInput(dt, controller.getMove(), controller.getUp(), controller.getYaw(),
+                                     controller.getPitch(), controller.isRunning());
+      if (sent)
+        lastInputSeq = sent;
+    }
     // The left button fires (Bob's ship's ray gun), once per press: not over a panel, nor in a
     // debug mode (they use the mouse)
     {
       static bool fireWasDown = false;
       bool fireDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
       if (fireDown && !fireWasDown && !ui.hasPanels() && selector.getMode() == DebugSelector::Mode::Off &&
-          !stage->isPlayerDead())
-        stage->fire(camera.getPosition(), camera.getForward());
+          !stage->isPlayerDead() && stage->playerAiming())
+        net->sendFire(camera.getPosition(), camera.getForward());
       fireWasDown = fireDown;
     }
     stage->setViewer(camera.getPosition(), camera.getViewProjection()); // (as it was the last frame)
     double tUpdate = glfwGetTime();
     stage->update(dt);
     double tPhysics = glfwGetTime() - tUpdate;
+    if (me && me->character == me->walker && !me->dead)
+      net->recordPrediction(lastInputSeq, me->walker->getPosition());
     // a map may fade its sounds (with the time of day)
     music.setVolume(stage->getMusicVolume());
     ambience.setVolume(stage->getAmbienceVolume());
     stage->getPlayer()->followCamera();
+    // The server brought him back from the dead
+    if (deathTime >= 0.0 && !stage->isPlayerDead()) {
+      deathTime = -1.0;
+      credits.stop();
+      scream.reset();
+      rip.reset();
+      camera.setCarrier(mat3(1.0f));
+      deathOverlay.setColor(vec3(0.7f, 0.0f, 0.02f));
+    }
     // The player is dead: the camera falls over backwards like an inverted pendulum (the eyes at the
     // top of a rod standing on his feet, tipping over: slow at first, then faster and faster) and
     // ends lying on the ground looking up at the sky, with a little roll; the screen goes red
@@ -895,8 +645,7 @@ int main(int argc, char **argv) {
         deathOverlay.setColor(vec3(0.0f));
         deathOverlay.setAmount(glm::min((time - BLACK_FROM) / BLACK_TIME, 1.0f));
       }
-      if (time > BLACK_FROM + BLACK_TIME + CREDITS_PAUSE && !credits.isRunning())
-        credits.start();
+      (void)CREDITS_PAUSE; // (no credits: the server brings him back soon)
     } else if (stage->isPlayerDead()) {
       // After the fall, the red fades slowly to black and the credits start rolling
       const float FADE_FROM = 3.5f, FADE_TIME = 6.0f, CREDITS_PAUSE = 1.5f;
@@ -932,8 +681,7 @@ int main(int argc, char **argv) {
       float roll = ROLL * std::sin(2.0f * deathAngle);
       camera.setCarrier(mat3(rotate(mat4(1.0f), roll, flatForward)));
       deathOverlay.setAmount(glm::mix(TINT * glm::min((float)deathTime / 0.4f, 1.0f), 1.0f, fade));
-      if (fade >= 1.0f && deathTime > FADE_FROM + FADE_TIME + CREDITS_PAUSE && !credits.isRunning())
-        credits.start();
+      (void)CREDITS_PAUSE; // (no credits: the server brings him back soon)
     } else {
       deathOverlay.setAmount(0.0f);
     }
@@ -1003,6 +751,25 @@ int main(int argc, char **argv) {
     const Environment &env = stage->getEnvironment();
     particles.setLighting(env.lightColor, env.lightDir, lights);
     particles.draw(stage->getEmitters(), camera); // over the world
+    {
+      // The other players' names above their heads
+      std::vector<NetOverlay::Tag> tags;
+      mat4 viewProjection = camera.getViewProjection();
+      for (const auto &p : stage->getPlayers()) {
+        if (p.get() == stage->getLocalPlayer() || p->dead || p->abducted)
+          continue;
+        vec3 at = p->walker->getPosition() + vec3(0.0f, p->inVehicle || p->inSaucer ? 3.8f : 2.2f, 0.0f);
+        if (length(at - camera.getPosition()) > 80.0f)
+          continue;
+        vec4 clip = viewProjection * vec4(at, 1.0f);
+        if (clip.w <= 0.1f)
+          continue;
+        vec2 ndc = vec2(clip.x, clip.y) / clip.w;
+        if (std::fabs(ndc.x) < 1.1f && std::fabs(ndc.y) < 1.1f)
+          tags.push_back({p->name, ndc});
+      }
+      netOverlay.setTags(tags);
+    }
     selector.draw(camera); // the selected object's outline, if any
     grain.draw(stage->alienPresence(), (float)now);
     ui.draw(); // last, over everything
@@ -1049,6 +816,8 @@ int main(int argc, char **argv) {
     }
   }
 
+  stage.reset();
+  net.reset();
   glfwTerminate();
   return 0;
 }

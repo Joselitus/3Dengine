@@ -1,6 +1,7 @@
 #ifndef INTERACTION_SYSTEM
 #define INTERACTION_SYSTEM
 
+#include <functional>
 #include <vector>
 
 #include "Controls.h"
@@ -21,6 +22,9 @@ private:
   UIPanel *panel = nullptr;            // the open one, if any (not owned)
   Interactable *inUse = nullptr;       // whose panel it is
   bool useWasDown = false;
+  // What using a thing that acts at once does, if not that thing's own onUse (a client asks the
+  // server to do it)
+  std::function<void(Interactable &)> directUse;
 
   Interactable *closest(const glm::vec3 &player) const;
 
@@ -29,6 +33,7 @@ public:
                     const Controls &controls);
 
   void add(Interactable *target) { targets.push_back(target); }
+  void setDirectUse(std::function<void(Interactable &)> use) { directUse = use; }
   // Forget every target (e.g. their map is about to be destroyed); close
   // their panel first (UIManager::closeAll). onInterfaceClosed is not called:
   // the target may be gone already.

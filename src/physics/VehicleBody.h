@@ -160,6 +160,24 @@ public:
   // Turns the chassis (e.g. to test it upside down); no other state changes
   void setOrientation(const glm::quat &q) { orientation = glm::normalize(q); }
 
+  // A client's copy of a vehicle the server drives: puts the chassis where the server says it is
+  // (the origin of its frame and its turn) and moving as it says, and a wheel as the server
+  // has it. No physics is done (step is not called).
+  void setState(const glm::vec3 &origin, const glm::mat3 &rotation, const glm::vec3 &v,
+                const glm::vec3 &w) {
+    orientation = glm::normalize(glm::quat_cast(rotation));
+    com = origin + rotation * params.centreOfMass;
+    velocity = v;
+    angular = w;
+  }
+  void setWheel(size_t i, float length, float steer, bool onGround) {
+    if (i < wheelStates.size()) {
+      wheelStates[i].length = length;
+      wheelStates[i].steer = steer;
+      wheelStates[i].onGround = onGround;
+    }
+  }
+
   // For the stage to keep the vehicle inside the floor
   void setCentreOfMass(const glm::vec3 &p) { com = p; }
   void setVelocity(const glm::vec3 &v) { velocity = v; }

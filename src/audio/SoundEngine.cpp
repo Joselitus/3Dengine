@@ -120,7 +120,9 @@ struct SoundEngine::Groups {
   bool ready[2] = {false, false};
 };
 
-SoundEngine::SoundEngine() : groups(new Groups()) {
+SoundEngine::SoundEngine(bool silent) : groups(new Groups()) {
+  if (silent)
+    return; // (the server: nothing is heard, play() gives nothing)
   engine = new ma_engine;
   if (ma_engine_init(nullptr, engine) != MA_SUCCESS) {
     cerr << "SoundEngine: no audio device, the game will be silent" << endl;

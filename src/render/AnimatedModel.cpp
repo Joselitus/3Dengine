@@ -1,4 +1,5 @@
 #include "AnimatedModel.h"
+#include "Gfx.h"
 using namespace std;
 using namespace glm;
 
@@ -290,6 +291,8 @@ void AnimatedModel::useRealSize() {
 }
 
 void AnimatedModel::Draw(Shader *shader) {
+  if (Gfx::headless)
+    return;
   shader->setInt("skinned", 1);
   shader->setInt("idlePose", idle ? 1 : 0);
   shader->setVector3("fitCenter", fitCenter.x, fitCenter.y, fitCenter.z);

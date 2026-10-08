@@ -6,11 +6,13 @@ Este documento explica cómo está montado el motor 3D y cómo se dibuja un fram
 
 ```
 src/                 motor + juego (C++11, OpenGL 3.3 core)
-  test.cpp           main: lista de mapas, cambio de mapa, TestStage (el mapa de día) y bucle principal
+  client.cpp         main del cliente (`../test/client`): pantalla de conexión, bucle de dibujo y entrada; muestra lo que dice el servidor
+  server.cpp         main del servidor (`../test/server`): simula el mundo sin ventana ni sonido y atiende a los clientes
+  net/               red: mensajes binarios (NetBuffer), TCP sin bloqueo (Connection), protocolo, NetServer y NetClient (ver «Multijugador»)
   render/            mallas, modelos, animación, Shader, Light, Camera, LineRenderer (líneas de depuración), myopengl
   effects/           ParticleEmitter (simulación) y ParticleRenderer (dibujo) de las partículas
   physics/           CollisionShape (cápsula, caja) y VehicleBody (chasis sobre muelles)
-  world/             GameObject, DynamicGameObject, PlayableCharacter, Stage, GameStage, SceneStage, SceneFile, Interactable
+  world/             GameObject, DynamicGameObject, PlayableCharacter, Stage, GameStage (con los jugadores), VehicleStage, MapList (la lista de mapas), TestStage, SceneStage, SceneFile, Interactable
   entities/          RV, Walker, Npc, Satellite, Readable
   input/             Controller, Controls, InteractionSystem
   debug/             DebugSelector (modo selección de objetos, tecla 1)
@@ -20,7 +22,7 @@ src/                 motor + juego (C++11, OpenGL 3.3 core)
   core/              Settings (ajustes entre sesiones), TextFormat.h (printf a std::string, vectores en texto)
   shaders/           animatedshader.vert + shader.frag (el programa del mundo), ui.vert/ui.frag, particle.vert/particle.frag, lines.vert/lines.frag; shader.vert está en desuso
   third_party/       miniaudio, stb_image, stb_easy_font (se compilan con -w)
-  makefile           compila todos los .cpp de src/ (en cualquier subdirectorio) y genera ../test/test.
+  makefile           compila todos los .cpp de src/ (en cualquier subdirectorio) y genera ../test/server, ../test/client y ../test/creature_testing.
                      Cada subdirectorio es un include path: los .h se incluyen por su nombre, sin ruta
 assets/
   scenes/*.scene     mapas en datos (SceneStage), también los muestra el visor
@@ -34,14 +36,14 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 ## Módulos
 
 ```
-                     test.cpp (main: mapas y bucle)
+                     client.cpp (main del cliente: conexión y bucle)
       ┌────────────┬──────┴───────┬──────────────┬──────────┐
   Controller   GameStage (actual)  UIManager  InteractionSystem  Light, Shader
       │             │                 │              │
     Camera          │                UI*        Interactable
                     │
    Stage (abstracta, de main) ── GameStage (abstracta: entorno, cielo, jugador, interactuables)
-                                   ├── TestStage   (test.cpp, desierto de día; en código)
+                                   ├── TestStage   (TestStage.h, desierto de día; en código)
                                    └── SceneStage  (un .scene; desierto de noche)
 
    GameObject ─ Model, CollisionShape (Capsule | Box)
@@ -74,7 +76,7 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 | `CollisionShape`, `Capsule`, `Box` | Volumen de colisión de un objeto (abstracta + pastilla vertical + caja orientada), con la prueba de choque entre cualquier par (`collide`) y los puntos bajos que no pueden quedar bajo el suelo (`floorSamples`). Ver [Suelo y colisiones](#suelo-y-colisiones). |
 | `VehicleBody` | Física de un vehículo con ruedas, sin OpenGL: cuerpo rígido con masa e inercia sobre muelles amortiguados (un "vehículo de rayos"), neumáticos y autoenderezado. Lo usa `RV`. Ver [El RV](#el-rv-vehículo-con-suspensión). |
 | `GameStage` | Mapa jugable (abstracta, hereda de `Stage`): añade todo lo que el juego necesita para ejecutarlo y cambiarlo en marcha. Incluye el `Environment` (dirección y color de la luz, color del horizonte), el cielo opcional (`setSky`) y el jugador con la cámara que quiere (distancia, altura). También tiene los interactuables, una regla `apply()` por defecto (suelo) y `render()` (cielo alrededor de la cámara + stage). Puede **cambiar de jugador** en marcha: `setPlayer(personaje, distancia, altura, yaw)` marca el cambio y el bucle principal lo recoge con `takePlayerChange()` y vuelve a conectar el `Controller`. `leaveVehicle()` (tecla de bajar) y `interactionsEnabled()` son ganchos virtuales para los mapas con vehículos. |
-| `TestStage` (`test.cpp`) | Mapa "Desierto de dia", montado en código: dunas (el suelo, `dunes_loop.obj`, de 180 × 180 m), una **carretera de 8 m de ancho que forma un circuito cerrado de unos 250 m** alrededor del claro de salida (`road.obj`), 44 cactus y rocas repartidos fuera de la carretera, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador empieza siendo el pingüino a pie, en primera persona**; al usar la puerta del `RV` pasa a conducirlo, en tercera persona (cámara a 12 de distancia y 3.5 de altura), y con Mayús vuelve a pie. Ver [Subir y bajar del RV](#subir-y-bajar-del-rv). El suelo y la carretera no son colisionables. |
+| `TestStage` (`world/TestStage.h`) | Mapa "Desierto de dia", montado en código: dunas (el suelo, `dunes_loop.obj`, de 180 × 180 m), una **carretera de 8 m de ancho que forma un circuito cerrado de unos 250 m** alrededor del claro de salida (`road.obj`), 44 cactus y rocas repartidos fuera de la carretera, el satélite, un cartel, un pingüino a pie (`Walker`) y un NPC (Pingu), con luz de sol. **El jugador empieza siendo el pingüino a pie, en primera persona**; al usar la puerta del `RV` pasa a conducirlo, en tercera persona (cámara a 12 de distancia y 3.5 de altura), y con Mayús vuelve a pie. Ver [Subir y bajar del RV](#subir-y-bajar-del-rv). El suelo y la carretera no son colisionables. |
 | `PineForestStage` (`world/`, hereda de `VehicleStage`) | Mapa "Bosque de pinos" (con la visita de Bob de noche): suelo de agujas (`assets/pine_forest/forest_floor.obj`, 200 × 200 m), unos 180 pinos de pocos polígonos (`pine_0..2.obj`) repartidos con `poissonDisk` (9.5 m de separación mínima, un claro de 16 m en el centro), el RV y el jugador a pie (lógica de subir/bajar copiada de `TestStage`), el ciclo de día del desierto sin música y sin dunas en el cielo (`Environment::skyDunes`). Construye la máscara de copas (ver [Sombras del bosque](#sombras-del-bosque)). |
 | `SceneStage` | Mapa a partir de un `.scene` ("Desierto de noche" = `desert.scene`): suelo, objetos (apoyados con `ground`), efectos, cielo, luz y un `Walker` como jugador. |
 | `MapSelector` | Menú de depuración (tecla Z) para cambiar de mapa (subclase de `UIPanel`). Ver [Mapas](#mapas-y-selector-de-depuración). |
@@ -100,30 +102,39 @@ docs/                ARCHITECTURE.md (esto) y UML.md (diagramas de clases y secu
 
 ## Arranque
 
-`main` cambia el directorio de trabajo a `src/`, que localiza junto al ejecutable a partir de `/proc/self/exe` (`test/test` → `test/../src`). Por eso los shaders se abren como `shaders/animatedshader.vert` y los assets como `../assets/...`, se lance desde donde se lance. Si falta un shader, `fileToString` lo dice y termina. Antes devolvía una cadena vacía y el driver acababa fallando al enlazar con un error confuso (`must write to gl_Position`).
+`main` (el del cliente y el del servidor: `enterSourceDir` en `core/Paths.cpp`) cambia el directorio de trabajo a `src/`, que localiza junto al ejecutable a partir de `/proc/self/exe` (`test/client` → `test/../src`). Por eso los shaders se abren como `shaders/animatedshader.vert` y los assets como `../assets/...`, se lance desde donde se lance. Si falta un shader, `fileToString` lo dice y termina. Antes devolvía una cadena vacía y el driver acababa fallando al enlazar con un error confuso (`must write to gl_Position`).
 
 ## Un frame
 
+Es el del **cliente** (`client.cpp`). Hasta que el servidor acepta la conexión y el mapa está cargado (`stage` es null), el frame solo atiende el `ConnectMenu` (ver «Multijugador»).
+
 ```
-[cambio de mapa pendiente]   si el selector (o el arranque) pidió un mapa: switchMap() aquí, fuera de la UI
+net->update()                recibe lo que ha mandado el servidor (mensajes, snapshots) y envía lo pendiente
+[desconexión o error]        si el servidor se fue: leaveGame() y vuelta a la pantalla de conexión (con el motivo)
+net->apply(dt)               mueve las réplicas a donde dice el servidor (interpoladas, 100 ms por detrás) y corrige al pingüino propio
 camera.resize()              viewport y proyección si cambia el framebuffer
-interaction.update(pos, enabled)   aviso "E: usar ..."; E abre o cierra el panel del objeto cercano (o lo usa al momento, como el RV)
-ui.update()                  ratón y teclas → paneles; Esc cierra el de arriba; sin paneles, Esc → pausa y Z → mapas
-[cambio de jugador]          si stage->takePlayerChange(): controller.attach(nuevo jugador, distancia, altura, yaw)
-controller.setEnabled(!ui.hasPanels())   con cualquier panel abierto, controles en pausa y cursor libre
-controller.setLookEnabled(!selector.capturesMouse())   en el modo colocación, con el botón derecho el ratón gira el objeto y no la cámara
-controller.update()          ratón → rotación de la cámara; teclas → player->control(dir, up, yaw)
-stage->update(dt)            mueve los objetos, aplica el suelo y resuelve las colisiones (ver "Suelo y colisiones")
+interaction.update(pos, enabled)   aviso "E: usar ..."; E abre el panel del objeto cercano (o, si actúa al momento como el RV, se lo pide al servidor)
+ui.update()                  ratón y teclas → paneles; Esc cierra el de arriba; sin paneles, Esc → pausa; F, R, Espacio, C, Q y Mayús → acciones que van al servidor
+[cambio de personaje]        si stage->takePlayerChange(): controller.attach(nuevo personaje, distancia, altura, yaw)
+controller.setEnabled(!ui.hasPanels() && !muerto && !inmovilizado)   con cualquier panel abierto, controles en pausa y cursor libre
+controller.update()          ratón → rotación de la cámara; teclas → personaje->control(dir, up, yaw)
+net->sendInput(...)          los controles al servidor (como mucho cada 1/60 s)
+[clic izquierdo]             disparar el cañón de la nave (net->sendFire)
+stage->update(dt)            las réplicas solo se animan; el pingüino propio se mueve y choca (predicción); ver «Suelo y colisiones»
+net->recordPrediction(...)   dónde quedó el pingüino con la última entrada enviada (para corregirlo cuando llegue la respuesta)
 player->followCamera()       la cámara sigue al jugador ya movido
+[muerte / secuestro]         la cámara cae o sube por el haz (el servidor decide cuándo; a los 14 s lo revive)
 stage->keepAboveFloor(...)   la cámara no se hunde en el suelo (Camera::RADIUS)
-selector.update(stage, cam, !ui.hasPanels())   modos selección (1: clic → rayo y elige) y colocación (2: clic → relocate); refresca los datos
+selector.update(...)         modo selección (1)
+espejos retrovisores         si se conduce el RV, un fotograma cada espejo, en su textura
 glClear(horizonte del mapa)
 stage->render(shader, camPos, t)   cielo del mapa (si tiene) y después cada GameObject
 particles.draw(emisores)     las partículas del mapa (polvo...), tras el mundo: discos que miran a la cámara
-selector.draw(camera)        la forma de colisión y la AABB del objeto elegido (si el modo está activo)
-ui.draw()                    interfaz 2D encima de todo: overlays (cruz y datos del selector), paneles y aviso
+ui.draw()                    interfaz 2D encima de todo: overlays (nombres de los demás jugadores, avisos del servidor), paneles y aviso
 glfwSwapBuffers / glfwPollEvents
 ```
+
+El **servidor** (`server.cpp`) no tiene frame de dibujo: avanza el mundo en pasos fijos de 1/60 s (`Net::TICK`): `net.poll()` (acepta clientes y lee sus mensajes) y, por cada paso, `stage->tick(dt)` (aplica los controles de cada jugador y llama a `Stage::update`); cada dos pasos manda un snapshot a cada cliente.
 
 `dt` son los segundos desde el frame anterior: el movimiento no depende de los FPS.
 
@@ -150,10 +161,10 @@ El motor dibuja todo con **`shaders/animatedshader.vert` + `shaders/shader.frag`
 | `breathAmp` / `breathTime` | `GameObject::Draw` / `Stage::Draw` | Respiración procedural de mallas estáticas. 0 la desactiva. |
 | `alpha` | `Mesh::Draw` | Opacidad de la malla (1 = sólida; el `d` del `.mtl`). Menos de 1 se mezcla con lo que hay detrás. |
 | `unlit` | `GameObject::Draw` (por pieza) | 0 = iluminado (Phong + niebla), 1 = cúpula de cielo con textura (estrellas que titilan), 2 = emisivo, 3 = cielo procedural (degradado, sol, estrellas y dunas en el horizonte). |
-| `lightPosition`, `lightColor` | `Light` | La luz del sol: `lightPosition` es solo una **dirección** hacia la luz (el shader hace `normalize(lightPosition)`, no depende de dónde esté el objeto; `test.cpp` manda `lightDir * 100`). |
-| `spotCount`, `spotPosition[]`, `spotDirection[]`, `spotColor[]`, `spotParams[]` | `test.cpp` (`applySpotLights`) | Focos (hasta 8, `MAX_SPOTS`; `SpotLight::omni` hace uno sin cono, para una bombilla): lo que devuelve `GameStage::getSpotLights` (la linterna del jugador, los faros y el salpicadero del RV, los ojos de la criatura). `spotParams` = (coseno del cono interior, del exterior, alcance). Se suman a la luz del sol solo en el modo iluminado; se envían cada frame. |
-| `moonDir`, `fogColor`, `time` | `test.cpp` | Dirección del astro y color del horizonte, que es también el de la niebla (de 80 a 140 unidades; el plano lejano de la cámara está a 300). Se envían **cada frame** (`applyEnvironment`), porque cambian con la hora. |
-| `skyZenith`, `sunDir`, `starAlpha` | `test.cpp` | Cielo procedural (`unlit` = 3): color del cénit, dirección al sol y visibilidad de las estrellas. |
+| `lightPosition`, `lightColor` | `Light` | La luz del sol: `lightPosition` es solo una **dirección** hacia la luz (el shader hace `normalize(lightPosition)`, no depende de dónde esté el objeto; `client.cpp` manda `lightDir * 100`). |
+| `spotCount`, `spotPosition[]`, `spotDirection[]`, `spotColor[]`, `spotParams[]` | `client.cpp` (`applySpotLights`) | Focos (hasta 8, `MAX_SPOTS`; `SpotLight::omni` hace uno sin cono, para una bombilla): lo que devuelve `GameStage::getSpotLights` (la linterna del jugador, los faros y el salpicadero del RV, los ojos de la criatura). `spotParams` = (coseno del cono interior, del exterior, alcance). Se suman a la luz del sol solo en el modo iluminado; se envían cada frame. |
+| `moonDir`, `fogColor`, `time` | `client.cpp` | Dirección del astro y color del horizonte, que es también el de la niebla (de 80 a 140 unidades; el plano lejano de la cámara está a 300). Se envían **cada frame** (`applyEnvironment`), porque cambian con la hora. |
+| `skyZenith`, `sunDir`, `starAlpha` | `client.cpp` | Cielo procedural (`unlit` = 3): color del cénit, dirección al sol y visibilidad de las estrellas. |
 | `texture_diffuse1` (…) | `Mesh` / `AnimatedMesh::Draw` | Texturas del material. |
 
 Atributos: 0 posición, 1 normal, 2 uv, 3–8 tres grupos `ivec4` de ids de hueso + `vec4` de pesos.
@@ -232,7 +243,7 @@ Reglas para no romper nada:
 
 ## Menús (pausa y opciones)
 
-- **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `test.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones** y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
+- **Esc durante el juego** abre `PauseMenu` ("Pausa"), con el atajo `ui.bindKey(GLFW_KEY_ESCAPE, ...)` de `client.cpp`. Tiene **Reanudar** (igual que Esc: cierra el menú), **Opciones**, **Desconectar** (vuelve a la pantalla de conexión; `MenuContext::disconnect`, diferido al frame siguiente) y **Salir**. El botón o la tecla de `Action::Quit` (X) llaman a `quit` (`glfwSetWindowShouldClose`).
 - Los menús reciben un **`MenuContext`** (`UIManager`, `Camera`, `Controls`, `Settings`, `SoundEngine`, `quit`) y se lo pasan unos a otros al navegar (Pausa → Opciones → Controles y vuelta). Si un menú nuevo necesita algo más, añádelo a `MenuContext`, no a cada constructor.
 - **`OptionsMenu`** ("Opciones") es solo una lista de pantallas de ajustes: **Cámara**, **Controles**, **Audio** y **Volver** (o Esc, que vuelve a la pausa).
 - **`SettingsMenu`** (abstracta) es la base de esas pantallas. Una subclase añade sus controles y termina su constructor con `addFooter()`, que añade un texto de estado y los botones:
@@ -284,22 +295,22 @@ Reglas para no romper nada:
 - `Controller`: las teclas de movimiento;
 - `InteractionSystem`: Usar, y también el texto del aviso;
 - `PauseMenu`: Salir;
-- el atajo del selector de mapas (en `test.cpp`);
+- el atajo del selector de mapas (ya no existe en el cliente: el mapa lo elige el servidor);
 - `ControlsMenu`, que lo lista y lo cambia.
 
 | Acción | Tecla por defecto | Dónde se lee |
 |---|---|---|
 | `MoveForward/Back/Left/Right` | W / S / A / D | `Controller::update` (cada frame) |
 | `Use` | E | `InteractionSystem::update` |
-| `Engine` | R | atajo `ui.bindKey` en `test.cpp`: llama a `GameStage::toggleEngine()` (`TestStage` solo actúa si el jugador va en el RV): enciende o apaga el motor |
-| `Handbrake` | Espacio | atajo `ui.bindKey` en `test.cpp`: llama a `GameStage::toggleHandbrake()` (`TestStage` solo actúa si el jugador va en el RV): **pone o quita** el freno de mano (`RV::toggleHandbrake`; frena las cuatro ruedas a `braking` = 16 m/s² hasta que se quita). Conserva su estado al bajar y subir |
-| `VehicleCamera` | C | atajo `ui.bindKey` en `test.cpp`: llama a `GameStage::toggleVehicleCamera()` (`TestStage` solo actúa si el jugador va en el RV): cambia entre la cabina y la vista exterior |
-| `Headlights` | F | atajo `ui.bindKey` en `test.cpp`: llama a `GameStage::toggleHeadlights()` (por defecto, la linterna del jugador; `VehicleStage`: los faros si va en el RV, la linterna a pie y el cañón de rayos en la nave de Bob) |
-| `LeaveVehicle` | Mayús izquierda | atajo `ui.bindKey` en `test.cpp` (sin paneles abiertos): llama a `GameStage::leaveVehicle()` |
+| `Engine` | R | atajo `ui.bindKey` en `client.cpp`: manda `A_ENGINE` al servidor, que llama a `GameStage::toggleEngine(jugador)` (`VehicleStage` solo actúa si va en el RV o la nave): enciende o apaga el motor |
+| `Handbrake` | Espacio | atajo `ui.bindKey` en `client.cpp`: manda `A_HANDBRAKE`; el servidor llama a `GameStage::toggleHandbrake(jugador)` (solo actúa si va en el RV): **pone o quita** el freno de mano (`RV::toggleHandbrake`; frena las cuatro ruedas a `braking` = 16 m/s² hasta que se quita). Conserva su estado al bajar y subir |
+| `VehicleCamera` | C | atajo `ui.bindKey` en `client.cpp`: manda `A_VEHICLE_CAMERA` (el servidor llama a `GameStage::toggleVehicleCamera(jugador)`; solo actúa si va en el RV): cambia entre la cabina y la vista exterior |
+| `Headlights` | F | atajo `ui.bindKey` en `client.cpp`: manda `A_HEADLIGHTS`; el servidor llama a `GameStage::toggleHeadlights(jugador)` (por defecto, la linterna del jugador; `VehicleStage`: los faros si va en el RV, la linterna a pie y el cañón de rayos en la nave de Bob) |
+| `LeaveVehicle` | Mayús izquierda | atajo `ui.bindKey` en `client.cpp` (sin paneles abiertos): manda `A_LEAVE`; el servidor llama a `GameStage::leaveVehicle(jugador)` |
 | `Quit` | X | `PauseMenu::onKey` y el texto de su botón |
-| `Maps` | Z | atajo `ui.bindKey` en `test.cpp` (con la tecla leída en cada pulsación) y `MapSelector` (que se cierra con su misma tecla) |
-| `DebugSelect` | 1 | atajo `ui.bindKey` en `test.cpp`: enciende y apaga el modo selección del `DebugSelector` (y el texto de su recuadro) |
-| `DebugPlace` | 2 | atajo `ui.bindKey` en `test.cpp`: enciende y apaga el modo colocación del `DebugSelector` |
+| `Maps` | Z | sin uso en el cliente multijugador (el mapa lo elige el servidor con `--map`); `MapSelector` sigue en el código |
+| `DebugSelect` | 1 | atajo `ui.bindKey` en `client.cpp`: enciende y apaga el modo selección del `DebugSelector` (y el texto de su recuadro) |
+| `DebugPlace` | 2 | sin uso en el cliente multijugador (colocar objetos cambiaría un mundo que es del servidor) |
 
 Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gravedad. `PlayableCharacter::control` (de `main`) mantiene su parámetro `up`, y `Controller` le pasa 0.
 
@@ -317,24 +328,77 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 
 **Guardado:** en `Settings`, como `controls.<id> = <código GLFW>`; por ejemplo, `controls.move_forward = 87` es la W. `main` lo lee al arrancar con `controls.readFrom(settings)`, que valida el conjunto entero: admite teclas intercambiadas, ignora las inválidas, Esc y las repetidas (por un fichero editado a mano), y en esos casos esas acciones conservan su tecla por defecto.
 
-## Mapas y selector de depuración
+## Mapas
 
-- Los mapas están en la lista `maps` de `main` (`test.cpp`). Cada uno tiene un **nombre** y una **función que crea su `GameStage`**, que devuelve `nullptr` si falla. Hoy son "Desierto de dia" (`TestStage`) y "Desierto de noche" (`SceneStage` con `desert.scene`).
-- **Z** (`Action::Maps`, sin paneles abiertos) abre `MapSelector`, con un botón por mapa; el actual aparece marcado "(actual)". Z o Esc lo cierran.
-- **Cambiar de mapa es diferido:** el botón solo apunta el índice (`requestedMap`). El bucle principal llama a `switchMap` al principio del frame siguiente, nunca dentro de un callback de la UI, porque el botón que se pulsó todavía se está ejecutando.
-- **`switchMap(i)`** crea el mapa nuevo (si falla, avisa y se queda en el actual). Después:
-  1. cierra todos los paneles (`ui.closeAll`), porque pueden apuntar a objetos del mapa viejo;
-  2. vacía el `InteractionSystem`, olvida el objeto elegido del `DebugSelector` (`clear`) y destruye el mapa viejo;
-  3. registra los interactuables nuevos y **arranca la música del mapa** (`MusicPlayer::play`; sin música, silencia la anterior);
-  4. conecta el `Controller` al nuevo jugador, con la cámara que pide el mapa y mirando al frente;
-  5. aplica su entorno (luz, `moonDir`, `fogColor`).
-- **Regla:** nada fuera del mapa puede guardar punteros a sus objetos sin limpiarlos en `switchMap`.
-
-**Arrancar en un mapa:** `--map N` (su número en `maps`, desde 0) o `--map Nombre`.
+- Los mapas están en la lista de `world/MapList.cpp` (`mapList()`), la misma para el servidor y los clientes: el servidor dice el **índice** del mapa y el cliente hace el suyo con esa lista. Cada entrada tiene un **nombre** y una **función que crea su `GameStage`** (con un `MapContext`: modo de suelo, sonido y voz), que devuelve `nullptr` si falla. Hoy: "Desierto de dia" (`TestStage`), "Bosque" (`ForestStage`), "Ruta 66" (`Route66Stage`), "Desierto de noche" (`SceneStage` con `desert.scene`) y "Bosque de pinos" (`PineForestStage`).
+- **El servidor sirve un mapa:** `server --map N|Nombre` (`--list` los muestra), `--time H` y `--day-duration S`. Cambiar de mapa es reiniciar el servidor. El selector de mapas (Z) y el comando `/reset` ya no existen en el cliente (`MapSelector` sigue en el código, sin usar).
+- **Regla de oro:** el servidor y el cliente construyen el mapa **igual**, en el mismo orden, porque los objetos dinámicos se numeran por orden de creación (`Stage::addDynamic` → `GameObject::getNetId`) y los interactuables se mandan por su posición en `getInteractables()`. Nada en el constructor de un mapa puede depender de cosas que difieran entre las dos mitades (el azar con semilla fija vale; `random_device` solo para decisiones que luego toma el servidor). Si el cliente hace un mapa con otro número de objetos que el servidor, `NetClient::attach` lo rechaza («hay que compilar las dos mitades de la misma versión»).
 
 **Añadir un mapa:**
-- **En datos (lo más fácil):** crea `assets/scenes/mi_mapa.scene` (ver [Ficheros de escena](#ficheros-de-escena-assetsscenesscene)) y añade a `maps` la entrada `{"Mi mapa", [floorMode]() -> std::unique_ptr<GameStage> { return SceneStage::load("../assets/scenes/mi_mapa.scene", "../assets", floorMode); }}`. El visor web también lo mostrará con `--scene`.
-- **En código** (si necesita lógica propia, como `TestStage`): hereda de `GameStage` y, en el constructor, rellena `environment`, `cameraDistance`/`cameraHeight` y `player`, llama a `setFloor` y a `add`/`addDynamic` para el contenido, y opcionalmente `setSky` e `interactables`. Si hace falta, sobrescribe `apply()`. Después añádelo a `maps`.
+- **En datos (lo más fácil):** crea `assets/scenes/mi_mapa.scene` (ver [Ficheros de escena](#ficheros-de-escena-assetsscenesscene)) y añade a `mapList()` la entrada `{"Mi mapa", [](const MapContext &c) -> std::unique_ptr<GameStage> { return SceneStage::load("../assets/scenes/mi_mapa.scene", "../assets", c.floorMode); }}`. El visor web también lo mostrará con `--scene`.
+- **En código** (si necesita lógica propia, como `TestStage`): hereda de `GameStage` (o de `VehicleStage`, si hay RV y día) y, en el constructor, rellena `environment`, `spawnPoint` (donde aparecen los jugadores; `createWalker(x, z, yaw)` en un `VehicleStage`), `walkCameraDistance`/`walkCameraHeight`, llama a `setFloor` y a `add`/`addDynamic` para el contenido, y opcionalmente `setSky` e `interactables`. Si hace falta, sobrescribe `apply()`. Después añádelo a `mapList()`. Lo que cree la lógica del mapa mientras corre (un huevo, una cría) y deba verse en los clientes necesita un `NetKind` (ver «Multijugador»).
+
+## Multijugador (servidor y cliente)
+
+El juego son **dos programas** que `make` genera a la vez (`../test/server` y `../test/client`) a partir del mismo código en `src/`:
+
+```
+../test/server [--port N] [--map N|NOMBRE] [--time H] [--day-duration S] [--ray] [--verbose] [--list]
+../test/client [--windowed] [--connect DIRECCION[:PUERTO]] [--name NOMBRE] [--ray] [--profile]
+```
+
+- **El servidor manda.** Construye el mapa, simula el mundo (la física, el RV, las criaturas, los mosquitos, Bob y su nave, el reloj del día) y decide qué pasa: quién muere, quién conduce, qué abre una puerta. No abre ventana, ni contexto GL, ni dispositivo de sonido: `Gfx::headless` (`render/Gfx.h`) hace que `Mesh`, `AnimatedMesh`, las texturas y `Model::Draw` no toquen OpenGL (los modelos guardan la geometría, que es lo que hace falta para colisiones y tamaños); `SoundEngine(true)` no abre audio (`play` devuelve null, como sin tarjeta de sonido) y `SilentSynthesizer` hace callar a los NPC. Se enlaza con las mismas bibliotecas que el cliente (GLFW, GLEW, GL...) pero no usa ninguna.
+- **El cliente es una ventana.** Pide la dirección del servidor (`ConnectMenu`; `--connect` se salta la pantalla), se conecta, **construye el mismo mapa** (`MapList`), y a partir de ahí dibuja, oye y recoge la entrada. Lo que hace el jugador no lo ejecuta el cliente: lo manda al servidor. Lo que es solo ver y oír (sonido, partículas, voz de Pingu, el texto del cartel, el grano de película, las sombras) sigue siendo del cliente.
+- **Red:** TCP sin bloqueo (`net/Connection`: mensajes con la longitud por delante, `TCP_NODELAY`; el servidor escucha en IPv6 con IPv4 mapeado), un solo puerto (por defecto 7777). TCP es fiable y ordenado: nada que decir "ha muerto" se pierde. Mensajes y su formato, en el comentario de `net/Protocol.h`; los datos van en binario con `NetWriter`/`NetReader`, que nunca leen más allá del final (un mensaje corto o malicioso solo pone `isOk()` a falso). Versión del protocolo: `Net::PROTOCOL_VERSION`.
+- **Tiempo:** el servidor avanza el mundo en pasos fijos de 1/60 s (`Net::TICK`) y manda un **snapshot** cada 2 pasos (30 por segundo). El cliente envía sus controles a 60 por segundo como mucho.
+
+### Jugadores
+
+Cada persona es un `Player` (`GameStage.h`): su pingüino (`walker`, con su nombre en el cartel que ven los demás), **lo que controla ahora** (`character`: el pingüino, el RV o la nave de Bob) y su estado (muerto, secuestrado, dentro del RV o de la nave, paralizado, los últimos controles recibidos). El servidor tiene uno por cliente conectado (`addPlayer` al saludar, `removePlayer` al irse); el cliente tiene el suyo (`getLocalPlayer`) y los de los demás, para dibujarlos. Los jugadores aparecen en `spawnPoint` (en círculo alrededor si hay varios).
+
+Las acciones del jugador son métodos de `GameStage` que reciben el `Player` (`leaveVehicle`, `toggleHeadlights`, `toggleEngine`, `toggleHandbrake`, `toggleVehicleCamera`, `toggleShipLegs`, `fire`, `useInteractable`, `refuel`); las dispara `NetServer::handle` con `performAs(jugador, ...)`, que deja al jugador en `acting` para lo que no lo recibe como argumento (el `onUse` de un `Interactable`, la acción de entrar en el RV). `GameStage::tick(dt)` pasa los controles de cada jugador a su personaje, avanza los temporizadores (el que ha muerto vuelve a empezar a los 14 s, `RESPAWN_DELAY`) y llama a `Stage::update`.
+
+- **La IA elige a quién ir:** la criatura, los mosquitos y Bob van a por el **jugador vivo más cercano** (`VehicleStage::nearestAlive`; Bob, `Bob::setVictimQuery`, y se queda con su víctima mientras dispara o la sujeta). La criatura o el mosquito que alcanza a alguien mata *a ese* (`killPlayer(Player&)`); la explosión del RV mata a todos los que están dentro o a menos de 10 m.
+- **El RV tiene un solo conductor** (`RV::isOccupied`); los demás pueden andar por la cabina (es hueca). La nave de Bob, igual. Si el conductor muere o se va, suelta el vehículo (`VehicleStage::onPlayerGone`); una nave que se queda sin piloto en el aire baja sola.
+- **Lo que no es de nadie en concreto** (la hora, el combustible, un surtidor) es de todos: el botón de un surtidor manda `A_REFUEL` y el servidor comprueba que el jugador y el RV estén cerca.
+
+### Réplicas: cómo ve el cliente el mundo del servidor
+
+Los objetos que un mapa crea al construirse reciben el mismo **número de red** (`netId`) en el servidor y en el cliente (orden de creación, ver «Mapas»); los jugadores y lo que aparece durante la partida lo reciben del servidor (`Stage::addDynamic(objeto, netId)`).
+
+**Réplica** (`GameObject::isReplica`): el cliente marca como réplica todos sus objetos dinámicos (`GameStage::makeReplicas`). Una réplica *no piensa ni se mueve sola*: `DynamicGameObject::update` solo avanza su reloj de animación, el stage no la mueve por el suelo (`apply`) ni la empuja (para el resto es tan inmóvil como una pared, pero el pingüino propio sí choca con ella) y no recibe `applyCollision`. Cada clase con comportamiento propio hace lo mismo en su `update` con `if (replica)`: solo conserva lo que es ver y oír (las patas y el balanceo, las alas del mosquito, los sonidos, las partículas...).
+
+**Snapshot** (`NetServer::sendSnapshots`, formato en su comentario): la hora del día, el estado del jugador al que va (muerto, paralizado, qué controla y con qué cámara) y, de cada objeto dinámico, su posición, giro, escala, velocidad, si se ve y si choca, más su **estado propio**: `GameObject::writeNetState` (servidor) y `readNetState` (cliente) escriben y leen lo que hace falta para mostrarlo.
+
+| Clase | Su estado propio |
+|---|---|
+| `Walker` | linterna encendida, hacia dónde mira (la linterna de los demás apunta ahí), si corre |
+| `RV` | las cuatro ruedas (altura de la suspensión, giro, si tocan), puerta, freno de mano, motor y llave, faros y su avería, pinchazos, combustible, revoluciones y arranque (el sonido del motor se hace en el cliente), parabrisas roto, destrozado / en llamas / explotado (el cliente repite el efecto: `wreck()`, `explodeEngine()`, con sus propias piezas despedidas), cámara de cabina o exterior |
+| `FollaCulos`, `Npc` | corre, muerta, pegada al parabrisas, ragdoll (el cliente la deja caer con su propio `Ragdoll`), a quién lleva en la boca; un NPC abatido |
+| `Mosquito` | qué hace (`Behavior`), crecimiento, estómago y sangre, hacia dónde apunta la garra, si ha reventado |
+| `Bob` | qué hace, a quién va, dónde apunta su rayo; su presencia (grano y siseo) la calcula **cada cliente** con su cámara |
+| `Saucer` | fase, patas, rampa, cañón y su orientación, cuántos aterrizajes y disparos lleva (cada uno hace su humo y sus chispas una vez) |
+| `MosquitoEgg` | nada (nace y se va por un aviso) |
+
+**Lo que aparece durante la partida** (huevos, crías de mosquito): el stage del servidor, tras `trackNet()`, apunta los objetos dinámicos que se crean con `netKind() != NET_NONE` y los que se van (`Stage::takeNetEvents`); `NetServer` manda `S_SPAWN`/`S_DESPAWN` (y, al que entra tarde, todos los que hay: `getLiveSpawns`) y el cliente hace lo mismo con `GameStage::spawnReplica`.
+
+**Interpolación** (`NetClient::apply`): el cliente enseña el mundo `INTERPOLATION_DELAY` (0,1 s) por detrás del último snapshot, entre los dos que lo rodean (posición lineal, giro con `slerp`; un salto de más de 25 m, p. ej. un teletransporte, no se interpola). El estado propio de un snapshot se aplica cuando le toca su hora. El reloj del día corre solo en el cliente y se reajusta si se aleja más de 0,05 h del del servidor.
+
+### El pingüino propio: predicción y corrección
+
+Esperar al servidor para andar daría el retardo de la red en cada tecla. Por eso, mientras el jugador está a pie y vivo, **su pingüino se mueve en el cliente** con sus controles (`Controller` → `Walker::control`, física y colisiones como siempre, contra las réplicas del RV, de los demás...) y a la vez los manda al servidor (`C_INPUT`, con un número de secuencia). El servidor hace lo mismo y en cada snapshot dice cuál fue el último número de entrada que había aplicado. El cliente guarda dónde estaba su pingüino tras cada entrada (`recordPrediction`) y, con ese número, compara dónde estaba *entonces* con dónde dice el servidor que estaba: la diferencia es el error y se absorbe con suavidad (10 por segundo; más de 3 m es un empujón o un teletransporte y se salta directamente). Si el jugador conduce, está muerto o fue secuestrado, su pingüino es una réplica más. Al **subir** a un vehículo o al **volver a vivir**, el pingüino pasa a la posición del servidor.
+
+Solo la entrada se predice: conducir el RV o pilotar la nave no (se ve lo que el servidor dice, con su retardo: 0,1 s de interpolación más la latencia). Es lo que más se nota con mucha latencia; predecirlo exigiría que el cliente simulara el RV.
+
+### Qué se queda en el cliente
+
+El panel de Pingu y su voz, el cartel (`Readable`), el satélite (se orienta pero **solo en el cliente que lo toca**: no es estado compartido), la música y el ambiente, el grano de película, los retrovisores del RV, la caída de la cámara al morir y el rayo/haz de Bob como imagen. Los créditos **no** se enseñan (el servidor revive al jugador a los 14 s). Los comandos de la consola (`/day`, `/night`, `/time H`) los ejecuta el servidor (`C_COMMAND`) y su respuesta sale en pantalla (`S_NOTICE`).
+
+### Recetas
+
+- **Una clase nueva con estado que los demás deben ver** (p. ej. un NPC que abre una puerta): sobrescribe `writeNetState`/`readNetState` (los mismos campos en el mismo orden), y en su `update` pon `if (replica)` antes de lo que decide o mueve. Si aparece mientras corre el juego, dale `netKind()` (y `netSpawnArg()` si el cliente necesita un dato para hacerlo) y añade el caso a `spawnReplica` del mapa.
+- **Una acción nueva del jugador:** añade un `Action` a `Control`/`Controls` y un valor a `Net::Action`, el atajo en `client.cpp` con `act(...)`, el caso en `NetServer::handle` y el método virtual de `GameStage` (con `Player &`) que lo ejecute.
+- **Probar sin ventana:** el servidor se prueba solo (`server --verbose` escribe dónde está cada jugador y las muertes) y con cualquier programa que hable el protocolo; para el cliente, ver «Compilar, ejecutar, visualizar» en CLAUDE.md.
 
 ## Modos selección, colocación y propiedades (depuración)
 
@@ -607,11 +671,11 @@ Un sistema de partículas muy básico (`effects/`): cada partícula es un disco,
 
 En el mapa de día el jugador empieza siendo el pingüino a pie (`Walker`, primera persona). El RV es un `Interactable` que se usa directamente:
 
-- **Subir (cambiado el 2026-10-08):** el RV es hueco (`CompoundShape`, ver CLAUDE.md). Junto a su puerta (el lado +x, un poco por detrás del centro) aparece "E: abrir la puerta" (y luego "cerrar"): `RV::onUse` solo le da un empujón (la puerta es un panel con inercia: ver CLAUDE.md, 2026-10-08). Se entra a pie (el umbral y el escalón se suben solos: `getStepHeight`) y, dentro, junto al volante, aparece "E: conducir la autocaravana": `RV::steeringInteraction()` ejecuta la acción de entrada que le pone el mapa (`setEnterAction`) y `VehicleStage::enterRV()` hace esto:
+- **Subir (cambiado el 2026-10-08):** el RV es hueco (`CompoundShape`, ver CLAUDE.md). Junto a su puerta (el lado +x, un poco por detrás del centro) aparece "E: abrir la puerta" (y luego "cerrar"): `RV::onUse` solo le da un empujón (la puerta es un panel con inercia: ver CLAUDE.md, 2026-10-08). Se entra a pie (el umbral y el escalón se suben solos: `getStepHeight`) y, dentro, junto al volante, aparece "E: conducir la autocaravana": `RV::steeringInteraction()` ejecuta la acción de entrada que le pone el mapa (`setEnterAction`) y `VehicleStage::enterRV()` (en el servidor, para el jugador que lo pidió: `acting`) hace esto:
   1. el pingüino deja de andar, se oculta, deja de ser colisionable (estaría dentro de la caja del RV) y no tiene gravedad;
   2. cada frame `apply()` lo coloca en el asiento del RV (`seatPosition()`, dentro de la carrocería), así que va donde vaya el RV;
-  3. `setPlayer(rv, 12, 3.5, yaw)` entrega los controles y la cámara al RV, mirando por detrás (`headingYaw()`);
-  4. el RV pasa a "ocupado" (no se puede volver a usar y no frena) y las interacciones se desactivan (`interactionsEnabled() == false`).
+  3. `setControl(jugador, rv, 12, 3.5, yaw)` entrega los controles y la cámara de ese jugador al RV, mirando por detrás (`headingYaw()`);
+  4. el RV pasa a "ocupado" (nadie más puede conducirlo y no frena) y las interacciones de ese jugador se desactivan (`canInteract(jugador)` es falso).
 - **Cámara:** dos vistas (`RV::CameraView`), con la tecla `VehicleCamera` (C) para cambiar (se recuerda al bajar y volver a subir). **`Cockpit` (por defecto)**: la cámara está en los ojos del conductor (`eyePosition()`: x = 0.45 (conducción por la izquierda, del lado de la puerta), y = 2.4, z = 1.7 en el marco del RV) y **sigue al vehículo**: el rumbo y el **cabeceo** (si el RV sube el morro, la vista sube con él) por completo y solo la mitad del **alabeo** (`COCKPIT_ROLL` = 0.5 en `RV.cpp`: en las dunas el RV se inclina mucho y con todo el alabeo el horizonte bailaba). `RV::followCamera` descompone la rotación del RV en rumbo, cabeceo y alabeo y se la da a la cámara con `Camera::setCarrier(rotación)`: el `yaw`/`pitch` de la cámara pasan a ser **relativos al vehículo** (0, 0 = mirar hacia delante) y la matriz de la vista es `Rx(pitch) · Ry(yaw) · portadorᵀ`, así que sigue bien al RV aunque mires de lado. `Camera::attachTo` quita el portador. El ratón mira alrededor desde ahí; por eso `Controller::update` toma `yaw`/`pitch` de la cámara en cada frame (antes eran suyos). Al cambiar de vista con C la mirada se recentra. **`Chase`**: la de siempre, `Camera::attachTo(rv, 12, 3.5)` orbitando por detrás. Dentro de la cabina solo se ve el exterior por el **parabrisas**, que es translúcido (opacidad 0.15): el cuerpo del RV tiene dos huecos en su cara inclinada (`body_with_openings` en `generate_rv.py`), con el **salpicadero** detrás (ver «La cabina» más abajo; borde inferior del hueco a y = 1.8 y salpicadero a 1.65, para ver el suelo desde ~7 m delante); además tiene una **ventana a cada lado de la cabina**, a la altura del conductor (`SIDE_WINDOW` en el script: un trapecio de z = 1.3 (justo detrás del conductor) hasta casi el parabrisas, y de 1.85 a 2.5, con el borde delantero **paralelo a la inclinación del parabrisas**, con un montante estrecho en medio), con hueco real en las paredes y cristal translúcido (`sideglass`, opacidad 0.15); los espejos retrovisores van en el montante delantero, delante del cristal; las demás ventanas (las del salón, la puerta, la trasera) siguen opacas. Lo pegado a las paredes empieza `GAP` = 4 mm hacia fuera, para que desde dentro no parpadee.
 - **Objetos del borde sin dibujar:** `Stage::setEdgeCulling(margen)` hace que `Stage::Draw` no dibuje los objetos (estáticos y dinámicos) cuya posición esté a menos de `margen` del borde del suelo (para no enseñar el final del mundo); `edgeCullExempt` los exime (`GameStage`: el jugador; `TestStage`: también el RV y el pingüino a pie). `TestStage` lo usa con `EDGE_CULL_MARGIN` = 12 m (8 de los 49 objetos estáticos); solo afecta al dibujo, no a la física ni a las colisiones. La criatura desaparece al acercarse al borde.
 - **Parabrisas roto:** `ImpactDetector` (`physics/`, sin OpenGL) decide si un choque es violento y de frente. El `RV` le cuenta cada colisión (`applyCollision`: la velocidad hacia delante antes y después, su rumbo y hacia dónde lo empujó el choque) y su velocidad cada frame (`contactFloor`). Un choque es **frontal** si el empuje apunta hacia atrás, a menos de ~53° (`frontalCos` = 0.6), y el RV iba a más de 5 m/s (`minSpeed`): entonces arranca un **temporizador de 0.25 s** (`window`). Si dentro de él la velocidad cae al menos 6 m/s (`minDrop`) **y** más deprisa que 48 m/s² (`decel`: tres veces lo que frenan los frenos, 16), el choque es violento y el RV pone **`damagedWindshield`** a true (`isWindshieldDamaged()`, `repairWindshield()` lo repara) y enseña el parabrisas roto en lugar del intacto (`setWindshieldModels`, dos `Part` que se alternan con `setPartVisible`). Parte de la caída es del golpe mismo (se comprueba al instante); un golpe lateral, de espaldas, contra el suelo, lento, contra algo ligero (Pingu) o solo frenar fuerte **no** lo rompen (probado sin ventana con 15 casos). Los modelos: `windshield.obj` (dos láminas translúcidas, como estaban en `rv.obj`) y `windshield_broken.obj` (dos cuadrados con la textura `windshield_cracked.png`, RGBA de 1024 × 512: telaraña de grietas radiales con ramas y anillos desde un punto de impacto delante del conductor, y el resto transparente con el tinte del cristal), todo de `generate_windshield.py`. El shader usa ahora el **alfa de la textura** para las mallas translúcidas (`outAlpha` en `shader.frag`); el material roto tiene `d 0.99` solo para ir en la pasada de translúcidos.
@@ -620,7 +684,7 @@ En el mapa de día el jugador empieza siendo el pingüino a pie (`Walker`, prime
 - **Linterna:** todo `PlayableCharacter` lleva una (`flashlightOn`, `setFlashlight`/`toggleFlashlight`, propiedad «Linterna»; el virtual `getFlashlight` da su foco). `Walker` la sostiene 0.2 m a la derecha y 0.25 m bajo los ojos, apuntando adonde mira la cámara (cono ~16°/31°, 28 m; `FLASHLIGHT_*` en `Walker.cpp`). F la enciende a pie; dentro del RV no luce pero conserva su estado.
 - **Faros:** con `Headlights` (F, solo conduciendo) `RV::toggleHeadlights()` enciende o apaga dos focos (`SpotLight`, `render/SpotLight.h`) en x = ±1.0, y = 0.99, en la parte delantera del RV, orientados hacia delante y un poco abajo (cono de ~21° a ~37°, 45 m de alcance). `RV::getHeadlights` los da en coordenadas de mundo (solo si están encendidos) y `main` los manda al shader cada frame. Las lentes de los 4 faros brillan con la pieza `headlight_glow.obj` (material emisivo `glow`, `unlit` = 2), que solo se dibuja encendidos (`GameObject::setPartVisible`). **Al bajar del RV con las luces encendidas, se quedan encendidas** (`parkedLights`: el interruptor sigue dándoles corriente aunque el motor esté apagado) hasta que alguien vuelva a subir; si el motor ya estaba apagado al bajar, siguen apagadas.
 - **Bajar:** con la tecla `LeaveVehicle` (Mayús izquierda, reasignable; solo con el RV a menos de 2 m/s), `VehicleStage::leaveVehicle()` pone al pingüino de pie en el suelo de la cabina, junto al volante (`driverStand()`), con gravedad y colisión, y devuelve los controles y la cámara en primera persona, mirando hacia delante (`headingYaw()`); para salir hay que abrir la puerta y cruzarla. El RV **no** echa el freno de mano al quedar vacío (desde 2026-10-08): solo frena lo que haya dejado el jugador con Espacio, así que en una cuesta rueda.
-- **Cómo llega el cambio al bucle:** `GameStage::setPlayer` marca el cambio; el bucle principal lo recoge con `takePlayerChange()` y llama a `controller.attach(jugador, distancia, altura, yaw)`. `Controller::attach` acepta el rumbo inicial de la vista (por defecto, hacia −z).
+- **Cómo llega el cambio al bucle:** `GameStage::setControl` cambia `Player::character` y sube su `controlSerial`, que viaja en cada snapshot; el cliente lo ve con `takePlayerChange()` y llama a `controller.attach(personaje, distancia, altura, yaw)`. `Controller::attach` acepta el rumbo inicial de la vista (por defecto, hacia −z).
 
 ## Satélite
 
@@ -677,7 +741,7 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 
 ## Recetas
 
-**Añadir o mover un objeto.** En un mapa `.scene`, edita el fichero: con el visor abierto se recarga solo, y en el juego se ve al volver a cargar el mapa con Z. En `TestStage` (`test.cpp`), en su constructor: `auto o = make_shared<GameObject>(loadModel("../assets/..."))`, y después `setPosition`/`setYaw`/`setScale` y `add(o)`. Si se mueve solo, crea un `DynamicGameObject` y añádelo con `addDynamic`. Para apoyarlo en el suelo, usa `floorAt(x, z, altura)`.
+**Añadir o mover un objeto.** En un mapa `.scene`, edita el fichero: con el visor abierto se recarga solo, y en el juego se ve al reiniciar el servidor. En `TestStage` (`world/TestStage.h`), en su constructor: `auto o = make_shared<GameObject>(loadModel("../assets/..."))`, y después `setPosition`/`setYaw`/`setScale` y `add(o)`. Si se mueve solo, crea un `DynamicGameObject` y añádelo con `addDynamic`. Para apoyarlo en el suelo, usa `floorAt(x, z, altura)`.
 
 **Añadir un modelo nuevo.** Copia el OBJ+MTL+textura en `assets/<algo>/` y cárgalo con `loadModel`. El stage lo carga una sola vez, aunque se use en varios objetos.
 
@@ -708,3 +772,4 @@ Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa 
 - Las partículas son discos lisos: sin textura, sin iluminación y sin niebla (el polvo lejano no se funde con el horizonte).
 - Nunca se liberan los recursos GL (VAO/VBO/texturas). Las texturas no se comparten entre modelos distintos.
 - `Model` ignora las transformaciones de los nodos del fichero. Si un OBJ/FBX estático depende de ellas, aparecerá mal colocado.
+- **Multijugador:** sin cifrado ni contraseña (cualquiera que llegue al puerto entra, hasta 16 jugadores); el servidor solo valida lo que se ve fácil (que lo que usa el jugador esté a su alcance, que las entradas sean números razonables), no es a prueba de tramposos. TCP: si se pierde un paquete, todo lo que va detrás espera (en una red mala se nota como un tirón; con UDP habría que rehacer la fiabilidad de los avisos). Conducir el RV o pilotar la nave no se predice, así que con latencia alta responden con retraso. Cambiar de mapa es reiniciar el servidor. El satélite, el cartel y Pingu son locales de cada cliente. No se guarda nada del mundo ni de los jugadores entre ejecuciones del servidor. Los créditos no salen. La criatura, los mosquitos y Bob van a por el jugador más cercano: con varios jugadores juntos todo se reparte, pero un grupo en el RV hace de blanco único.

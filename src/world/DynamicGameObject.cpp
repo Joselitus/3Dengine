@@ -16,6 +16,8 @@ void DynamicGameObject::steerTowards(const vec3 &wantedVelocity,
 
 void DynamicGameObject::update(double dt) {
   GameObject::update(dt);
+  if (replica)
+    return; // (it is where the server says, not where its speed takes it)
   velocity += (acceleration - vec3(0.0f, gravity, 0.0f)) * (float)dt;
   // maxSpeed limits the horizontal speed only, so falling is not capped
   float speed = length(vec2(velocity.x, velocity.z));

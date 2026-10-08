@@ -29,8 +29,8 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
   environment.horizon = file.fogColor;
   setDayDuration(file.dayDuration);
   setTimeOfDay(file.timeOfDay);
-  cameraDistance = file.cameraDistance;
-  cameraHeight = file.cameraHeight;
+  walkCameraDistance = file.cameraDistance;
+  walkCameraHeight = file.cameraHeight;
   if (!file.sky.empty())
     setSky(loadModel(prefix + file.sky));
 
@@ -61,17 +61,10 @@ SceneStage::SceneStage(const SceneFile &file, const string &assetDir,
     add(object);
   }
 
-  // Without a player in the file there is still someone to move around
-  shared_ptr<Walker> walker =
-      file.player.empty()
-          ? make_shared<Walker>()
-          : make_shared<Walker>(
-                make_shared<AnimatedModel>((prefix + file.player).c_str(), false,
-                                           PENGUIN_ANIMATION));
+  // The players appear where the file says (without a player in it, at the origin), as the
+  // penguin or as the model the file names
   const vec3 &p = file.playerPosition;
-  walker->setPosition(
-      p.x, file.playerOnGround ? groundAt(p.x, p.z, f.y) : p.y, p.z);
-  walker->setGravity(PLAYER_GRAVITY);
-  addDynamic(walker);
-  player = walker;
+  spawnPoint = vec3(p.x, file.playerOnGround ? groundAt(p.x, p.z, f.y) : p.y, p.z);
+  if (!file.player.empty())
+    avatarModel = prefix + file.player;
 }

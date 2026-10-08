@@ -1,7 +1,10 @@
 # Build output (src/makefile)
 *.o
 *.d
+/test/server
+/test/client
 /test/test
+/test/creature_testing
 # Stale binary from an old build that wrote it into src/
 /src/test
 

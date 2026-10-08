@@ -33,7 +33,7 @@ float UITextField::preferredHeight() const {
 
 void UITextField::draw(UIRenderer &renderer, const UIState &) const {
   renderer.rect(rect.x, rect.y, rect.w, rect.h, UITheme::CONTROL);
-  renderer.frame(rect.x, rect.y, rect.w, rect.h, 1.0f, UITheme::ACCENT);
+  renderer.frame(rect.x, rect.y, rect.w, rect.h, 1.0f, focused ? UITheme::ACCENT : UITheme::BORDER);
   // If it is longer than the box, its end (where the cursor is) is shown
   float room = rect.w - 2 * PADDING - 4.0f;
   size_t first = 0;
@@ -42,7 +42,7 @@ void UITextField::draw(UIRenderer &renderer, const UIState &) const {
   string shown = text.substr(first);
   float x = rect.x + PADDING, y = rect.y + PADDING;
   renderer.text(x, y, shown, UITheme::TEXT);
-  if (std::fmod(glfwGetTime(), 2 * BLINK) < BLINK)
+  if (focused && std::fmod(glfwGetTime(), 2 * BLINK) < BLINK)
     renderer.rect(x + UIRenderer::textWidth(shown) + 1.0f, y - 1.0f, 2.0f,
                   UIRenderer::textHeight() + 2.0f, UITheme::TEXT);
 }

@@ -15,6 +15,11 @@ PauseMenu::PauseMenu(const MenuContext &context)
     this->context.ui.open(new OptionsMenu(this->context));
     requestClose();
   }));
+  if (context.disconnect)
+    add(new UIButton("Desconectar", [this]() {
+      this->context.disconnect();
+      requestClose();
+    }));
   add(new UIButton("Salir (" + context.controls.keyName(Action::Quit) + ")",
                    context.quit));
 }

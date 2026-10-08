@@ -25,6 +25,10 @@ private:
   bool enabled = true;
   bool lookEnabled = true; // false: the mouse doesn't turn the camera
   bool resync = false;  // next update only reads the cursor (after a pause)
+  // What the controls said at the last update (for the client to send to the server)
+  glm::vec2 lastDir = glm::vec2(0.0f);
+  float lastUp = 0.0f;
+  bool lastRunning = false;
 
 public:
   // `controls` must outlive the controller (it is read every frame, so
@@ -35,12 +39,21 @@ public:
   // cameraYaw: where the view starts looking (radians; 0 = towards -z)
   void attach(PlayableCharacter *character, float cameraDistance,
               float cameraHeight, float cameraYaw = 0.0f);
+  // Lets go of the character (it is about to be destroyed: its map is going)
+  void detach() { character = nullptr; }
   void update();
   // While disabled (e.g. an interface is open) it ignores the input, the
   // character gets no input and the cursor is free; when enabled again the
   // camera continues from where it was, ignoring where the cursor went.
   void setEnabled(bool enabled);
   bool isEnabled() const { return enabled; }
+  // The movement keys (x right, y backwards), the up/down keys and the run key as they were at
+  // the last update, and where the camera looks; all at rest while the controller is disabled
+  glm::vec2 getMove() const { return enabled ? lastDir : glm::vec2(0.0f); }
+  float getUp() const { return enabled ? lastUp : 0.0f; }
+  bool isRunning() const { return enabled && lastRunning; }
+  float getYaw() const { return yaw; }
+  float getPitch() const { return pitch; }
   // While false the mouse doesn't turn the camera (its movement is used for
   // something else, e.g. turning an object in the debug placement mode); the
   // keys still move the character

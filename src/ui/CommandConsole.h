@@ -2,6 +2,7 @@
 #define COMMAND_CONSOLE
 
 #include <deque>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -24,13 +25,16 @@ private:
   int browsing = -1;                 // index in history, -1 = a new line
   std::deque<std::string> output;    // the last lines shown
   UITextField *field;
+  std::function<void(const std::string &)> forward; // (a client) where the lines go besides Commands
 
   void print(const std::string &line);
 
 public:
   // `text`: what the box starts with (e.g. "/", opened with the '/' key)
+  // `forward`, if given, also gets every line typed (the multiplayer client sends them to the server)
   CommandConsole(const Commands &commands, std::vector<std::string> &history,
-                 float width, const std::string &text = "");
+                 float width, const std::string &text = "",
+                 std::function<void(const std::string &)> forward = nullptr);
   bool onKey(int key) override;
   bool onChar(unsigned int codepoint) override;
 };

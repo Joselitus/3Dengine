@@ -10,6 +10,8 @@ MosquitoEgg::MosquitoEgg(std::shared_ptr<Model> model, std::function<void(Mosqui
 
 void MosquitoEgg::update(double dt) {
   GameObject::update(dt); // (it does not move)
+  if (replica)
+    return; // (the server hatches it)
   age += (float)dt;
   if (!hatched && age >= HATCH_TIME) {
     hatched = true;

@@ -43,6 +43,17 @@ enum class FloorMode {
 // Abstract: each concrete stage loads its own content and defines the rules
 // applied to its dynamic objects.
 class Stage {
+public:
+  // Something that appeared (or went away) while the game ran, which the server tells its clients
+  // (see trackNet)
+  struct NetEvent {
+    bool spawn;
+    int netId;
+    unsigned char kind; // NetKind
+    glm::vec3 where;
+    float arg;
+  };
+
 private:
   const FloorMode floorMode;
 
@@ -114,6 +125,11 @@ private:
   std::vector<std::shared_ptr<ParticleEmitter>> emitters;
   std::vector<std::shared_ptr<DynamicGameObject>> pendingAdd; // see addDynamicLater
   std::vector<const GameObject *> pendingRemove;
+  int nextNetId = 0;
+  bool netTracking = false;
+  std::vector<NetEvent> netEvents;
+  std::map<int, NetEvent> liveSpawns;
+  std::unordered_map<int, DynamicGameObject *> dynamicByNetId;
   void flushPending();
 
   float timeOfDay = 12.0f;    // hours, 0 <= t < 24
@@ -153,8 +169,22 @@ public:
   void removeLater(const GameObject *object) { pendingRemove.push_back(object); }
 
   std::shared_ptr<GameObject> add(std::shared_ptr<GameObject> object);
+  // `netId`: the number it is known by on the network; -1 gives it the next one. The server and its
+  // clients build the same map, so the objects the map makes get the same numbers on both sides.
   std::shared_ptr<DynamicGameObject>
-  addDynamic(std::shared_ptr<DynamicGameObject> object);
+  addDynamic(std::shared_ptr<DynamicGameObject> object, int netId = -1);
+  // The dynamic object with this network number, or null
+  DynamicGameObject *findDynamic(int netId) const;
+  std::shared_ptr<DynamicGameObject> findDynamicShared(int netId) const;
+  // The server: from now on, the dynamic objects that appear (addDynamic) or go away that have a
+  // NetKind are noted, for takeNetEvents; getLiveSpawns are those there are now
+  void trackNet() { netTracking = true; }
+  std::vector<NetEvent> takeNetEvents() {
+    std::vector<NetEvent> taken;
+    taken.swap(netEvents);
+    return taken;
+  }
+  const std::map<int, NetEvent> &getLiveSpawns() const { return liveSpawns; }
 
   // Moves an object of the stage to `position` (GameObject::teleport). A
   // static object is put on the collision grid again where it now is (they

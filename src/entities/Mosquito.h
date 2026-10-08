@@ -301,6 +301,7 @@ private:
   void updateWings(double dt);
   void updateBuzz();
   void updateDead(double dt);
+  void updateReplica(double dt);
   const char *behaviorName() const;
 
 public:
@@ -367,6 +368,11 @@ public:
   void kill();
 
   void update(double dt) override;
+  unsigned char netKind() const override { return NET_MOSQUITO; }
+  float netSpawnArg() const override { return growth; }
+  // What the clients need to show it: what it does, how grown and full it is, and the bite's place
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   void applyCollision(const glm::vec3 &push, const glm::vec3 &velocityChange) override;
   // Shot: once its health is gone it dies (kill)
   void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;

@@ -263,6 +263,10 @@ void Saucer::control(vec2 dir, float up, float cameraYaw) {
 }
 
 void Saucer::update(double dt) {
+  if (replica) {
+    updateReplica(dt);
+    return;
+  }
   GameObject::update(dt);
   float dtf = (float)dt;
   phaseTime += dtf;
@@ -358,13 +362,10 @@ void Saucer::updateGun(double dt) {
       camera->attachTo(this, CAMERA_DISTANCE, CAMERA_HEIGHT);
   }
   aiming = aim;
-  // the barrel turns about the pivot, to look where the camera looks (in the ship's frame)
-  if (aiming && camera) {
-    vec3 f = transpose(mat3(rotation)) * camera->getForward();
-    float yawL = std::atan2(f.x, f.z), pitchL = std::asin(clamp(-f.y, -1.0f, 1.0f));
-    vec3 pivot(0.0f, GUN_PIVOT_Y, 0.0f);
-    gunLocal = glm::translate(mat4(1.0f), pivot) * glm::rotate(mat4(1.0f), yawL, vec3(0.0f, 1.0f, 0.0f)) *
-               glm::rotate(mat4(1.0f), pitchL, vec3(1.0f, 0.0f, 0.0f)) * glm::translate(mat4(1.0f), -pivot);
+  // the barrel turns about the pivot, to look where the pilot looks (in the ship's frame)
+  if (aiming) {
+    vec3 f = transpose(mat3(rotation)) * (camera ? camera->getForward() : aimForward);
+    setBarrel(std::atan2(f.x, f.z), std::asin(clamp(-f.y, -1.0f, 1.0f)));
   }
   shotCooldown = std::max(0.0f, shotCooldown - dtf);
   if (shotTime >= 0.0f) {
@@ -372,6 +373,14 @@ void Saucer::updateGun(double dt) {
     if (shotTime > 2.0f * SHOT_SHOW)
       shotTime = -1.0f;
   }
+}
+
+void Saucer::setBarrel(float yawL, float pitchL) {
+  gunYaw = yawL;
+  gunPitch = pitchL;
+  vec3 pivot(0.0f, GUN_PIVOT_Y, 0.0f);
+  gunLocal = glm::translate(mat4(1.0f), pivot) * glm::rotate(mat4(1.0f), yawL, vec3(0.0f, 1.0f, 0.0f)) *
+             glm::rotate(mat4(1.0f), pitchL, vec3(1.0f, 0.0f, 0.0f)) * glm::translate(mat4(1.0f), -pivot);
 }
 
 vec3 Saucer::muzzle() const {
@@ -412,6 +421,7 @@ bool Saucer::fire(const Stage &stage, const vec3 &eye, const vec3 &direction) {
   }
   shotTo = eye + dir * best;
   shotTime = 0.0f;
+  shots++;
   if (hit)
     hit->takeDamage(SHOT_DAMAGE, dir, stage);
   sparks->setPosition(shotTo - dir * 0.1f);
@@ -424,6 +434,7 @@ bool Saucer::fire(const Stage &stage, const vec3 &eye, const vec3 &direction) {
 
 // It stands on its legs on the ground: a release of steam, and smoke from its feet and its ramp
 void Saucer::touchDown() {
+  touchdowns++;
   smokeTime = 0.0f;
   updateSmoke(0.0);
   for (auto &emitter : smoke)
@@ -543,7 +554,8 @@ void Saucer::applyCollision(const vec3 &push, const vec3 &velocityChange) {
 }
 
 void Saucer::place() {
-  rotation = rotate(mat4(1.0f), spin, vec3(0.0f, 1.0f, 0.0f));
+  if (!replica) // (a copy is turned by what the server says)
+    rotation = rotate(mat4(1.0f), spin, vec3(0.0f, 1.0f, 0.0f));
   // the legs slide up into the hull; the ramp turns down about its hinge
   setPartVisible(legsPart, legsOut > 0.02f);
   setPartTransform(legsPart, glm::translate(mat4(1.0f), vec3(0.0f, (1.0f - legsOut) * (LEG_HEIGHT - 0.1f), 0.0f)));
@@ -636,4 +648,97 @@ void Saucer::getProperties(vector<Property> &properties) {
     if (phase == Phase::Away)
       enter(Phase::Arriving);
   }));
+}
+
+// What the server tells the clients about the ship (where it is and how it is turned go with every
+// object): what it is doing, how far its legs, ramp and gun are out, where the gun points, and a
+// count of touchdowns and shots, so that each client makes the smoke and sparks of every one
+void Saucer::writeNetState(NetWriter &out) const {
+  out.u8((uint8_t)phase);
+  out.f32(phaseTime);
+  out.f32(legsOut);
+  out.f32(rampOpen);
+  out.f32(gunOut);
+  out.f32(gunYaw);
+  out.f32(gunPitch);
+  out.boolean(taking);
+  out.boolean(engineOn);
+  out.boolean(onGround);
+  out.u32(touchdowns);
+  out.u32(shots);
+  out.vec3(shotTo);
+}
+
+void Saucer::readNetState(NetReader &in) {
+  uint8_t p = in.u8();
+  float time = in.f32();
+  legsOutWanted = in.f32();
+  rampOpenWanted = in.f32();
+  gunOutWanted = in.f32();
+  gunYaw = in.f32();
+  gunPitch = in.f32();
+  taking = in.boolean();
+  engineOn = in.boolean();
+  onGround = in.boolean();
+  unsigned landed = in.u32(), fired = in.u32();
+  vec3 hit = in.vec3();
+  if (!in.isOk() || p > (uint8_t)Phase::Leaving)
+    return;
+  if ((Phase)p != phase) {
+    phase = (Phase)p;
+    phaseTime = time;
+    if (phase == Phase::Descending && soundEngine && powerDownClip &&
+        (powerDown = soundEngine->play(powerDownClip, true, position))) {
+      powerDown->setVolume(POWER_DOWN_VOLUME);
+      powerDown->setDistances(SOUND_NEAR, 200.0f);
+    }
+  }
+  if (!netPrimed) { // (what happened before this client came is not done again)
+    netPrimed = true;
+    touchdowns = landed;
+    shots = fired;
+  }
+  if (landed != touchdowns) {
+    touchDown();
+    touchdowns = landed;
+  }
+  if (fired != shots) {
+    shots = fired;
+    shotTo = hit;
+    shotTime = 0.0f;
+    sparks->setPosition(shotTo);
+    sparks->setDirection(vec3(0.0f, 1.0f, 0.0f));
+    sparks->burst(30);
+    if (soundEngine && shotClip && (shotSound = soundEngine->play(shotClip, true, muzzle())))
+      shotSound->setVolume(SHOT_VOLUME);
+  }
+}
+
+// The copy on a client: its parts follow what the server says (smoothly), and the rest, the
+// sounds, the smoke, the shot's rod, is done here as on the server
+void Saucer::updateReplica(double dt) {
+  GameObject::update(dt);
+  float dtf = (float)dt;
+  phaseTime += dtf;
+  float follow = std::min(1.0f, 12.0f * dtf);
+  legsOut += (legsOutWanted - legsOut) * follow;
+  rampOpen += (rampOpenWanted - rampOpen) * follow;
+  gunOut += (gunOutWanted - gunOut) * follow;
+  bool aim = gunOut >= 0.99f && phase == Phase::Piloted;
+  if (aim != aiming && camera) {
+    if (aim)
+      camera->attachTo(this, 0.0f, GUN_PIVOT_Y);
+    else
+      camera->attachTo(this, CAMERA_DISTANCE, CAMERA_HEIGHT);
+  }
+  aiming = aim;
+  setBarrel(gunYaw, gunPitch);
+  if (shotTime >= 0.0f) {
+    shotTime += dtf;
+    if (shotTime > 2.0f * SHOT_SHOW)
+      shotTime = -1.0f;
+  }
+  place();
+  updateSounds(dt);
+  updateSmoke(dt);
 }

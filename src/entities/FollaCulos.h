@@ -82,6 +82,8 @@ private:
   std::unique_ptr<Sound> screech;
   std::mt19937 random;
   bool pursuing = false; // running at the target (not away from it)
+  std::function<Npc *(int)> npcLookup; // (a client) the NPC with this network number
+  void animate(double dt);              // its feet, its pose and its screech
 public:
   // What it is doing (see the class comment)
   enum class Behavior { Pursuit, Caution, RunAway, Hunt };
@@ -202,6 +204,12 @@ public:
   }
   // Lets go now (what slowing down does): dead, and a ragdoll
   void startRagdoll();
+  // A client: how to find the NPC with a network number (the ones it has eaten)
+  void setNpcLookup(std::function<Npc *(int)> lookup) { npcLookup = lookup; }
+  // What the server tells the clients: whether it runs, is dead, stuck, a ragdoll, and whose heads
+  // it carries
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
 
 private:
   void die(); // the eyes stop glowing

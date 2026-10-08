@@ -22,6 +22,7 @@ public:
   bool hasHatched() const { return hatched; }
   float getAge() const { return age; }
   void update(double dt) override;
+  unsigned char netKind() const override { return NET_EGG; }
   void describe(std::vector<std::string> &lines) const override;
 };
 

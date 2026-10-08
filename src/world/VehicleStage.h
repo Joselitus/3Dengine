@@ -14,15 +14,19 @@
 #include "SpeechSynthesizer.h"
 #include "Walker.h"
 
-// What the maps where the player drives the RV have in common (the day desert,
-// the forest road): the penguin on foot (a Walker, first person) and the RV
-// he can get into (E at its door) and out of (Left Shift), the controls that
+// What the maps where the players drive the RV have in common (the day desert,
+// the forest road): the penguins on foot (a Walker each, first person) and the RV
+// they can get into (E at its door) and out of (Left Shift), one at a time, the controls that
 // go with it (headlights, engine, handbrake, camera) and the daylight cycle
 // (a sun that crosses the sky: blue by day, orange at dusk and dawn, dark with
 // stars at night). Each map builds its own scenery, the floor and whatever
 // stands on it, in its constructor, using createRV / createWalker (and
 // createCreature, if it wants the night creature), and sets its clock with
 // startDay.
+//
+// This is the server's side of the game (or a client's copy of it, which only shows what the
+// server says): what each player is doing (in the RV, in Bob's ship, paralysed...) is in his
+// Player, and what the creatures and Bob do is done for whoever of them is nearest.
 class VehicleStage : public GameStage {
 protected:
   // PenguinoAnimado.fbx holds two takes of the same dance; take 0 (".002") has
@@ -39,13 +43,9 @@ protected:
   const glm::vec3 NIGHT_LIGHT = glm::vec3(0.022f, 0.025f, 0.04f);
 
   std::shared_ptr<RV> rv;
-  std::shared_ptr<Walker> walker;       // the penguin on foot
   std::shared_ptr<FollaCulos> creature; // the last night creature made (null if the map has none)
   std::vector<std::shared_ptr<FollaCulos>> creatures; // all of them (each lights its eyes)
-  bool inVehicle = false;               // the penguin is inside the RV
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
-  bool inSaucer = false;                // the penguin flies Bob's ship
-  float paralysis = 0.0f;               // seconds left paralysed by Bob's ray
   float groundFallback = 0.0f;          // ground height where there is no floor
 
   explicit VehicleStage(FloorMode mode) : GameStage(mode) {}
@@ -53,9 +53,10 @@ protected:
   // The RV on the floor at (x, z), facing `heading` (0 = +z), with its models,
   // its dust and its door; it is added to the stage and registered as usable
   void createRV(SoundEngine &sound, float x, float z, float heading);
-  // The penguin on foot at (x, z): the player (first person)
-  void createWalker(float x, float z);
-  // A night creature at (x, z) (a map may have several: see `creatures`), wired to the player, the RV and the clock. The
+  // Where the players' penguins appear: at (x, z), facing `yaw` (they are made when a player
+  // joins: see GameStage::addPlayer)
+  void createWalker(float x, float z, float yaw = 0.0f);
+  // A night creature at (x, z) (a map may have several: see `creatures`), wired to the players, the RV and the clock. The
   // map may still add prey (setPreyQuery)
   void createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x, float z);
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
@@ -64,12 +65,14 @@ protected:
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
-  // The penguin gets into the RV: it is hidden inside its body and goes
-  // wherever the RV goes, and the RV gets the controls and the camera
+  // The acting player's penguin gets into the RV (if nobody drives it): it is hidden inside its
+  // body and goes wherever the RV goes, and the RV gets his controls and camera
   void enterRV();
-  // The penguin gets into Bob's ship (its ramp is down): it rides in it, and the ship gets the
-  // controls and the camera (from behind and above)
+  // The acting player's penguin gets into Bob's ship (its ramp is down): it rides in it, and the
+  // ship gets his controls and camera (from behind and above)
   void enterSaucer();
+  // The nearest player alive to `from` (null if there is none): the one the creatures go for
+  Player *nearestAlive(const glm::vec3 &from);
 
   // Ground height at (x, z), or groundFallback where there is no floor
   float groundAt(float x, float z) const {
@@ -81,45 +84,48 @@ protected:
   // fades out as the sun sets (until only the ambience remains).
   void onTimeChanged() override;
 
-  // Everything dynamic stays on the floor (the penguin inside the RV just
-  // rides in it)
+  // Players get out of what they drive when they die or leave
+  void onPlayerGone(Player &p) override;
+  bool canInteract(const Player &p) const override {
+    return !p.dead && !p.inVehicle && !p.inSaucer;
+  }
+  // Paralysed by Bob's ray or held by Bob: no moving or looking
+  bool isImmobilized(const Player &p) const override;
+  void respawn(Player &p) override;
+  // The ship nobody flies comes down and stands (see tick)
+  void onTick(double dt) override;
+
+  // Everything dynamic stays on the floor (a penguin inside the RV just rides in it)
   void apply(DynamicGameObject &object, double dt) override;
 
 public:
-  // Interactions are for the penguin on foot, not while driving
-  bool interactionsEnabled() const override { return !inVehicle && !inSaucer && !isPlayerDead(); }
-  // Paralysed by Bob's ray or held by Bob: no moving or looking
-  bool playerImmobilized() const override;
   float playerParalysis() const override;
   float struggleProgress() const override;
   float alienPresence() const override;
   void endAlienHiss() override;
-  // Q: the legs of Bob's ship, while the penguin flies it
-  void toggleShipLegs() override;
-  void fire(const glm::vec3 &eye, const glm::vec3 &direction) override;
-  bool playerAiming() const override { return inSaucer && alien.saucer->isAiming(); }
+  bool playerAiming() const override { return local && local->inSaucer && alien.saucer->isAiming(); }
 
-  // The player (the penguin or the RV) is always drawn, wherever it is
-  bool edgeCullExempt(const GameObject &object) const override {
-    return &object == rv.get() || &object == walker.get() || &object == alien.saucer.get();
-  }
-
-  // F: the headlights while the penguin is driving, its flashlight on foot
-  void toggleHeadlights() override;
+  // F: the headlights while the penguin is driving, its flashlight on foot, the ray gun of the ship
+  void toggleHeadlights(Player &p) override;
   // R: the engine, only while the penguin is driving
-  void toggleEngine() override;
-  bool rearMirror(int side, MirrorView &view) const override;
-  void setRearMirrorTexture(int side, unsigned int texture, float aspect) override;
-  void showRearMirror(int side, bool show) override;
+  void toggleEngine(Player &p) override;
+  // Q: the legs of Bob's ship, while the penguin flies it
+  void toggleShipLegs(Player &p) override;
+  void fire(Player &p, const glm::vec3 &eye, const glm::vec3 &direction) override;
   // Space: the handbrake, only while the penguin is driving
-  void toggleHandbrake() override;
+  void toggleHandbrake(Player &p) override;
   // C: inside the RV or behind it, only while the penguin is driving
-  void toggleVehicleCamera() override;
-  void getSpotLights(std::vector<SpotLight> &lights) const override;
+  void toggleVehicleCamera(Player &p) override;
   // The penguin gets out at the RV's door, on foot and in first person; or out of Bob's ship, if it
   // stands on its legs (else, the key brings the ship down: see Saucer). On foot, held by Bob, the
   // key is his struggle to get free.
-  void leaveVehicle() override;
+  void leaveVehicle(Player &p) override;
+  void refuel(Player &p) override;
+
+  bool rearMirror(int side, MirrorView &view) const override;
+  void setRearMirrorTexture(int side, unsigned int texture, float aspect) override;
+  void showRearMirror(int side, bool show) override;
+  void getSpotLights(std::vector<SpotLight> &lights) const override;
 };
 
 #endif

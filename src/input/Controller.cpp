@@ -86,5 +86,8 @@ void Controller::update() {
     // The run key is the leave-vehicle one (Shift): on foot there is no
     // vehicle to leave, and in a vehicle running means nothing
     character->setRunning(held(Action::LeaveVehicle));
+    lastDir = dir;
+    lastUp = up;
+    lastRunning = held(Action::LeaveVehicle);
   }
 }

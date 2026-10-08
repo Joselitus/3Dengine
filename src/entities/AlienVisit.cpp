@@ -7,10 +7,10 @@ using std::shared_ptr;
 using std::string;
 
 AlienVisit AlienVisit::create(Stage &stage, const vec3 &landing, float rampYaw,
-                              std::function<bool()> night, std::function<vec3()> player,
-                              std::function<bool()> inVehicle, std::function<bool()> playerDead,
-                              std::function<void(const vec3 &)> abduct,
-                              std::function<void(float)> paralyse, std::function<bool()> paralysed,
+                              std::function<bool()> night,
+                              std::function<bool(const vec3 &, int, Bob::Victim &)> findVictim,
+                              std::function<void(int, const vec3 &)> abduct,
+                              std::function<void(int, float)> paralyse,
                               std::function<void()> enterShip) {
   const string dir = "../assets/bob/";
   AlienVisit visit;
@@ -34,12 +34,9 @@ AlienVisit AlienVisit::create(Stage &stage, const vec3 &landing, float rampYaw,
   Saucer *ship = visit.saucer.get();
   visit.bob->setShip(ship);
   visit.bob->setNightQuery(night);
-  visit.bob->setTarget(player);
-  visit.bob->setPlayerInVehicleQuery(inVehicle);
-  visit.bob->setPlayerDeadQuery(playerDead);
-  visit.bob->setTakePlayerCallback([abduct, ship]() { abduct(ship->hatch()); });
+  visit.bob->setVictimQuery(findVictim);
+  visit.bob->setTakePlayerCallback([abduct, ship](int id) { abduct(id, ship->hatch()); });
   visit.bob->setParalyseCallback(paralyse);
-  visit.bob->setPlayerParalysedQuery(paralysed);
   visit.bob->setPosition(landing.x, landing.y, landing.z);
   stage.addDynamic(visit.saucer);
   for (auto &emitter : visit.saucer->getEmitters())

@@ -540,7 +540,7 @@ void RV::updateFire(double dt) {
     if (alarmSound)
       alarmSound->setPosition(position + vec3(rotation * vec4(crumple(ALARM_LAMP), 0.0f)));
   }
-  if (!exploded) {
+  if (!exploded && !replica) { // (a copy blows up when the server says so)
     fuse -= (float)dt;
     if (fuse <= 0.0f)
       explodeEngine();
@@ -988,6 +988,10 @@ void RV::updateDoor(double dt) {
       }
     }
   }
+  placeDoor();
+}
+
+void RV::placeDoor() {
   setPartTransform(doorPart, glm::rotate(glm::translate(mat4(1.0f), DOOR_HINGE), -doorAngle, vec3(0.0f, 1.0f, 0.0f)));
   hull->setEnabled(HULL_DOOR, doorAngle < 0.05f);
 }
@@ -1052,7 +1056,7 @@ void RV::updateCockpit(double dt) {
   speedShown += (glm::clamp(speed / SPEEDOMETER_MAX, 0.0f, 1.0f) - speedShown) * follow;
   fuelShown += ((engineOn ? fuel : 0.0f) - fuelShown) * follow;
   // (the key goes a bit further while the starter is engaged, and springs back)
-  keyTurn += ((keyOn ? (engineSim.getStarter() > 0.5f ? 1.3f : 1.0f) : 0.0f) - keyTurn) *
+  keyTurn += ((keyOn ? (starterNow() > 0.5f ? 1.3f : 1.0f) : 0.0f) - keyTurn) *
              (dt > 0.0 ? glm::min(1.0f, (float)dt * KEY_RATE) : 1.0f);
 
   setPartTransform(keyPart, panelFrame(KEY_ORIGIN, KEY_ON_ANGLE * keyTurn));
@@ -1129,6 +1133,10 @@ void RV::control(vec2 dir, float up, float cameraYaw) {
 }
 
 void RV::update(double dt) {
+  if (replica) {
+    updateReplica(dt);
+    return;
+  }
   // Only the input is read here: the stage moves the RV through contactFloor()
   GameObject::update(dt);
   updateCockpit(dt);
@@ -1235,13 +1243,17 @@ void RV::updateDust(const Stage &stage) {
   }
 }
 
+void RV::ensureBody() {
+  if (body)
+    return;
+  body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
+  body->place(position, facing);
+  for (int i = 0; i < 4; i++)
+    body->setFlat(i, flatTires[i]);
+}
+
 bool RV::contactFloor(const Stage &stage, double dt) {
-  if (!body) {
-    body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
-    body->place(position, facing);
-    for (int i = 0; i < 4; i++)
-      body->setFlat(i, flatTires[i]);
-  }
+  ensureBody();
   // What each wheel drives on, from the stage's floor
   body->setSurfaceQuery([&stage](float x, float z) {
     return surfaceOf(stage.materialAt(x, z));
@@ -1418,4 +1430,106 @@ void RV::teleport(const vec3 &position) {
 void RV::turn(float radians) {
   PlayableCharacter::turn(radians);
   teleport(position); // upright at the new heading, body included
+}
+
+// ----------------------------------------------------------------- network
+void RV::writeNetState(NetWriter &out) const {
+  const VehicleBody::Params &p = body ? body->getParams() : vehicleParams(0, 0);
+  for (int i = 0; i < 4; i++) {
+    out.f32(body ? body->getWheels()[i].length : p.restLength);
+    out.f32(body ? body->getWheels()[i].steer : 0.0f);
+    out.boolean(body ? body->getWheels()[i].onGround : true);
+  }
+  out.vec3(body ? body->getAngularVelocity() : vec3(0.0f));
+  uint32_t flags = (handbrakeOn ? 1 : 0) | (occupied ? 2 : 0) | (keyOn ? 4 : 0) | (engineOn ? 8 : 0) |
+                   (headlightsOn ? 16 : 0) | (parkedLights ? 32 : 0) | (wrecked ? 64 : 0) |
+                   (exploded ? 128 : 0) | (onFire ? 256 : 0) | (damagedWindshield ? 512 : 0) |
+                   (doorLatched ? 1024 : 0) | (cameraView == CameraView::Chase ? 2048 : 0) |
+                   (engineSim.getPhase() == EngineSimulator::Phase::Cranking ? 4096 : 0);
+  for (int i = 0; i < 4; i++)
+    if (flatTires[i])
+      flags |= 1u << (16 + i);
+  out.u32(flags);
+  out.f32(lampLevel);
+  out.f32(fuel);
+  out.f32(engineSim.getRpm());
+  out.f32(engineSim.getLoad());
+  out.f32(engineSim.getStarter());
+  out.f32(engineSim.getFire());
+  out.f32(doorAngle);
+}
+
+void RV::readNetState(NetReader &in) {
+  for (int i = 0; i < 4; i++) {
+    netWheelLength[i] = in.f32();
+    netWheelSteer[i] = in.f32();
+    netWheelGround[i] = in.boolean();
+  }
+  netAngular = in.vec3();
+  uint32_t flags = in.u32();
+  float lamps = in.f32(), tank = in.f32();
+  netRpm = in.f32();
+  netLoad = in.f32();
+  netStarter = in.f32();
+  netFire = in.f32();
+  doorWanted = in.f32();
+  if (!in.isOk())
+    return;
+  netCranking = flags & 4096;
+  // What happened to it: the crash and the explosion are done here too (the pieces that fly are
+  // each client's own)
+  if ((flags & 64) && !wrecked)
+    wreck();
+  if ((flags & 128) && !exploded)
+    explodeEngine();
+  bool broken = flags & 512;
+  if (broken != damagedWindshield) {
+    damagedWindshield = broken;
+    updateWindshieldParts();
+  }
+  handbrakeOn = flags & 1;
+  occupied = flags & 2;
+  keyOn = flags & 4;
+  engineOn = flags & 8;
+  headlightsOn = flags & 16;
+  parkedLights = flags & 32;
+  onFire = flags & 256;
+  lampLevel = lamps;
+  fuel = tank;
+  for (int i = 0; i < 4; i++)
+    flatTires[i] = flags & (1u << (16 + i));
+  if (doorLatched != bool(flags & 1024)) {
+    doorLatched = flags & 1024;
+    if (doorLatched)
+      doorAngle = 0.0f;
+  }
+  CameraView view = (flags & 2048) ? CameraView::Chase : CameraView::Cockpit;
+  if (view != cameraView)
+    setCameraView(view);
+  updateLights();
+}
+
+// The copy on a client: its chassis, wheels, door and lamps are as the server says, and here the
+// dust, the engine's sound, the gauges and the pieces that fly off in an explosion are made
+void RV::updateReplica(double dt) {
+  GameObject::update(dt);
+  ensureBody();
+  body->setState(position, mat3(rotation), velocity, netAngular);
+  for (int i = 0; i < 4; i++)
+    body->setWheel(i, netWheelLength[i], netWheelSteer[i], netWheelGround[i]);
+  float follow = std::min(1.0f, 15.0f * (float)dt);
+  doorAngle += (doorWanted - doorAngle) * follow;
+  if (hasDoor && !exploded)
+    placeDoor();
+  if (engineSound)
+    engineSound->update(position + vec3(0.0f, 1.0f, 0.0f), netRpm, netLoad, netStarter, netFire, netCranking);
+  updateCockpit(dt);
+  placeSteeringWheel();
+  updateHandbrake(dt);
+  updateFire(dt);
+  placeWheels();
+  if (stage) {
+    updateDust(*stage);
+    updateDebris(*stage, dt);
+  }
 }

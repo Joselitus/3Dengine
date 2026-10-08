@@ -238,10 +238,7 @@ ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : VehicleStage(mode
   float heading = std::atan2(start.tx, start.tz);
   createRV(sound, start.x, start.z, heading);
   vec3 door = rv->doorPosition(1.6f);
-  createWalker(door.x, door.z - 0.5f);
-  cameraDistance = 0.0f; // first person
-  cameraHeight = EYE_HEIGHT;
-  cameraYaw = heading + 3.14159265f; // (0 looks towards -z: this is along the road)
+  createWalker(door.x, door.z - 0.5f, heading + 3.14159265f); // (looking along the road: 0 looks towards -z)
 
   addSign(4, 1.0f, {
       "CARRETERA FORESTAL. Tres kilometros de asfalto entre pinos y robles, sin una sola gasolinera.",

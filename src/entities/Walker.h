@@ -25,6 +25,10 @@ private:
   float vertical = 0.0f;               // only used when not under gravity
   float facing = 0.0f;                 // radians, around +y
   bool running = false;                // the run key is held
+  // Where the player looks (his camera's angles), when this walker has no camera of its own: the
+  // server's, and those of the other players on a client. The flashlight points there.
+  bool hasLook = false;
+  float lookYaw = 0.0f, lookPitch = 0.0f;
 
 public:
   using PlayableCharacter::PlayableCharacter;
@@ -33,6 +37,16 @@ public:
   void followCamera() override;
   void control(glm::vec2 dir, float up, float cameraYaw) override;
   void setRunning(bool running) override { this->running = running; }
+  void setLook(float yaw, float pitch) {
+    hasLook = true;
+    lookYaw = yaw;
+    lookPitch = pitch;
+  }
+  float getLookYaw() const { return lookYaw; }
+  float getLookPitch() const { return lookPitch; }
+  // For the other players: whether the flashlight is on, and where he looks
+  void writeNetState(NetWriter &out) const override;
+  void readNetState(NetReader &in) override;
   void update(double dt) override;
   void getFlashlight(std::vector<SpotLight> &lights) const override;
   // It climbs ledges up to this high (the sill of the RV's door, with its step)

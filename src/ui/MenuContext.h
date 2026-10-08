@@ -19,6 +19,9 @@ struct MenuContext {
   Settings &settings;         // saved between sessions (OptionsMenu)
   SoundEngine &sound;         // master volume (AudioMenu)
   std::function<void()> quit; // ends the game
+  // Leaves the server and goes back to the connect screen (the multiplayer client; null: no such
+  // button in the pause menu)
+  std::function<void()> disconnect;
 };
 
 #endif
