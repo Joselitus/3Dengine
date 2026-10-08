@@ -84,6 +84,14 @@ void FollaCulos::applyCollision(const vec3 &push, const vec3 &velocityChange) {
     kill();
 }
 
+void FollaCulos::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
+  if (dead || stuck)
+    return;
+  health -= amount;
+  if (health <= 0.0f)
+    kill();
+}
+
 // While it chases, at any frame it may screech, if it is not screeching already
 void FollaCulos::updateScreech(double dt) {
   if (screech && !screech->isPlaying())

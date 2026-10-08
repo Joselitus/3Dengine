@@ -41,8 +41,15 @@ class Camera;
 // Its sounds (setSounds, from its middle): a hum while it moves (on its own, or flown with the
 // engine on: higher the faster), which dies away as it comes down to land while it powers down
 // (saucer_power_down.wav, the length of the descent); and when it touches down on its legs (on its
-// own or flown), a release of steam, with smoke from its feet and from round its ramp (getSmoke:
+// own or flown), a release of steam, with smoke from its feet and from round its ramp (getEmitters:
 // the map draws those emitters).
+//
+// Its ray gun (flying it, the headlights key: toggleGun): it comes down from under its middle and the
+// camera goes to it, in first person: the mouse aims it (the gun turns with the view) and fire()
+// (the main loop: the left button) shoots a green ray straight ahead, at most every SHOT_COOLDOWN:
+// the first thing it meets (a solid object, or the ground) within SHOT_RANGE takes SHOT_DAMAGE
+// (GameObject::takeDamage), with sparks and a flash where it hits, and a sound
+// (saucer_shot.wav). The same key puts it away, and the camera goes back behind the ship.
 class Saucer : public PlayableCharacter, public Interactable {
 public:
   enum class Phase { Away, Arriving, Descending, Landed, Piloted, Closing, Ascending, Leaving };
@@ -70,6 +77,12 @@ public:
   // The smoke when it touches down: for how long (s), and how much at first (puffs per second
   // from each of its six vents: three feet, three round the ramp)
   static constexpr float SMOKE_TIME = 3.0f, SMOKE_RATE = 35.0f;
+  // The ray gun: its pivot (the eye when aiming) over the ground under the middle, how far up it
+  // slides when put away (m), how long it takes (s); the shot: how far it goes (m), how often (s),
+  // how long it shows (s), how much it hurts (of a creature's health), how loud it is
+  static constexpr float GUN_PIVOT_Y = LEG_HEIGHT - 0.5f, GUN_TRAVEL = 1.1f, GUN_TIME = 0.6f;
+  static constexpr float SHOT_RANGE = 150.0f, SHOT_COOLDOWN = 0.3f, SHOT_SHOW = 0.12f;
+  static constexpr float SHOT_DAMAGE = 0.5f, SHOT_VOLUME = 0.7f;
   // The camera, flying it: distance and height
   static constexpr float CAMERA_DISTANCE = 18.0f, CAMERA_HEIGHT = 6.0f;
 
@@ -97,6 +110,19 @@ private:
   std::function<bool()> isNight;
   std::function<void()> enterAction;
   size_t hullPart = 0, lightsPart = 0, legsPart = 0, rampPart = 0, beamPart = 0;
+  size_t gunMountPart = 0, gunPart = 0, shotPart = 0;
+  // the ray gun
+  bool gunWanted = false;  // (Piloted) out, as the player asked
+  float gunOut = 0.0f;     // 0 = in the hull .. 1 = down, ready
+  bool aiming = false;     // the camera is at the gun
+  glm::mat4 gunLocal = glm::mat4(1.0f); // the barrel's placement in its frame
+  float shotCooldown = 0.0f;
+  float shotTime = -1.0f;  // seconds since the last shot (< 0: none showing)
+  glm::vec3 shotTo = glm::vec3(0.0f); // where it hit (world)
+  std::shared_ptr<AudioClip> shotClip;
+  std::unique_ptr<Sound> shotSound;
+  std::shared_ptr<ParticleEmitter> sparks;
+  std::vector<std::shared_ptr<ParticleEmitter>> emitters; // (smoke and sparks)
   std::mt19937 random;
   // sounds and smoke
   SoundEngine *soundEngine = nullptr;
@@ -110,6 +136,8 @@ private:
   void touchDown();
   void updateSounds(double dt);
   void updateSmoke(double dt);
+  void updateGun(double dt);
+  glm::vec3 muzzle() const; // (world)
   void place(); // its turn and parts for what it is doing
   bool beamOn() const;
   bool bobNearRamp() const;
@@ -117,7 +145,8 @@ private:
 
 public:
   Saucer(std::shared_ptr<Model> hull, std::shared_ptr<Model> lights, std::shared_ptr<Model> legs,
-         std::shared_ptr<Model> ramp, std::shared_ptr<Model> beam);
+         std::shared_ptr<Model> ramp, std::shared_ptr<Model> beam, std::shared_ptr<Model> gunMount,
+         std::shared_ptr<Model> gun, std::shared_ptr<Model> shot);
 
   // Where it lands (the ground under its middle) and which way its ramp opens (radians about +y,
   // 0 = +z)
@@ -128,8 +157,9 @@ public:
   void setEnterAction(std::function<void()> action) { enterAction = action; }
   // Its sounds (assets/bob), played on `engine`; without this it is silent
   void setSounds(SoundEngine &engine);
-  // Its smoke: the map adds these emitters to its own (Stage::addEmitter)
-  const std::vector<std::shared_ptr<ParticleEmitter>> &getSmoke() const { return smoke; }
+  // Its smoke and the sparks of its shots: the map adds these emitters to its own
+  // (Stage::addEmitter)
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getEmitters() const { return emitters; }
 
   Phase getPhase() const { return phase; }
   // It stands with its ramp all the way down
@@ -153,6 +183,11 @@ public:
   void toggleEngine();
   bool isEngineOn() const { return engineOn; }
   void toggleLegs();
+  // (Piloted) the ray gun comes down and the camera goes to it, or it goes back up
+  void toggleGun();
+  bool isAiming() const { return aiming; }
+  // (Piloted, aiming) shoots along `direction` from `eye` (the camera): false if it can't now
+  bool fire(const class Stage &stage, const glm::vec3 &eye, const glm::vec3 &direction);
 
   // PlayableCharacter
   void attachCamera(Camera *camera, float distance, float height) override;

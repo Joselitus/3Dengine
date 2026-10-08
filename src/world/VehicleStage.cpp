@@ -81,8 +81,10 @@ void VehicleStage::apply(DynamicGameObject &object, double dt) {
 }
 
 void VehicleStage::toggleHeadlights() {
-  if (inSaucer)
+  if (inSaucer) {
+    alien.saucer->toggleGun(); // (the ship has no lights: the key brings out its ray gun)
     return;
+  }
   if (inVehicle)
     rv->toggleHeadlights();
   else
@@ -99,6 +101,11 @@ void VehicleStage::toggleEngine() {
 void VehicleStage::toggleShipLegs() {
   if (inSaucer)
     alien.saucer->toggleLegs();
+}
+
+void VehicleStage::fire(const vec3 &eye, const vec3 &direction) {
+  if (inSaucer)
+    alien.saucer->fire(*this, eye, direction);
 }
 
 bool VehicleStage::playerImmobilized() const {

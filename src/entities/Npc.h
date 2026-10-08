@@ -65,6 +65,12 @@ public:
   const Voice &getVoice() const { return voice; }
 
   void update(double dt) override;
+  // Shot: once its health is gone it falls (a ragdoll, for good), knocked the way the shot went
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
+  static constexpr float SHOT_KNOCK = 4.0f; // m/s, the push of the shot that fells it
+protected:
+  float health = 1.0f;
+public:
 
   // Turns into a ragdoll (see NpcRagdoll) from the pose it has now, for good: it stops talking, can
   // no longer be used, falls and lies on `floor`. While `holdHead` (asked every frame) returns true

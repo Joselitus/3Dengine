@@ -124,6 +124,7 @@ private:
   void animate(double dt);
   void aimRays(bool shining);
   void take();
+  void knockDown();
   glm::vec3 eyesPosition() const;
   float gazedAt(const glm::vec3 &eye, const glm::mat4 &viewProjection) const;
   float watching(const glm::vec3 &eye) const;
@@ -170,6 +171,8 @@ public:
   bool isOut() const { return behavior != Behavior::Inside; }
 
   void update(double dt) override;
+  // Shot: he can't be killed, but each shot knocks him over (as when the player breaks free)
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
   void teleport(const glm::vec3 &position) override;
   float getHeading() const override { return yaw; }
   // His ray's yellow light, while it shines

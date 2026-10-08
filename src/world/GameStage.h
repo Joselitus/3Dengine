@@ -149,6 +149,11 @@ public:
   virtual void toggleVehicleCamera() {}
   // The ship-legs key (Q): flying Bob's ship, its landing legs go in or out
   virtual void toggleShipLegs() {}
+  // The fire button (the left mouse button) was pressed, the camera at `eye` looking along
+  // `direction`: a map where the player can shoot (Bob's ship's ray gun) shoots
+  virtual void fire(const glm::vec3 &eye, const glm::vec3 &direction) {}
+  // The player aims a gun (the main loop shows a crosshair)
+  virtual bool playerAiming() const { return false; }
   // The engine key was pressed: a map with a vehicle the player is driving switches its
   // engine on or off
   virtual void toggleEngine() {}

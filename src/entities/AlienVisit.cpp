@@ -17,7 +17,8 @@ AlienVisit AlienVisit::create(Stage &stage, const vec3 &landing, float rampYaw,
   visit.saucer = std::make_shared<Saucer>(
       stage.loadModel(dir + "saucer_hull.obj"), stage.loadModel(dir + "saucer_lights.obj"),
       stage.loadModel(dir + "saucer_legs.obj"), stage.loadModel(dir + "saucer_ramp.obj"),
-      stage.loadModel(dir + "saucer_beam.obj"));
+      stage.loadModel(dir + "saucer_beam.obj"), stage.loadModel(dir + "saucer_gun_mount.obj"),
+      stage.loadModel(dir + "saucer_gun.obj"), stage.loadModel(dir + "saucer_shot.obj"));
   std::vector<shared_ptr<Model>> limbs;
   for (const char *side : {"l", "r"})
     for (const char *limb : {"upperarm", "forearm", "thigh", "shin"})
@@ -41,7 +42,7 @@ AlienVisit AlienVisit::create(Stage &stage, const vec3 &landing, float rampYaw,
   visit.bob->setPlayerParalysedQuery(paralysed);
   visit.bob->setPosition(landing.x, landing.y, landing.z);
   stage.addDynamic(visit.saucer);
-  for (auto &emitter : visit.saucer->getSmoke())
+  for (auto &emitter : visit.saucer->getEmitters())
     stage.addEmitter(emitter);
   stage.addDynamic(visit.bob);
   return visit;

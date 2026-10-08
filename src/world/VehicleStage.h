@@ -96,6 +96,8 @@ public:
   void endAlienHiss() override;
   // Q: the legs of Bob's ship, while the penguin flies it
   void toggleShipLegs() override;
+  void fire(const glm::vec3 &eye, const glm::vec3 &direction) override;
+  bool playerAiming() const override { return inSaucer && alien.saucer->isAiming(); }
 
   // The player (the penguin or the RV) is always drawn, wherever it is
   bool edgeCullExempt(const GameObject &object) const override {
