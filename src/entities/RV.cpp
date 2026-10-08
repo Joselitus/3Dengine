@@ -106,6 +106,17 @@ static const float KEY_ON_ANGLE = -40.0f; // turned clockwise, seen from the dri
 static const float FUEL_PER_METER = 1.0f / 12000.0f; // (the default of RV::setFuelPerMeter)
 // Each press of the engine key is one try, that fails with this chance
 static const float START_FAIL_CHANCE = 0.4f;
+// The door (generate_rv.py: HINGE and DOOR_HOLE): the hinge's place on the front edge of the doorway, how
+// far it opens (radians, outwards) and how fast it swings (rad/s); the point to be near to use it
+static const vec3 DOOR_HINGE(1.22f, 0.58f, 0.12f), DOOR_POINT(1.2f, 0.3f, -0.35f);
+static const float DOOR_OPEN_ANGLE = 1.75f; // (100 degrees, outwards)
+// The door as a swinging panel: its width (m, hinge to free edge), how fast the use key pushes it open
+// and shut (rad/s), the hinge's friction (1/s), how much it bounces off its stops, and the
+// speed below which it latches when it closes
+static const float DOOR_WIDTH = 0.94f, DOOR_KICK_OPEN = 3.0f, DOOR_KICK_SHUT = 3.5f;
+static const float DOOR_DAMPING = 1.5f, DOOR_BOUNCE_OPEN = 0.25f, DOOR_BOUNCE_SHUT = 0.3f, DOOR_LATCH_SPEED = 2.0f;
+// Where the driver stands on the floor inside (behind the wheel at x = 0.45, z = 2.28)
+static const vec3 DRIVER_STAND(0.45f, 0.55f, 1.75f);
 // The wreck: a crash this many times harder than the least that breaks the windshield wrecks the
 // front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
 // the engine bay is here, in the frame of rv.obj
@@ -161,10 +172,37 @@ static const float ANCHOR_HEIGHT = 0.85f; // suspension mounts, on the chassis
 // wide, 7.4 long, from its underside (clearance for slopes) to the roof
 static const float CHASSIS_HALF_X = 1.25f, CHASSIS_HALF_Z = 3.7f;
 static const float CHASSIS_LOW = 0.5f, CHASSIS_HIGH = 3.3f;
-static std::shared_ptr<const CollisionShape> chassisShape() {
-  return std::make_shared<Box>(
-      vec3(CHASSIS_HALF_X, (CHASSIS_HIGH - CHASSIS_LOW) / 2, CHASSIS_HALF_Z),
-      vec3(0.0f, (CHASSIS_HIGH + CHASSIS_LOW) / 2, 0.0f));
+
+// The collision shape: a HOLLOW box, a compound of boxes laid just outside the thin walls of rv.obj (so
+// that what is inside the sheet is the cab's room): floor, roof, rear, the two sides (the +x one in
+// pieces, with the doorway), a solid block for the dashboard and the engine under the windshield, the
+// slanted windshield, the front fascia, the step under the door and the door itself (the only part
+// that is switched off when it is open). Keep the measures the same as generate_rv.py's (PROF,
+// DOOR_HOLE).
+enum HullPart { HULL_DOOR = 5 }; // (the index of the door's box: keep it in step with hullShape)
+static std::shared_ptr<CompoundShape> hullShape() {
+  auto hull = std::make_shared<CompoundShape>();
+  auto box = [&](float x0, float x1, float y0, float y1, float z0, float z1) {
+    return hull->add(vec3(x1 - x0, y1 - y0, z1 - z0) * 0.5f, vec3(x0 + x1, y0 + y1, z0 + z1) * 0.5f);
+  };
+  const float W = HALF_TRACK, T = 0.1f, LOW = 0.5f, FLOOR = 0.55f, ROOF = 3.05f;
+  box(-W, W, LOW, FLOOR, -3.55f, 3.55f);                 // 0 the floor (its top is the sheet of rv.obj)
+  box(-W - T, W + T, ROOF, ROOF + T, -3.55f - T, 3.0f);  // 1 the roof
+  box(-W - T, W + T, LOW, ROOF + T, -3.55f - T, -3.55f); // 2 the rear wall
+  box(-W - T, -W, LOW, ROOF + T, -3.55f - T, 3.55f);     // 3 the -x wall
+  box(W, W + T, LOW, ROOF + T, 0.1f, 3.55f);             // 4 the +x wall, in front of the doorway...
+  box(W, W + T, 0.6f, 2.45f, -0.8f, 0.1f);               // 5 the door, shut (HULL_DOOR)
+  box(W, W + T, LOW, ROOF + T, -3.55f - T, -0.8f);       // 6 ...and behind it
+  box(W, W + T, 2.45f, ROOF + T, -0.8f, 0.1f);           // 7 over the doorway
+  box(W, W + T, LOW, 0.6f, -0.8f, 0.1f);                 // 8 the sill
+  box(-W, W, FLOOR, 1.8f, 2.55f, 3.55f);                 // 9 the dashboard and what is under it
+  box(-1.25f, 1.25f, LOW, 1.7f, 3.55f, 3.75f);           // 10 the front fascia and bumper
+  hull->setFloorContact(box(W, W + 0.3f, 0.25f, 0.34f, -0.75f, 0.05f), false); // 11 the step under the door (it hangs low: it does not count for the floor)
+  // 12 the windshield, a thin slab along its slope (from z 3.55, y 1.7 to z 3.0, y 2.95), turned about x
+  const float nz = 1.25f / 1.3658f, ny = 0.55f / 1.3658f; // (the slope's direction up is (-ny, nz) in (z, y))
+  mat3 slope(vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, nz, -ny), vec3(0.0f, ny, nz));
+  hull->add(vec3(W, 0.683f, 0.05f), vec3(0.0f, 2.325f + 0.05f * ny, 3.275f + 0.05f * nz), slope);
+  return hull;
 }
 // Where the springy contact points are: 4 cm outside that box
 static const float SKIN = 0.04f;
@@ -173,8 +211,10 @@ static const float CHASSIS_Z = CHASSIS_HALF_Z + SKIN;
 static const float CHASSIS_BOTTOM = CHASSIS_LOW - SKIN;
 static const float CHASSIS_TOP = CHASSIS_HIGH + SKIN;
 
-RV::RV(std::shared_ptr<Model> model)
-    : PlayableCharacter(model, chassisShape()), random(std::random_device()()) {
+RV::RV(std::shared_ptr<Model> model) : RV(model, hullShape()) {}
+
+RV::RV(std::shared_ptr<Model> model, std::shared_ptr<CompoundShape> hull)
+    : PlayableCharacter(model, hull), random(std::random_device()()), hull(hull) {
   engineSim.setSeed((uint32_t)random()); // (so that the starts differ from run to run)
   ParticleSettings settings; // sand dust: tan, soft, heavy enough to fall
   settings.lifeMin = 1.0f;
@@ -411,6 +451,8 @@ void RV::ejectParts(const vec3 &from) {
     list.push_back(steeringWheelPart);
   if (hasWindshield)
     list.push_back(brokenWindshieldPart);
+  if (hasDoor)
+    list.push_back(doorPart);
   if (hasHandbrake) {
     list.push_back(handbrakeBasePart);
     list.push_back(handbrakeLeverPart);
@@ -510,6 +552,7 @@ void RV::explodeEngine() {
     return;
   wreck();
   exploded = true;
+  hull->setEnabled(HULL_DOOR, false); // (the door is blown off: the doorway is open)
   alarmSound.reset(); // (the dashboard is gone: no more alarm)
   if (hasAlarm)
     setPartVisible(alarmPart, false);
@@ -529,8 +572,13 @@ void RV::explodeEngine() {
   parkedLights = false;
   updateLights();
   ejectParts(centre);
-  if (body) // the blast lifts the front
-    body->setVelocity(body->getVelocity() + vec3(0.0f, 3.0f, 0.0f));
+  if (body) {
+    // The wheels are gone: the chassis is a rigid box now. The blast lifts it and sets it
+    // tumbling (about its length and sideways), and then it falls, bounces and settles by itself
+    body->setWrecked(true);
+    body->setVelocity(body->getVelocity() + vec3(0.0f, 7.0f, 0.0f));
+    body->setAngularVelocity(body->getAngularVelocity() + vec3(-uniform(0.5f, 3.0f), uniform(-0.8f, 0.8f), uniform(-6.0f, 6.0f)));
+  }
   if (soundEngine) {
     bangSound = soundEngine->play(explosionBangClip(), true, centre);
     if (bangSound)
@@ -870,9 +918,78 @@ float RV::doorYaw() const {
   return yawOf(vec3(rotation * vec4(1.0f, 0.0f, 0.0f, 0.0f)));
 }
 
-void RV::onUse(const vec3 &playerPosition) {
-  if (enterAction && !occupied)
-    enterAction();
+// Using the door only opens or closes it: to drive, the penguin gets in and uses the steering wheel
+void RV::onUse(const vec3 &playerPosition) { toggleDoor(); }
+
+vec3 RV::getInteractionPoint() const { return position + vec3(rotation * vec4(DOOR_POINT, 0.0f)); }
+
+vec3 RV::driverStand() const { return position + vec3(rotation * vec4(DRIVER_STAND, 0.0f)); }
+
+void RV::setDoorModel(std::shared_ptr<Model> door) {
+  doorPart = addPart(door);
+  hasDoor = true;
+  updateDoor(0.0);
+}
+
+void RV::toggleDoor() {
+  if (doorLatched) {
+    doorLatched = false;
+    doorAngle = 0.02f;
+    doorSpin = DOOR_KICK_OPEN;
+  } else {
+    doorSpin = -DOOR_KICK_SHUT;
+  }
+}
+
+// The door is a panel hanging on a vertical hinge: in the vehicle's frame it feels a push of
+// g - a (gravity, only along the door's plane when the RV is tilted, and minus the acceleration
+// of the point where it is, which counts the vehicle's spin too), and swings under it, with
+// the hinge's friction, bouncing off its two stops. About a vertical hinge a uniform panel of width L
+// at an angle t (0 = shut, its free edge towards the rear) has t'' = 3/(2L) (cos t fx + sin t fz), f being
+// that push per kilo, in the vehicle's x and z. So braking or turning hard throws it open, accelerating
+// slams it shut, and a gentle close latches it.
+void RV::updateDoor(double dt) {
+  if (!hasDoor || exploded)
+    return;
+  float dtf = (float)dt;
+  vec3 v = velocity, w = body ? body->getAngularVelocity() : vec3(0.0f);
+  if (dtf > 1e-5f) { // (the vehicle's acceleration and angular acceleration, smoothed over a few frames)
+    float k = std::min(1.0f, 25.0f * dtf);
+    doorAccel += ((v - doorPrevVelocity) / dtf - doorAccel) * k;
+    doorAlpha += ((w - doorPrevSpin) / dtf - doorAlpha) * k;
+  }
+  doorPrevVelocity = v;
+  doorPrevSpin = w;
+  if (!doorLatched && dtf > 0.0f) {
+    mat3 R(rotation);
+    float c = 0.5f * DOOR_WIDTH;
+    // the middle of the panel, in the vehicle's frame, relative to its centre of mass (0.4 up)
+    vec3 middle = DOOR_HINGE + vec3(c * std::sin(doorAngle), 0.0f, -c * std::cos(doorAngle));
+    vec3 r = R * (middle - vec3(0.0f, 0.4f, 0.0f));
+    vec3 a = doorAccel + glm::cross(doorAlpha, r) + glm::cross(w, glm::cross(w, r));
+    vec3 f = glm::transpose(R) * (vec3(0.0f, -9.81f, 0.0f) - a);
+    float accel = 1.5f / DOOR_WIDTH * (std::cos(doorAngle) * f.x + std::sin(doorAngle) * f.z);
+    doorSpin += accel * dtf;
+    doorSpin *= std::exp(-DOOR_DAMPING * dtf);
+    doorAngle += doorSpin * dtf;
+    if (doorAngle > DOOR_OPEN_ANGLE) { // against the open stop
+      doorAngle = DOOR_OPEN_ANGLE;
+      doorSpin = doorSpin > 0.0f ? -doorSpin * DOOR_BOUNCE_OPEN : doorSpin;
+    }
+    if (doorAngle < 0.0f) { // shut: it latches if it comes gently, else it bounces back open a little
+      doorAngle = 0.0f;
+      if (doorSpin < 0.0f) {
+        if (-doorSpin < DOOR_LATCH_SPEED) {
+          doorLatched = true;
+          doorSpin = 0.0f;
+        } else {
+          doorSpin = -doorSpin * DOOR_BOUNCE_SHUT;
+        }
+      }
+    }
+  }
+  setPartTransform(doorPart, glm::rotate(glm::translate(mat4(1.0f), DOOR_HINGE), -doorAngle, vec3(0.0f, 1.0f, 0.0f)));
+  hull->setEnabled(HULL_DOOR, doorAngle < 0.05f);
 }
 
 // A model's frame on the panel: its axes (x, y, z) and its origin, and optionally
@@ -1018,6 +1135,7 @@ void RV::update(double dt) {
   placeSteeringWheel();
   updateHeadlights(dt);
   updateHandbrake(dt);
+  updateDoor(dt);
   updateFire(dt);
   if (wrecked && !exploded) // the small things on the dashboard go where the crushed dashboard is
     for (size_t part : {keyPart, speedNeedlePart, fuelNeedlePart, steeringWheelPart}) {

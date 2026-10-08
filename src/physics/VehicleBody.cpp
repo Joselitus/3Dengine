@@ -144,6 +144,8 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     state.steer = wheel.steered ? steerAngle : 0.0f;
     state.onGround = false;
     state.length = params.fullDroop;
+    if (wrecked)
+      continue; // (the wheels are gone)
 
     vec3 anchor = origin + R * wheel.anchor;
     float groundY;
@@ -257,7 +259,7 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
                     (params.uprightHard - params.uprightSoft) *
                         min(excess / 0.3f, 1.0f);
   vec3 tilting = angular - up * dot(angular, up); // everything but the yaw
-  float strength = touching ? 1.0f : params.uprightInAir;
+  float strength = wrecked ? 0.0f : (touching ? 1.0f : params.uprightInAir); // (a wreck stays as it falls)
   angular += (axis * (params.uprightSoft * params.uprightSoft * tilt +
                       params.uprightHard * params.uprightHard * excess) -
               tilting * (2.0f * params.uprightDamping * frequency)) *

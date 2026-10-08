@@ -109,6 +109,87 @@ def ray_hit(c, w, edge):
         return t, s_
     return None
 
+# The door: an opening in the +x wall (the driver's side), z from -0.8 to 0.1 and y from 0.6 to 2.45
+# (counter-clockwise in (z, y), like PROF). RV.cpp's DOOR_* and the hull's gap must be the same.
+DOOR_HOLE = [(-0.8, 0.6), (0.1, 0.6), (0.1, 2.45), (-0.8, 2.45)]
+
+def _cross(o, a, b):
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+def _same(a, b):
+    return abs(a[0] - b[0]) < 1e-9 and abs(a[1] - b[1]) < 1e-9
+
+def _crosses(p1, p2, p3, p4):
+    """Do the segments p1-p2 and p3-p4 cross at a point inside both (not at a shared end)?"""
+    if _same(p1, p3) or _same(p1, p4) or _same(p2, p3) or _same(p2, p4):
+        return False
+    d1, d2 = _cross(p3, p4, p1), _cross(p3, p4, p2)
+    d3, d4 = _cross(p1, p2, p3), _cross(p1, p2, p4)
+    return ((d1 > 1e-12 and d2 < -1e-12) or (d1 < -1e-12 and d2 > 1e-12)) and \
+           ((d3 > 1e-12 and d4 < -1e-12) or (d3 < -1e-12 and d4 > 1e-12))
+
+def _inside_polygon(p, poly):
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        if (a[1] > p[1]) != (b[1] > p[1]):
+            x = a[0] + (p[1] - a[1]) * (b[0] - a[0]) / (b[1] - a[1])
+            if p[0] < x:
+                inside = not inside
+    return inside
+
+def triangulate(outer, holes):
+    """Triangles (point triples, counter-clockwise) of the polygon `outer` (counter-clockwise, (z, y) points,
+    possibly with collinear points on its sides, which are kept as vertices) with the `holes` cut out."""
+    poly = list(outer)
+    hole_loops = [list(reversed(h)) if _cross(h[0], h[1], h[2]) > 0 else list(h) for h in holes]
+    all_hole_edges = [(h[i], h[(i + 1) % len(h)]) for h in hole_loops for i in range(len(h))]
+    for h in sorted(hole_loops, key=lambda h: min(p[0] for p in h)):
+        start = min(range(len(h)), key=lambda i: h[i][0])
+        hv = h[start]
+        order = sorted(range(len(poly)), key=lambda i: (poly[i][0] - hv[0]) ** 2 + (poly[i][1] - hv[1]) ** 2)
+        for i in order:
+            v = poly[i]
+            mid = ((v[0] + hv[0]) / 2, (v[1] + hv[1]) / 2)
+            edges = [(poly[k], poly[(k + 1) % len(poly)]) for k in range(len(poly))] + all_hole_edges
+            if any(_crosses(hv, v, a, b) for a, b in edges):
+                continue
+            if not _inside_polygon(mid, poly) or any(_inside_polygon(mid, hh) for hh in hole_loops):
+                continue
+            loop = h[start:] + h[:start] + [hv]
+            poly = poly[:i + 1] + loop + [v] + poly[i + 1:]
+            break
+        else:
+            raise RuntimeError('no bridge to a hole')
+    tris = []
+    guard = 0
+    while len(poly) > 3 and guard < 10000:
+        guard += 1
+        n = len(poly)
+        for i in range(n):
+            a, b, c = poly[i - 1], poly[i], poly[(i + 1) % n]
+            cr = _cross(a, b, c)
+            if abs(cr) < 1e-12:                      # a collinear point (or a spike): no area, drop it
+                if not _same(a, c):
+                    pass
+                poly.pop(i)
+                break
+            if cr < 0:
+                continue                             # a reflex corner
+            if any(not (_same(p, a) or _same(p, b) or _same(p, c)) and
+                   _cross(a, b, p) > 1e-12 and _cross(b, c, p) > 1e-12 and _cross(c, a, p) > 1e-12
+                   for p in poly):
+                continue                             # something is inside this ear
+            tris.append((a, b, c))
+            poly.pop(i)
+            break
+        else:
+            raise RuntimeError('triangulation stuck')
+    if len(poly) == 3 and abs(_cross(*poly)) > 1e-12:
+        tris.append(tuple(poly))
+    return tris
+
 def body_with_openings():
     n = len(PROF)
     verts = []
@@ -149,7 +230,11 @@ def body_with_openings():
             where[(i, round(t, 9))] = len(ring)
             ring.append(pt(i, t))
     m = len(SIDE_WINDOW)
-    for x, flip in ((-W, False), (W, True)):
+    # the +x wall has the door opening as well as the window: it is triangulated from the outline
+    # (with the same split points, so that it meets the quads beside it vertex to vertex)
+    for a, b, c in triangulate(ring, [SIDE_WINDOW, DOOR_HOLE]):
+        faces.append([vert(W, p[0], p[1]) for p in (c, b, a)])  # (the +x side faces the other way)
+    for x, flip in ((-W, False),):
         for k in range(m):
             k2 = (k + 1) % m
             i1 = where[(hits[k][0], round(hits[k][1], 9))]
@@ -228,18 +313,20 @@ for sx in (-1, 1):
         a, b = sx*(W+d0), sx*(W+d1)
         box(mat, min(a, b), max(a, b), y0, y1, z0, z1)
     sbox('orange', 2.55, 2.75, -3.55, 3.08)
-    sbox('teal', 1.3, 1.4, -3.55, 3.55)
-    sbox('orange', 1.2, 1.3, -3.55, 3.55)
+    # the two bands along the sides: on the +x side they stop at the doorway (z -0.82 to 0.12, where the
+    # door covers it): they would stay floating in the air when the door is open
+    for z0, z1 in (((-3.55, -0.82), (0.12, 3.55)) if sx > 0 else ((-3.55, 3.55),)):
+        sbox('teal', 1.3, 1.4, z0, z1)
+        sbox('orange', 1.2, 1.3, z0, z1)
     for z0, z1 in ((-3.1,-2.2),(-1.9,-1.0)):
-        sbox('glass', 1.6, 2.35, z0, z1, 0.0, 0.03)
-    sbox('glass', 1.9, 2.5, 0.45, 0.9, 0.0, 0.03)  # small cab-side window
+        sbox('glass', 1.6, 2.35, z0, z1, GAP, 0.03)
+    sbox('glass', 1.9, 2.5, 0.45, 0.9, GAP, 0.03)  # small cab-side window
     if sx > 0:
-        # door only on the +X side
-        sbox('door', 0.6, 2.45, -0.8, 0.1, 0.0, 0.04)
-        sbox('glass', 1.6, 2.35, -0.65, -0.05, 0.04, 0.06)
-        sbox('rack', 1.0, 1.08, -0.15, -0.05, 0.04, 0.09)  # handle
+        # (the door only on the +X side: a model of its own, door.obj, see below)
+        sbox('bumper', 0.28, 0.34, -0.75, 0.05, 0.0, 0.30)  # the step under it
+        sbox('rack', 0.34, 0.60, -0.50, -0.46, 0.0, 0.02)   # ...and its bracket
     else:
-        sbox('glass', 1.6, 2.35, -0.7, 0.0, 0.0, 0.03)
+        sbox('glass', 1.6, 2.35, -0.7, 0.0, GAP, 0.03)
     # mirror: arm + head
     sbox('mirror', 1.72, 1.80, 3.33, 3.43, 0.0, 0.25)  # (the arm joins the head from below, out of the glass's way)
     # The head is 0.22 wide, 0.42 tall and 0.12 deep, turned as a whole (MIRROR_YAW about the vertical,
@@ -321,6 +408,19 @@ for sx in (-1, 1):
         verts = [(sx*1.0 + 0.068*math.cos(2*math.pi*i/16), y + 0.068*math.sin(2*math.pi*i/16), FZ + 0.063) for i in range(16)]
         glow.append(('glow', verts, [list(range(16))]))  # counter-clockwise seen from +z
 write_obj('headlight_glow.obj', glow)
+
+# The door, hinged on the front edge of its opening (z = 0.12), turning about a vertical axis through
+# HINGE (RV.cpp: DOOR_HINGE): the panel, its window and its handle, in the frame of the hinge
+HINGE = (W + 0.02, 0.58, 0.12)
+door_parts = []
+def dbox(mat, x0, x1, y0, y1, z0, z1):
+    box(mat, x0, x1, y0, y1, z0, z1)
+    m, verts, faces = objs.pop()
+    door_parts.append((m, [(x - HINGE[0], y - HINGE[1], z - HINGE[2]) for x, y, z in verts], faces))
+dbox('door', W, W + 0.04, 0.58, 2.47, -0.82, 0.12)
+dbox('glass', W + 0.04, W + 0.06, 1.6, 2.35, -0.65, -0.05)
+dbox('rack', W + 0.04, W + 0.09, 1.0, 1.08, -0.15, -0.05)  # handle
+write_obj('door.obj', door_parts)
 
 # one model per side of the car, centred on the wheel's axle
 write_obj('wheel_negx.obj', wheels[-1])

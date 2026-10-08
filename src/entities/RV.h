@@ -17,6 +17,16 @@
 #include "SpotLight.h"
 #include "VehicleBody.h"
 
+// The RV is HOLLOW: its collision shape (a CompoundShape, see hullShape in RV.cpp) is a floor, a roof
+// and walls with the doorway cut in the driver's side (+x), so the penguin can walk in (the sill and
+// the step under it are low enough to climb: Walker::getStepHeight) and around the cab. The door is a
+// model of its own that swings on its front edge (setDoorModel); E next to it gives it a push to open
+// or to shut (isDoorOpen, toggleDoor; shut, it is a wall too). The door is a real hinged panel: it
+// feels the vehicle's acceleration and spin (and gravity when the RV is tilted), so it swings open
+// when the RV brakes or turns hard, and slams shut when it accelerates; it bounces off its stops
+// and latches when it closes gently. To drive, the penguin stands by the steering
+// wheel inside and presses E there (steeringInteraction()): that is what the enter action does.
+//
 // The RV: W/S drive it and A/D steer its front wheels, so the camera can
 // orbit freely without turning the mesh. It is a VehicleBody: a rigid chassis
 // on four springs, so it bounces, pitches and rolls over the terrain, and its
@@ -117,6 +127,37 @@ private:
   bool faultGoesOut = false;     // how the fault now will end
   float lampLevel = 1.0f;        // how bright the lamps are now, 0..1
   std::mt19937 random;
+  std::shared_ptr<CompoundShape> hull; // its collision shape: a hollow box (see RV.cpp)
+  // the door: opening swings it about the vertical through its front edge
+  bool hasDoor = false;
+  size_t doorPart = 0;
+  bool doorLatched = true; // shut and clicked home: it stays so until somebody uses it
+  float doorAngle = 0.0f;  // how far it is open now (radians, 0 = shut)
+  float doorSpin = 0.0f;   // how fast it swings (rad/s, positive = opening)
+  // The vehicle's own acceleration and spin (filtered), which the door feels (see updateDoor)
+  glm::vec3 doorPrevVelocity = glm::vec3(0.0f), doorPrevSpin = glm::vec3(0.0f);
+  glm::vec3 doorAccel = glm::vec3(0.0f), doorAlpha = glm::vec3(0.0f);
+  void updateDoor(double dt);
+  // The steering wheel as something to use: E next to it, inside, starts driving
+  class Steering : public Interactable {
+    RV &rv;
+
+  public:
+    explicit Steering(RV &rv) : rv(rv) {}
+    std::string getInteractionName() const override { return "autocaravana"; }
+    std::string getInteractionVerb() const override { return "conducir la"; }
+    glm::vec3 getInteractionPoint() const override { return rv.driverStand(); }
+    float getInteractionRange() const override { return 0.9f; } // (not from outside the walls)
+    bool isInteractionAvailable() const override { return !rv.occupied; }
+    bool usesDirectly() const override { return true; }
+    void onUse(const glm::vec3 &) override {
+      if (rv.enterAction && !rv.occupied)
+        rv.enterAction();
+    }
+    void buildInterface(UIPanel &) override {}
+  };
+  Steering wheelUse{*this};
+  RV(std::shared_ptr<Model> model, std::shared_ptr<CompoundShape> hull);
 
   void updateHeadlights(double dt);
   // The lamps shine: the switch is on and has power, and there is no fault that has them dark now
@@ -221,8 +262,20 @@ private:
   void placeWheels();
 
 public:
-  // The RV is a long box, not a pill
+  // The RV is a hollow box (see the class comment)
   explicit RV(std::shared_ptr<Model> model);
+
+  // The door: its model (door.obj, in the frame of its hinge, which this puts in place); E at it
+  // opens and closes it
+  void setDoorModel(std::shared_ptr<Model> door);
+  // The door is not latched shut (open, or swinging)
+  bool isDoorOpen() const { return !doorLatched; }
+  // Pushes it open (from latched) or shut (from anywhere else): it then moves by itself
+  void toggleDoor();
+  // The steering wheel, as something to use from inside (give it to the stage's interactables)
+  Interactable *steeringInteraction() { return &wheelUse; }
+  // Where the driver stands on the floor inside, behind the steering wheel (world)
+  glm::vec3 driverStand() const;
 
   float getMass() const override;
   // The wheels' dust emitters: give them to the stage (Stage::addEmitter) to
@@ -419,11 +472,11 @@ public:
   float headingYaw() const;
   float doorYaw() const;
 
-  // Interactable: get in at the door
-  std::string getInteractionName() const override { return "autocaravana"; }
-  std::string getInteractionVerb() const override { return "conducir la"; }
-  glm::vec3 getInteractionPoint() const override { return doorPosition(0.4f); }
-  float getInteractionRange() const override { return 2.5f; }
+  // Interactable: open or close the door (to drive, see steeringInteraction)
+  std::string getInteractionName() const override { return "puerta"; }
+  std::string getInteractionVerb() const override { return isDoorOpen() ? "cerrar la" : "abrir la"; }
+  glm::vec3 getInteractionPoint() const override;
+  float getInteractionRange() const override { return 2.0f; }
   bool isInteractionAvailable() const override { return !occupied; }
   bool usesDirectly() const override { return true; }
   void onUse(const glm::vec3 &playerPosition) override;

@@ -35,6 +35,8 @@ public:
   void setRunning(bool running) override { this->running = running; }
   void update(double dt) override;
   void getFlashlight(std::vector<SpotLight> &lights) const override;
+  // It climbs ledges up to this high (the sill of the RV's door, with its step)
+  float getStepHeight() const override { return 0.7f; }
 };
 
 #endif
