@@ -12,6 +12,7 @@ padded vinyl) with their real normals, so that it shades smooth. Closed solids, 
 """
 import math
 
+SCALE = 1.45        # everything is made at 1.0 and scaled about the floor point at the end
 TEXTURE_SIZE = 0.45  # metres of seat per tile of the wear textures
 objs = []  # (material, verts, normals, faces, uvs)
 
@@ -228,7 +229,7 @@ with open('seat.obj', 'w') as f:
     for mat, verts, normals, faces, uvs in objs:
         f.write(f'usemtl {mat}\n')
         for v in verts:
-            f.write('v %.5f %.5f %.5f\n' % v)
+            f.write('v %.5f %.5f %.5f\n' % tuple(c * SCALE for c in v))
         for n in normals:
             f.write('vn %.4f %.4f %.4f\n' % n)
         for t in uvs:

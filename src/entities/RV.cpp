@@ -117,8 +117,8 @@ static const float DOOR_WIDTH = 0.94f, DOOR_KICK_OPEN = 3.0f, DOOR_KICK_SHUT = 3
 static const float DOOR_DAMPING = 1.5f, DOOR_BOUNCE_OPEN = 0.25f, DOOR_BOUNCE_SHUT = 0.3f, DOOR_LATCH_SPEED = 2.0f;
 // Where the driver stands on the floor inside (behind the wheel at x = 0.45, z = 2.28)
 // (on the floor behind the pilot's seat, which stands at SEAT_ORIGIN: its cushion and backrest take
-// z 1.15 to 1.83)
-static const vec3 DRIVER_STAND(0.45f, 0.55f, 0.65f);
+// z 1.16 to 1.94, its back leaning to z 0.95)
+static const vec3 DRIVER_STAND(0.45f, 0.55f, 0.45f);
 static const vec3 SEAT_ORIGIN(0.45f, 0.55f, 1.55f); // the pilot's seat's floor point; the copilot's is at -x
 // The wreck: a crash this many times harder than the least that breaks the windshield wrecks the
 // front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
@@ -212,7 +212,7 @@ static std::shared_ptr<CompoundShape> hullShape() {
   // 13, 14 the seats (pilot's, copilot's), solid from the floor up to over the backrest's lean: too tall
   // to be stepped on, so that one walks round them (behind them) and sits with E
   for (float side : {1.0f, -1.0f})
-    box(side * SEAT_ORIGIN.x - 0.24f, side * SEAT_ORIGIN.x + 0.24f, FLOOR, 1.7f, 1.15f, 1.83f);
+    box(side * SEAT_ORIGIN.x - 0.42f, side * SEAT_ORIGIN.x + 0.42f, FLOOR, 2.15f, 0.95f, 1.97f);
   return hull;
 }
 void RV::interiorBox(vec3 &centre, vec3 &halfSize) {
