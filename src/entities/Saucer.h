@@ -118,7 +118,8 @@ private:
   glm::mat4 gunLocal = glm::mat4(1.0f); // the barrel's placement in its frame
   float shotCooldown = 0.0f;
   float shotTime = -1.0f;  // seconds since the last shot (< 0: none showing)
-  glm::vec3 shotTo = glm::vec3(0.0f); // where it hit (world)
+  glm::vec3 shotFrom = glm::vec3(0.0f), shotTo = glm::vec3(0.0f); // the muzzle and where it hit, when
+                                                                  // it was fired (world: it stays put)
   std::shared_ptr<AudioClip> shotClip;
   std::unique_ptr<Sound> shotSound;
   std::shared_ptr<ParticleEmitter> sparks;
