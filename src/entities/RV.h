@@ -55,9 +55,10 @@
 // vehicle, and whoever is inside or near dies (setExplosionCallback). The engine is dead after
 // that, and the fire goes on.
 //
-// The two side mirrors (0 = the driver's, +x; 1 = the passenger's, -x) show what is behind: each glass is
-// a part of the RV that shows a texture (setMirrorTexture) which the main loop draws every frame
-// (the two take turns) from rearMirror()'s camera,
+// The three rear-view mirrors (0 = the driver's side mirror, +x; 1 = the passenger's, -x; 2 = the
+// central one, inside at the top of the windshield, which sees out through the rear window) show
+// what is behind: each glass is a part of the RV that shows a texture (setMirrorTexture) which the
+// main loop draws (they take turns, one a frame) from rearMirror()'s camera,
 // at the glass, looking where the driver's line of sight bounces off it (a true reflection, a
 // bit wider than a flat mirror's, as a convex one). The glass breaks (it is gone) when the front
 // is wrecked.
@@ -213,11 +214,11 @@ private:
   void ejectParts(const glm::vec3 &from);
   void updateDebris(const Stage &stage, double dt);
   glm::vec3 engineBay() const; // where the fire is, in the world
-  size_t mirrorPart[2] = {0, 0};
-  bool hasMirror[2] = {false, false}, mirrorShown[2] = {true, true};
-  float mirrorAspect = 0.5f;
+  size_t mirrorPart[3] = {0, 0, 0};
+  bool hasMirror[3] = {false, false, false}, mirrorShown[3] = {true, true, true};
+  float mirrorAspect[3] = {0.5f, 0.5f, 3.0f};
   void updateMirrorParts() {
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 3; i++)
       if (hasMirror[i])
         setPartVisible(mirrorPart[i], mirrorShown[i] && !wrecked);
   }
@@ -284,6 +285,9 @@ public:
   bool isDoorOpen() const { return !doorLatched; }
   // Pushes it open (from latched) or shut (from anywhere else): it then moves by itself
   void toggleDoor();
+  // The inside of its body, where one can walk (floor to roof, wall to wall, back to dashboard,
+  // the cab too), in its frame: for the SafeSpace the map gives it
+  static void interiorBox(glm::vec3 &centre, glm::vec3 &halfSize);
   // The steering wheel, as something to use from inside (give it to the stage's interactables)
   Interactable *steeringInteraction() { return &wheelUse; }
   // Where the driver stands on the floor inside, behind the steering wheel (world)
@@ -301,8 +305,10 @@ public:
   const std::vector<std::shared_ptr<ParticleEmitter>> &getDust() const {
     return dust;
   }
-  // The glass of mirror `side` (0 = the driver's, +x; 1 = the passenger's, -x) shows this GL
-  // texture (RGBA, `aspect` = width / height of the picture)
+  // How many rear-view mirrors it has: 0 = the driver's side mirror (+x), 1 = the passenger's (-x),
+  // 2 = the central one
+  static const int MIRRORS = 3;
+  // The glass of mirror `side` shows this GL texture (RGBA, `aspect` = width / height of the picture)
   void setMirrorTexture(int side, unsigned int texture, float aspect);
   // Where the camera of mirror `side` goes (false if the glass is gone)
   bool rearMirror(int side, MirrorView &view) const;

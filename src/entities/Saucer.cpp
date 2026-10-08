@@ -419,6 +419,7 @@ bool Saucer::fire(const Stage &stage, const vec3 &eye, const vec3 &direction) {
       break;
     }
   }
+  shotFrom = muzzle();
   shotTo = eye + dir * best;
   shotTime = 0.0f;
   shots++;
@@ -570,12 +571,13 @@ void Saucer::place() {
   setPartVisible(gunPart, gunOut > 0.01f);
   setPartTransform(gunMountPart, slide);
   setPartTransform(gunPart, slide * gunLocal);
-  // the shot: a rod stretched from the muzzle to where it hit (in its frame)
+  // the shot: a rod stretched from where the muzzle was to where it hit, both fixed in the world
+  // (a beam of light: turning the gun or the ship after it does not drag it along)
   bool shooting = shotTime >= 0.0f && shotTime <= SHOT_SHOW;
   setPartVisible(shotPart, shooting);
   if (shooting) {
     mat3 toShip = transpose(mat3(rotation));
-    vec3 from = toShip * (muzzle() - position), to = toShip * (shotTo - position);
+    vec3 from = toShip * (shotFrom - position), to = toShip * (shotTo - position);
     vec3 d = to - from;
     float len = length(d);
     if (len > 0.05f) {
@@ -616,7 +618,7 @@ void Saucer::getLights(vector<SpotLight> &lights) const {
     return;
   if (shotTime >= 0.0f) { // the flash where a shot hits (it lights its sparks too)
     float k = 1.0f - shotTime / (2.0f * SHOT_SHOW);
-    lights.push_back(SpotLight::omni(shotTo - normalize(shotTo - muzzle()) * 0.3f, SHOT_COLOR * 3.0f * k, 7.0f));
+    lights.push_back(SpotLight::omni(shotTo - normalize(shotTo - shotFrom) * 0.3f, SHOT_COLOR * 3.0f * k, 7.0f));
   }
   if (beamOn()) {
     SpotLight beam;
@@ -666,6 +668,7 @@ void Saucer::writeNetState(NetWriter &out) const {
   out.boolean(onGround);
   out.u32(touchdowns);
   out.u32(shots);
+  out.vec3(shotFrom);
   out.vec3(shotTo);
 }
 
@@ -681,6 +684,7 @@ void Saucer::readNetState(NetReader &in) {
   engineOn = in.boolean();
   onGround = in.boolean();
   unsigned landed = in.u32(), fired = in.u32();
+  vec3 from = in.vec3();
   vec3 hit = in.vec3();
   if (!in.isOk() || p > (uint8_t)Phase::Leaving)
     return;
@@ -704,6 +708,7 @@ void Saucer::readNetState(NetReader &in) {
   }
   if (fired != shots) {
     shots = fired;
+    shotFrom = from;
     shotTo = hit;
     shotTime = 0.0f;
     sparks->setPosition(shotTo);

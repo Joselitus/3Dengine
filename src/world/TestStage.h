@@ -72,7 +72,7 @@ private:
     });
     mosquito->setPlayerInVehicleQuery([this, self]() {
       Player *p = nearestAlive(self->getPosition());
-      return p && p->inVehicle;
+      return p && playerSheltered(*p);
     });
     mosquito->setPlayerCaughtCallback([this, self]() {
       if (netRole() == NetRole::Client)
@@ -329,6 +329,13 @@ public:
     sign->setYaw(std::atan2(3.0f - 7.5f, 4.0f + 1.0f)); // face (3, 4)
     add(sign);
     interactables.push_back(sign.get());
+
+    // Bob's ship comes at night and lands on a flat bit of sand off the road, 25 m from the start
+    // (its ground varies 0.23 m within 5 m; the road is 15 m away, the nearest cactus or rock 9 m),
+    // its ramp towards the start
+    vec3 landing(-18.0f, 0.0f, 18.0f);
+    landing.y = groundAt(landing.x, landing.z);
+    createAlienVisit(sound, landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
   }
 };
 

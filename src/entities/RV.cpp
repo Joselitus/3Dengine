@@ -134,18 +134,22 @@ static const float HANDBRAKE_ENGAGED = 15.0f, HANDBRAKE_RELEASED = 55.0f, HANDBR
 static const vec3 ALARM_LAMP(0.145f, 1.8572f, 2.759f);
 static const float ALARM_PERIOD = 0.6f, ALARM_VOLUME = 0.7f;
 static std::shared_ptr<AudioClip> alarmClip();
-// The two mirrors (generate_rv.py, turned_box: the heads of the side mirrors, 0.22 x 0.42 x 0.12, each
-// turned as a whole MIRROR_YAW about the vertical and MIRROR_PITCH about its own x, angles that bounce
-// the driver's line of sight straight back). Mirror 0 is the driver's (+x), mirror 1 the passenger's
-// (-x). The glass is a flat quad lying on the rear face of a head, MIRROR_HALF wide and tall, and the
-// picture on it is the view of a camera at the glass: MIRROR_FOV degrees (vertical), more than a flat
-// mirror would show, like a convex one.
-static const float MIRROR_X = 1.51f, MIRROR_Y = 2.01f, MIRROR_Z = 3.38f;
-static const float MIRROR_YAW[2] = {14.0f, -22.5f}, MIRROR_PITCH[2] = {4.8f, 3.7f}; // degrees (signed)
-static const float MIRROR_FOV = 30.0f;
-static const float MIRROR_DEPTH = 0.06f, MIRROR_PROUD = 0.004f; // the face is 6 cm from the centre
-static const vec2 MIRROR_HALF(0.095f, 0.19f);
-static vec3 mirrorCentre(int side) { return vec3(side == 0 ? MIRROR_X : -MIRROR_X, MIRROR_Y, MIRROR_Z); }
+// The three mirrors (generate_rv.py, turned_box): 0 the driver's side mirror (+x), 1 the passenger's
+// (-x), heads of 0.22 x 0.42 x 0.12; 2 the central one inside, at the top of the windshield
+// (CENTRE_MIRROR there), a head of 0.28 x 0.09 x 0.04. Each head is turned as a whole MIRROR_YAW about
+// the vertical and MIRROR_PITCH about its own x, angles that bounce the driver's line of sight
+// straight back (the central one's, to the upper part of the rear window). The glass is a flat quad
+// lying on the rear face of a head (MIRROR_DEPTH from its centre), MIRROR_HALF wide and tall, and
+// the picture on it is the view of a camera at the glass: MIRROR_FOV degrees (vertical); the side
+// ones show more than a flat mirror would, like convex ones.
+static const vec3 MIRROR_CENTRE[RV::MIRRORS] = {vec3(1.51f, 2.01f, 3.38f), vec3(-1.51f, 2.01f, 3.38f),
+                                                vec3(0.0f, 2.55f, 2.80f)};
+static const float MIRROR_YAW[RV::MIRRORS] = {14.0f, -22.5f, -9.84f}; // degrees (signed)
+static const float MIRROR_PITCH[RV::MIRRORS] = {4.8f, 3.7f, -5.29f};
+static const float MIRROR_FOV[RV::MIRRORS] = {30.0f, 30.0f, 10.0f};
+static const float MIRROR_DEPTH[RV::MIRRORS] = {0.06f, 0.06f, 0.02f}, MIRROR_PROUD = 0.004f;
+static const vec2 MIRROR_HALF[RV::MIRRORS] = {vec2(0.095f, 0.19f), vec2(0.095f, 0.19f), vec2(0.13f, 0.04f)};
+static vec3 mirrorCentre(int side) { return MIRROR_CENTRE[side]; }
 // A head's own frame in the RV's: its x (along the glass), y (up it) and z (the rear face looks
 // along -z)
 static mat3 mirrorTurn(int side) {
@@ -204,6 +208,13 @@ static std::shared_ptr<CompoundShape> hullShape() {
   hull->add(vec3(W, 0.683f, 0.05f), vec3(0.0f, 2.325f + 0.05f * ny, 3.275f + 0.05f * nz), slope);
   return hull;
 }
+void RV::interiorBox(vec3 &centre, vec3 &halfSize) {
+  // (as hullShape: from a little under the floor, so that feet on it count, up to the roof)
+  const float W = HALF_TRACK, BOTTOM = 0.3f, ROOF = 3.05f, BACK = -3.55f, FRONT = 3.55f;
+  centre = vec3(0.0f, (BOTTOM + ROOF) * 0.5f, (BACK + FRONT) * 0.5f);
+  halfSize = vec3(W, (ROOF - BOTTOM) * 0.5f, (FRONT - BACK) * 0.5f);
+}
+
 // Where the springy contact points are: 4 cm outside that box
 static const float SKIN = 0.04f;
 static const float CHASSIS_X = CHASSIS_HALF_X + SKIN;
@@ -725,13 +736,15 @@ void RV::setAlarmLampModel(std::shared_ptr<Model> lamp) {
 }
 
 void RV::setMirrorTexture(int side, unsigned int texture, float aspect) {
-  mirrorAspect = aspect;
+  if (side < 0 || side >= MIRRORS)
+    return;
+  mirrorAspect[side] = aspect;
   mat3 turn = mirrorTurn(side);
   vec3 across = turn * vec3(1.0f, 0.0f, 0.0f), up = turn * vec3(0.0f, 1.0f, 0.0f);
   vec3 normal = turn * vec3(0.0f, 0.0f, -1.0f); // (out of the face, towards the driver)
-  vec3 centre = mirrorCentre(side) + normal * (MIRROR_DEPTH + MIRROR_PROUD);
+  vec3 centre = mirrorCentre(side) + normal * (MIRROR_DEPTH[side] + MIRROR_PROUD);
   // seen from the driver, +across is on the left; the picture is shown mirrored (u = 1 at the left)
-  float hw = MIRROR_HALF.x, hh = MIRROR_HALF.y;
+  float hw = MIRROR_HALF[side].x, hh = MIRROR_HALF[side].y;
   std::vector<Vertex> vertices = {
       {centre + across * hw - up * hh, normal, vec2(1.0f, 0.0f)},
       {centre - across * hw - up * hh, normal, vec2(0.0f, 0.0f)},
@@ -750,18 +763,18 @@ void RV::setMirrorTexture(int side, unsigned int texture, float aspect) {
 }
 
 bool RV::rearMirror(int side, MirrorView &view) const {
-  if (side < 0 || side > 1 || !hasMirror[side] || wrecked)
+  if (side < 0 || side >= MIRRORS || !hasMirror[side] || wrecked)
     return false;
   mat3 body(rotation), turn = mirrorTurn(side);
   vec3 normal = body * (turn * vec3(0.0f, 0.0f, -1.0f));
-  vec3 glass = position + body * (mirrorCentre(side) + turn * vec3(0.0f, 0.0f, -(MIRROR_DEPTH + MIRROR_PROUD)));
+  vec3 glass = position + body * (mirrorCentre(side) + turn * vec3(0.0f, 0.0f, -(MIRROR_DEPTH[side] + MIRROR_PROUD)));
   vec3 incoming = glass - eyePosition();
   incoming = length(incoming) > 1e-3f ? normalize(incoming) : body * vec3(0.0f, 0.0f, 1.0f);
   view.forward = glm::reflect(incoming, normal); // where the driver sees in it
   view.position = glass + normal * 0.03f;
   view.up = body * vec3(0.0f, 1.0f, 0.0f);
-  view.fov = MIRROR_FOV;
-  view.aspect = mirrorAspect;
+  view.fov = MIRROR_FOV[side];
+  view.aspect = mirrorAspect[side];
   return true;
 }
 

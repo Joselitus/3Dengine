@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "AlienVisit.h"
+#include "Flatwoods.h"
 #include "FollaCulos.h"
 #include "GameStage.h"
 #include "RV.h"
@@ -46,6 +47,20 @@ protected:
   std::shared_ptr<FollaCulos> creature; // the last night creature made (null if the map has none)
   std::vector<std::shared_ptr<FollaCulos>> creatures; // all of them (each lights its eyes)
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
+  // The creatures can't reach a player who drives the RV or flies the ship, or who is on foot in a
+  // SafeSpace (inside the RV): they behave as when he drives (this is their "in a vehicle" query)
+  bool playerSheltered(const Player &p) const {
+    return p.inVehicle || p.inSaucer || isSheltered(p.walker->getPosition());
+  }
+  // The Flatwoods monster (createRV makes it, in every map with the RV, at night) and the inside of
+  // the RV, where it comes for the player
+  std::shared_ptr<Flatwoods> flatwoods;
+  std::shared_ptr<SafeSpace> rvInside;
+  int flatwoodsVictim = -1; // the player it goes for (the nearest one in the RV)
+  bool playerInRV(const Player &p) const {
+    return p.inVehicle || (rvInside && rvInside->contains(p.walker->getPosition()));
+  }
+  static constexpr float POSSESSED_SPEED = 1.3f; // m/s, a possessed body's pace
   float groundFallback = 0.0f;          // ground height where there is no floor
 
   explicit VehicleStage(FloorMode mode) : GameStage(mode) {}
@@ -62,6 +77,13 @@ protected:
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
+  // The Flatwoods monster, wired to the RV and the players (createRV calls it)
+  void createFlatwoods();
+  void startPossession(Player &p);
+  void endPossession(Player &p);
+  void updatePossession(Player &p, double dt);
+  // Out of the RV's seat onto the cab's floor (the leave key, or the monster's doing)
+  void getOutOfRV(Player &p);
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
@@ -104,6 +126,11 @@ public:
   float alienPresence() const override;
   void endAlienHiss() override;
   bool playerAiming() const override { return local && local->inSaucer && alien.saucer->isAiming(); }
+  // (the Flatwoods monster only shows in the mirrors)
+  void setMirrorView(bool inMirror) override {
+    if (flatwoods)
+      flatwoods->setMirrorView(inMirror);
+  }
 
   // F: the headlights while the penguin is driving, its flashlight on foot, the ray gun of the ship
   void toggleHeadlights(Player &p) override;

@@ -85,7 +85,9 @@ PROF = [(-3.55,0.55),(3.55,0.55),(3.55,1.7),(3.0,2.95),(2.85,3.05),(-3.4,3.05),(
 #   of PROF, from A to B) the strip T0..T1 has no wall between the panes' x
 #   ranges, apart from the post in the middle;
 # - one window on each side of the cab, beside the driver: a rectangle of the
-#   side walls (SIDE_WINDOW = z0, z1, y0, y1).
+#   side walls (SIDE_WINDOW = z0, z1, y0, y1);
+# - the rear window, in the rear face (edge 6 of PROF, from the roof down): REAR_X across and
+#   REAR_Y up, so that the driver sees out of the back in the central mirror.
 # Through them (and their translucent glass) the driver can see out and the
 # camera can sit in the cab.
 T0, T1 = 0.08, 0.85
@@ -94,6 +96,9 @@ PANES = ((-1.05, -0.03), (0.03, 1.05))
 # to it (a thin pillar in between), so it reaches almost to the front; (z, y),
 # counter-clockwise like PROF
 SIDE_WINDOW = [(1.3, 1.85), (3.334, 1.85), (3.048, 2.5), (1.3, 2.5)]
+REAR_X, REAR_Y = (-1.0, 0.45), (1.6, 2.35)
+# (along edge 6, from (-3.55, 2.9) down to (-3.55, 0.55): where the rear window's top and bottom are)
+R0, R1 = (2.9 - REAR_Y[1]) / 2.35, (2.9 - REAR_Y[0]) / 2.35
 
 def ray_hit(c, w, edge):
     """Where the ray from c through w meets the segment `edge`: (t along the edge, distance) or None."""
@@ -223,7 +228,8 @@ def body_with_openings():
     # The outline with every split point in it (the rays' hits, and the
     # windshield's T0 and T1 on edge 2), in order, so that a wall piece has the
     # same vertices on its border as the quads beside it
-    split_ts = {i: sorted({0.0} | splits[i] | ({T0, T1} if i == 2 else set())) for i in range(n)}
+    split_ts = {i: sorted({0.0} | splits[i] | ({T0, T1} if i == 2 else set()) | ({R0, R1} if i == 6 else set()))
+                for i in range(n)}
     ring, where = [], {}
     for i in range(n):
         for t in split_ts[i]:
@@ -253,6 +259,8 @@ def body_with_openings():
         ts = {0.0, 1.0} | splits[i]
         if i == 2:
             ts |= {T0, T1}
+        if i == 6:
+            ts |= {R0, R1}
         ts = sorted(ts)
         for ta, tb in zip(ts, ts[1:]):
             if tb - ta < 1e-9:
@@ -264,10 +272,14 @@ def body_with_openings():
             # strips above and below the openings meet the posts, and the
             # neighbouring edges' quads, vertex to vertex)
             middle = i == 2 and T0 - 1e-9 <= ta and tb <= T1 + 1e-9
-            xs = [-W, PANES[0][0], PANES[0][1], PANES[1][0], PANES[1][1], W]
+            rear = i == 6 and R0 - 1e-9 <= ta and tb <= R1 + 1e-9
+            xs = sorted({-W, PANES[0][0], PANES[0][1], PANES[1][0], PANES[1][1], REAR_X[0], REAR_X[1], W})
+            within = lambda k, span: span[0] - 1e-9 <= xs[k] and xs[k+1] <= span[1] + 1e-9
             for k in range(len(xs) - 1):
-                if middle and (xs[k], xs[k+1]) in PANES:
-                    continue                                       # the openings
+                if middle and any(within(k, pane) for pane in PANES):
+                    continue                                       # the windshield's openings
+                if rear and within(k, REAR_X):
+                    continue                                       # the rear window
                 quad(xs[k], xs[k+1])
     objs.append(('body', verts, faces))
 body_with_openings()
@@ -355,7 +367,8 @@ for sx in (-1, 1):
         wheel_parts.extend(range(first + 1, len(objs)))
 # rear: long window + ladder (stair) on the right
 RZ = -3.55
-box('glass', -1.0, 0.45, 1.6, 2.35, RZ-0.03, RZ-GAP)
+# (the rear window: a thin translucent pane in its opening, like the side windows)
+box('sideglass', REAR_X[0], REAR_X[1], REAR_Y[0], REAR_Y[1], RZ-0.01, RZ+0.01)
 box('orange', -W, W, 2.55, 2.75, RZ-0.02, RZ-GAP)
 for x in (0.7, 1.0):
     box('rack', x-0.025, x+0.025, 0.85, 2.95, RZ-0.1, RZ-0.05)           # rails
@@ -373,6 +386,15 @@ for sx in (-1, 1):
     box('rack', sx*0.9-0.03, sx*0.9+0.03, 3.05+GAP, 3.3, -0.5, -0.44)
 box('rack', -0.93, 0.93, 3.27, 3.33, -3.3, -0.44)
 box('rack', -0.45, 0.45, 3.05+GAP, 3.2, 0.3, 2.3)  # roof AC unit
+# The central rear-view mirror, inside, at the top of the windshield: a stalk from the roof and a
+# wide head (0.28 x 0.09 x 0.04), turned (CENTRE_MIRROR_TURN: yaw, pitch, as turned_box) so that
+# the driver's line of sight (from RV.cpp's EYE_*, 0.45, 2.4, 1.7) bounces off it to the upper part
+# of the rear window (y 2.2: the horizon shows in it). Low enough to be in the driver's view. RV.cpp
+# puts a glass on its rear face (MIRROR_* there, the third one).
+CENTRE_MIRROR = (0.0, 2.55, 2.80)
+CENTRE_MIRROR_TURN = (-9.84, -5.29)
+box('arch', -0.015, 0.015, 2.58, 3.05, 2.785, 2.815)
+turned_box('arch', CENTRE_MIRROR, (0.14, 0.045, 0.02), CENTRE_MIRROR_TURN[0], CENTRE_MIRROR_TURN[1])
 MATS = {
  'body': (0.97, 0.92, 0.80), 'glass': (0.05, 0.30, 0.45),
  'orange': (1.00, 0.45, 0.05), 'teal': (0.05, 0.90, 0.65), 'grille': (0.20, 0.17, 0.12),

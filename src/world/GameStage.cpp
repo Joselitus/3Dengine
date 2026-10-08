@@ -152,7 +152,7 @@ void GameStage::tick(double dt) {
     }
     // What his controls say goes to what he controls (nothing while he can't move or look)
     bool still = isImmobilized(*p);
-    if (p->character) {
+    if (p->character && !p->possessed) { // (a possessed body is walked by the monster: see VehicleStage)
       p->character->control(still ? vec2(0.0f) : p->moveDir, still ? 0.0f : p->moveUp, p->lookYaw);
       p->character->setRunning(!still && p->running);
     }

@@ -65,6 +65,13 @@ struct Player {
   bool inVehicle = false; // he drives the RV
   bool inSaucer = false;  // he flies Bob's ship
   float paralysis = 0.0f; // seconds left paralysed by Bob's ray
+  // The Flatwoods monster holds him: his body walks out of the RV by itself (possessStep: to the
+  // doorway, out through it, away from it, then it stands) until he presses the leave key
+  bool possessed = false;
+  int possessStep = 0;
+  float possessStepTime = 0.0f;
+  float possessYaw = 0.0f; // where his body walks (his camera turns to it)
+  float savedWalkSpeed = 0.0f;
   // What his controls say now (the server keeps the last from his client)
   glm::vec2 moveDir = glm::vec2(0.0f);
   float moveUp = 0.0f;
@@ -256,6 +263,16 @@ public:
   }
   // The player aims a gun (the main loop shows a crosshair)
   virtual bool playerAiming() const { return false; }
+  // Something controls the player's body (the Flatwoods monster): the main loop shows which key
+  // frees him, and turns the camera to `yaw` (where his body walks) when possessedLook says so
+  bool playerPossessed() const { return local && local->possessed && !local->dead; }
+  bool possessedLook(float &yaw) const {
+    yaw = local ? local->possessYaw : 0.0f;
+    return local && local->possessed && !local->inVehicle;
+  }
+  // The main loop is about to draw a mirror's picture (true), or the player's view (false): what
+  // only shows in mirrors (the Flatwoods monster) shows or hides
+  virtual void setMirrorView(bool inMirror) {}
   // Rear-view mirrors (`side` 0, 1: see RV; as many as the map has) that show what is behind, drawn by the main loop from a camera of its
   // own into a texture (see RV): true, and where that camera is, if there is one to draw now
   virtual bool rearMirror(int side, MirrorView &view) const { return false; }

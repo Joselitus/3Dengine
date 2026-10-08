@@ -237,6 +237,7 @@ void NetClient::readSnapshot(NetReader &in) {
   uint8_t myFlags = in.u8();
   vec3 abductPoint = in.vec3();
   float paralysis = in.f32();
+  float possessYaw = in.f32();
   uint32_t serial = in.u32();
   int characterId = in.i32();
   float distance = in.f32(), height = in.f32(), yaw = in.f32();
@@ -281,10 +282,12 @@ void NetClient::readSnapshot(NetReader &in) {
       p->abducted = entry.second & PLAYER_ABDUCTED;
       p->inVehicle = entry.second & PLAYER_IN_VEHICLE;
       p->inSaucer = entry.second & PLAYER_IN_SAUCER;
+      p->possessed = entry.second & PLAYER_POSSESSED;
     }
   if (Player *me = stage->getLocalPlayer()) {
     me->abductPoint = abductPoint;
     me->paralysis = paralysis;
+    me->possessYaw = possessYaw;
     if (serial != me->controlSerial) {
       if (auto character = std::dynamic_pointer_cast<PlayableCharacter>(stage->findDynamicShared(characterId)))
         me->character = character;
@@ -307,7 +310,7 @@ void NetClient::reconcile(const Snapshot &snapshot) {
   Player *me = stage->getLocalPlayer();
   if (!me)
     return;
-  bool predicted = me->character == me->walker && !me->dead;
+  bool predicted = me->character == me->walker && !me->dead && !me->possessed;
   if (!predicted) {
     history.clear();
     correction = vec3(0.0f);
@@ -384,7 +387,7 @@ void NetClient::apply(double dt) {
     alpha = (float)clamp((renderTime - a.time) / (b.time - a.time), 0.0, 1.0);
 
   // The player's own penguin: his, while he walks (and the server's again when it is not)
-  bool predicted = me && me->character == me->walker && !me->dead;
+  bool predicted = me && me->character == me->walker && !me->dead && !me->possessed;
   if (me) {
     if (predicted && !wasPredicted) {
       // He is on foot again (got out, came back from the dead): where the server has him

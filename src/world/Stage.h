@@ -13,6 +13,7 @@
 #include "DynamicGameObject.h"
 #include "FloorMaterial.h"
 #include "ParticleEmitter.h"
+#include "SafeSpace.h"
 #include "GameObject.h"
 #include "MaterialMap.h"
 #include "Property.h"
@@ -123,6 +124,7 @@ private:
   std::vector<std::shared_ptr<GameObject>> objects;
   std::vector<std::shared_ptr<DynamicGameObject>> dynamicObjects;
   std::vector<std::shared_ptr<ParticleEmitter>> emitters;
+  std::vector<std::shared_ptr<SafeSpace>> safeSpaces;
   std::vector<std::shared_ptr<DynamicGameObject>> pendingAdd; // see addDynamicLater
   std::vector<const GameObject *> pendingRemove;
   int nextNetId = 0;
@@ -289,6 +291,16 @@ public:
   void addEmitter(std::shared_ptr<ParticleEmitter> emitter);
   const std::vector<std::shared_ptr<ParticleEmitter>> &getEmitters() const {
     return emitters;
+  }
+
+  // Places where the player is out of the enemies' reach (see SafeSpace), and whether `point` is
+  // in one of them
+  void addSafeSpace(std::shared_ptr<SafeSpace> space) { safeSpaces.push_back(space); }
+  bool isSheltered(const glm::vec3 &point) const {
+    for (const auto &space : safeSpaces)
+      if (space->contains(point))
+        return true;
+    return false;
   }
 
   // Advances every object by dt seconds, applies the stage rules to the

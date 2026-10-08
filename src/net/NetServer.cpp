@@ -260,7 +260,7 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
 
 // A snapshot (S_SNAPSHOT) is
 //   u32 time (ms), f32 timeOfDay, f32 dayDuration, f32 timeScale
-//   the player it is for: u32 last input seq, u8 flags, vec3 abductPoint, f32 paralysis,
+//   the player it is for: u32 last input seq, u8 flags, vec3 abductPoint, f32 paralysis, f32 possessYaw,
 //     u32 controlSerial, i32 netId of the character he controls, f32 camera distance, height, yaw
 //   u16 n, n x (i32 player id, u8 flags)       all the players
 //   u16 n, n x (i32 netId, u16 size, size bytes)       every dynamic object:
@@ -288,7 +288,8 @@ void NetServer::sendSnapshots() {
   }
   auto flagsOf = [](const Player &p) {
     return (uint8_t)((p.dead ? PLAYER_DEAD : 0) | (p.abducted ? PLAYER_ABDUCTED : 0) |
-                     (p.inVehicle ? PLAYER_IN_VEHICLE : 0) | (p.inSaucer ? PLAYER_IN_SAUCER : 0));
+                     (p.inVehicle ? PLAYER_IN_VEHICLE : 0) | (p.inSaucer ? PLAYER_IN_SAUCER : 0) |
+                     (p.possessed ? PLAYER_POSSESSED : 0));
   };
   for (auto &c : clients) {
     if (c->playerId < 0)
@@ -305,6 +306,7 @@ void NetServer::sendSnapshots() {
     w.u8(flagsOf(*me));
     w.vec3(me->abductPoint);
     w.f32(me->paralysis);
+    w.f32(me->possessYaw);
     w.u32(me->controlSerial);
     w.i32(me->character ? me->character->getNetId() : -1);
     w.f32(me->cameraDistance);
