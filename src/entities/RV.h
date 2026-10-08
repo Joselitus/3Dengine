@@ -158,6 +158,29 @@ private:
     void buildInterface(UIPanel &) override {}
   };
   Steering wheelUse{*this};
+  // The passenger's seat as something to use: E next to it, inside, sits there
+  class CopilotSeat : public Interactable {
+    RV &rv;
+
+  public:
+    explicit CopilotSeat(RV &rv) : rv(rv) {}
+    std::string getInteractionName() const override { return "asiento del copiloto"; }
+    std::string getInteractionVerb() const override { return "sentarse en el"; }
+    glm::vec3 getInteractionPoint() const override { return rv.copilotStand(); }
+    float getInteractionRange() const override { return 0.9f; }
+    bool isInteractionAvailable() const override { return !rv.copilotOccupied; }
+    bool usesDirectly() const override { return true; }
+    void onUse(const glm::vec3 &) override {
+      if (rv.sitAction && !rv.copilotOccupied)
+        rv.sitAction();
+    }
+    void buildInterface(UIPanel &) override {}
+  };
+  CopilotSeat copilotUse{*this};
+  bool copilotOccupied = false;      // somebody sits in the passenger's seat
+  std::function<void()> sitAction;   // what using that seat does
+  size_t seatParts[2] = {0, 0};      // the pilot's seat and the copilot's
+  bool hasSeats = false;
   RV(std::shared_ptr<Model> model, std::shared_ptr<CompoundShape> hull);
 
   void updateHeadlights(double dt);
@@ -290,6 +313,22 @@ public:
   static void interiorBox(glm::vec3 &centre, glm::vec3 &halfSize);
   // The steering wheel, as something to use from inside (give it to the stage's interactables)
   Interactable *steeringInteraction() { return &wheelUse; }
+  // The two seats of the cab (seat.obj, in the seat's own frame: the pilot's on the +x side, the
+  // copilot's on the -x one, both facing forward, standing on the floor)
+  void setSeatModel(std::shared_ptr<Model> seat);
+  // The passenger's seat, as something to use (give it to the stage's interactables); what using
+  // it does is the map's (it sits the player there)
+  Interactable *copilotInteraction() { return &copilotUse; }
+  void setSitAction(std::function<void()> action) { sitAction = action; }
+  bool isCopilotOccupied() const { return copilotOccupied; }
+  void setCopilotOccupied(bool occupied) { copilotOccupied = occupied; }
+  // Where the passenger stands on the floor behind his seat (world), and where his body rides when
+  // he sits (feet, so that his eyes are where the pilot's are, on the other side)
+  glm::vec3 copilotStand() const;
+  glm::vec3 copilotSeatPosition() const;
+  // Puts `camera` in the cockpit's eyes (the pilot's, or the copilot's), turning, pitching and
+  // rolling with the vehicle (what followCamera does while somebody drives)
+  void placeCockpitCamera(Camera &camera, bool copilot) const;
   // Where the driver stands on the floor inside, behind the steering wheel (world)
   glm::vec3 driverStand() const;
 

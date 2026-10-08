@@ -283,6 +283,7 @@ void NetClient::readSnapshot(NetReader &in) {
       p->inVehicle = entry.second & PLAYER_IN_VEHICLE;
       p->inSaucer = entry.second & PLAYER_IN_SAUCER;
       p->possessed = entry.second & PLAYER_POSSESSED;
+      p->seated = entry.second & PLAYER_SEATED;
     }
   if (Player *me = stage->getLocalPlayer()) {
     me->abductPoint = abductPoint;

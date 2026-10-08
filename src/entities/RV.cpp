@@ -116,7 +116,10 @@ static const float DOOR_OPEN_ANGLE = 1.75f; // (100 degrees, outwards)
 static const float DOOR_WIDTH = 0.94f, DOOR_KICK_OPEN = 3.0f, DOOR_KICK_SHUT = 3.5f;
 static const float DOOR_DAMPING = 1.5f, DOOR_BOUNCE_OPEN = 0.25f, DOOR_BOUNCE_SHUT = 0.3f, DOOR_LATCH_SPEED = 2.0f;
 // Where the driver stands on the floor inside (behind the wheel at x = 0.45, z = 2.28)
-static const vec3 DRIVER_STAND(0.45f, 0.55f, 1.75f);
+// (on the floor behind the pilot's seat, which stands at SEAT_ORIGIN: its cushion and backrest take
+// z 1.15 to 1.83)
+static const vec3 DRIVER_STAND(0.45f, 0.55f, 0.65f);
+static const vec3 SEAT_ORIGIN(0.45f, 0.55f, 1.55f); // the pilot's seat's floor point; the copilot's is at -x
 // The wreck: a crash this many times harder than the least that breaks the windshield wrecks the
 // front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
 // the engine bay is here, in the frame of rv.obj
@@ -206,6 +209,10 @@ static std::shared_ptr<CompoundShape> hullShape() {
   const float nz = 1.25f / 1.3658f, ny = 0.55f / 1.3658f; // (the slope's direction up is (-ny, nz) in (z, y))
   mat3 slope(vec3(1.0f, 0.0f, 0.0f), vec3(0.0f, nz, -ny), vec3(0.0f, ny, nz));
   hull->add(vec3(W, 0.683f, 0.05f), vec3(0.0f, 2.325f + 0.05f * ny, 3.275f + 0.05f * nz), slope);
+  // 13, 14 the seats (pilot's, copilot's), solid from the floor up to over the backrest's lean: too tall
+  // to be stepped on, so that one walks round them (behind them) and sits with E
+  for (float side : {1.0f, -1.0f})
+    box(side * SEAT_ORIGIN.x - 0.24f, side * SEAT_ORIGIN.x + 0.24f, FLOOR, 1.7f, 1.15f, 1.83f);
   return hull;
 }
 void RV::interiorBox(vec3 &centre, vec3 &halfSize) {
@@ -464,6 +471,10 @@ void RV::ejectParts(const vec3 &from) {
     list.push_back(brokenWindshieldPart);
   if (hasDoor)
     list.push_back(doorPart);
+  if (hasSeats) {
+    list.push_back(seatParts[0]);
+    list.push_back(seatParts[1]);
+  }
   if (hasHandbrake) {
     list.push_back(handbrakeBasePart);
     list.push_back(handbrakeLeverPart);
@@ -938,6 +949,24 @@ vec3 RV::getInteractionPoint() const { return position + vec3(rotation * vec4(DO
 
 vec3 RV::driverStand() const { return position + vec3(rotation * vec4(DRIVER_STAND, 0.0f)); }
 
+void RV::setSeatModel(std::shared_ptr<Model> seat) {
+  for (int i = 0; i < 2; i++) {
+    seatParts[i] = addPart(seat);
+    setPartTransform(seatParts[i], glm::translate(mat4(1.0f), vec3(i == 0 ? SEAT_ORIGIN.x : -SEAT_ORIGIN.x,
+                                                                    SEAT_ORIGIN.y, SEAT_ORIGIN.z)));
+  }
+  hasSeats = true;
+}
+
+vec3 RV::copilotStand() const {
+  return position + vec3(rotation * vec4(-DRIVER_STAND.x, DRIVER_STAND.y, DRIVER_STAND.z, 0.0f));
+}
+
+// His feet are put so that his eyes (1.6 m over them) are the pilot's, on the -x side
+vec3 RV::copilotSeatPosition() const {
+  return position + vec3(rotation * vec4(-EYE_X, EYE_Y - 1.6f, EYE_Z, 0.0f));
+}
+
 void RV::setDoorModel(std::shared_ptr<Model> door) {
   doorPart = addPart(door);
   hasDoor = true;
@@ -1119,6 +1148,10 @@ void RV::followCamera() {
     camera->follow();
     return;
   }
+  placeCockpitCamera(*camera, false);
+}
+
+void RV::placeCockpitCamera(Camera &camera, bool copilot) const {
   // Cockpit: the view turns, pitches and rolls with the vehicle, as if the head
   // were in it (the mouse looks around from there: the camera's angles are
   // relative to the vehicle)
@@ -1134,10 +1167,10 @@ void RV::followCamera() {
   mat3 carrier = level * mat3(glm::rotate(mat4(1.0f), roll * COCKPIT_ROLL,
                                           vec3(0.0f, 0.0f, 1.0f)));
   // (the camera looks towards -z at yaw 0 and the RV's front is +z: half a turn)
-  camera->setCarrier(carrier *
-                     mat3(glm::rotate(mat4(1.0f), 3.14159265f, vec3(0.0f, 1.0f, 0.0f))));
-  vec3 eye = eyePosition();
-  camera->reposition(eye.x, eye.y, eye.z);
+  camera.setCarrier(carrier *
+                    mat3(glm::rotate(mat4(1.0f), 3.14159265f, vec3(0.0f, 1.0f, 0.0f))));
+  vec3 eye = position + vec3(rotation * vec4(copilot ? -EYE_X : EYE_X, EYE_Y, EYE_Z, 0.0f));
+  camera.reposition(eye.x, eye.y, eye.z);
 }
 
 void RV::control(vec2 dir, float up, float cameraYaw) {
@@ -1457,7 +1490,7 @@ void RV::writeNetState(NetWriter &out) const {
   uint32_t flags = (handbrakeOn ? 1 : 0) | (occupied ? 2 : 0) | (keyOn ? 4 : 0) | (engineOn ? 8 : 0) |
                    (headlightsOn ? 16 : 0) | (parkedLights ? 32 : 0) | (wrecked ? 64 : 0) |
                    (exploded ? 128 : 0) | (onFire ? 256 : 0) | (damagedWindshield ? 512 : 0) |
-                   (doorLatched ? 1024 : 0) | (cameraView == CameraView::Chase ? 2048 : 0) |
+                   (doorLatched ? 1024 : 0) | (cameraView == CameraView::Chase ? 2048 : 0) | (copilotOccupied ? 8192 : 0) |
                    (engineSim.getPhase() == EngineSimulator::Phase::Cranking ? 4096 : 0);
   for (int i = 0; i < 4; i++)
     if (flatTires[i])
@@ -1501,6 +1534,7 @@ void RV::readNetState(NetReader &in) {
     updateWindshieldParts();
   }
   handbrakeOn = flags & 1;
+  copilotOccupied = flags & 8192;
   occupied = flags & 2;
   keyOn = flags & 4;
   engineOn = flags & 8;

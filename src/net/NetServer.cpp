@@ -289,7 +289,7 @@ void NetServer::sendSnapshots() {
   auto flagsOf = [](const Player &p) {
     return (uint8_t)((p.dead ? PLAYER_DEAD : 0) | (p.abducted ? PLAYER_ABDUCTED : 0) |
                      (p.inVehicle ? PLAYER_IN_VEHICLE : 0) | (p.inSaucer ? PLAYER_IN_SAUCER : 0) |
-                     (p.possessed ? PLAYER_POSSESSED : 0));
+                     (p.possessed ? PLAYER_POSSESSED : 0) | (p.seated ? PLAYER_SEATED : 0));
   };
   for (auto &c : clients) {
     if (c->playerId < 0)

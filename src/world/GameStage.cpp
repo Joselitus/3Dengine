@@ -187,7 +187,7 @@ void GameStage::getSpotLights(vector<SpotLight> &lights) const {
   if (local && local->character == local->walker)
     local->walker->getFlashlight(lights);
   for (const auto &p : players)
-    if (p.get() != local && !p->dead && !p->inVehicle && !p->inSaucer)
+    if (p.get() != local && !p->dead && !p->inVehicle && !p->inSaucer && !p->seated)
       p->walker->getFlashlight(lights);
 }
 

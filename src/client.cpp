@@ -777,7 +777,7 @@ int main(int argc, char **argv) {
       for (const auto &p : stage->getPlayers()) {
         if (p.get() == stage->getLocalPlayer() || p->dead || p->abducted)
           continue;
-        vec3 at = p->walker->getPosition() + vec3(0.0f, p->inVehicle || p->inSaucer ? 3.8f : 2.2f, 0.0f);
+        vec3 at = p->walker->getPosition() + vec3(0.0f, p->inVehicle || p->inSaucer || p->seated ? 3.8f : 2.2f, 0.0f);
         if (length(at - camera.getPosition()) > 80.0f)
           continue;
         vec4 clip = viewProjection * vec4(at, 1.0f);

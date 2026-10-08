@@ -63,6 +63,7 @@ struct Player {
   double timeDead = 0.0; // seconds since he died
   // On a map with vehicles (VehicleStage)
   bool inVehicle = false; // he drives the RV
+  bool seated = false;    // he sits in the RV's passenger seat
   bool inSaucer = false;  // he flies Bob's ship
   float paralysis = 0.0f; // seconds left paralysed by Bob's ray
   // The Flatwoods monster holds him: his body walks out of the RV by itself (possessStep: to the

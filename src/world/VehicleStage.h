@@ -10,6 +10,7 @@
 #include "Flatwoods.h"
 #include "FollaCulos.h"
 #include "GameStage.h"
+#include "PassengerView.h"
 #include "RV.h"
 #include "SoundEngine.h"
 #include "SpeechSynthesizer.h"
@@ -44,6 +45,7 @@ protected:
   const glm::vec3 NIGHT_LIGHT = glm::vec3(0.022f, 0.025f, 0.04f);
 
   std::shared_ptr<RV> rv;
+  std::shared_ptr<PassengerView> passenger; // what a player controls while he sits in the passenger seat
   std::shared_ptr<FollaCulos> creature; // the last night creature made (null if the map has none)
   std::vector<std::shared_ptr<FollaCulos>> creatures; // all of them (each lights its eyes)
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
@@ -84,6 +86,9 @@ protected:
   void updatePossession(Player &p, double dt);
   // Out of the RV's seat onto the cab's floor (the leave key, or the monster's doing)
   void getOutOfRV(Player &p);
+  // The acting player sits in the passenger seat (the RV's copilot interactable); and gets up
+  void sitDown();
+  void standUp(Player &p);
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
@@ -109,7 +114,7 @@ protected:
   // Players get out of what they drive when they die or leave
   void onPlayerGone(Player &p) override;
   bool canInteract(const Player &p) const override {
-    return !p.dead && !p.inVehicle && !p.inSaucer;
+    return !p.dead && !p.inVehicle && !p.inSaucer && !p.seated;
   }
   // Paralysed by Bob's ray or held by Bob: no moving or looking
   bool isImmobilized(const Player &p) const override;

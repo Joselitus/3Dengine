@@ -83,6 +83,10 @@ void VehicleStage::leaveVehicle(Player &p) {
     endPossession(p);
     return;
   }
+  if (p.seated) {
+    standUp(p);
+    return;
+  }
   if (!p.inVehicle) {
     if (alien.bob)
       alien.bob->struggleOnce(p.id); // (held by Bob: he fights to get free)
@@ -91,6 +95,39 @@ void VehicleStage::leaveVehicle(Player &p) {
   if (std::fabs(rv->forwardSpeed()) > 2.0f)
     return; // (not while it moves: the penguin would be left inside it as it drives off)
   getOutOfRV(p);
+}
+
+void VehicleStage::sitDown() {
+  if (!acting)
+    return;
+  Player &p = *acting;
+  if (p.dead || p.inVehicle || p.inSaucer || p.seated || rv->isCopilotOccupied())
+    return;
+  p.seated = true;
+  p.walker->control(vec2(0.0f), 0.0f, 0.0f);
+  p.walker->setVelocity(vec3(0.0f));
+  p.walker->setGravity(0.0f);      // it rides
+  p.walker->setCollidable(false);
+  p.walker->setVisible(false);
+  vec3 at = rv->copilotSeatPosition();
+  p.walker->setPosition(at.x, at.y, at.z);
+  rv->setCopilotOccupied(true);
+  setControl(p, passenger, 0.0f, 0.0f, 0.0f);
+}
+
+// Up from the passenger seat, onto the floor behind it, looking forward
+void VehicleStage::standUp(Player &p) {
+  if (!p.seated)
+    return;
+  p.seated = false;
+  rv->setCopilotOccupied(false);
+  vec3 stand = rv->copilotStand();
+  p.walker->setPosition(stand.x, stand.y, stand.z);
+  p.walker->setVelocity(vec3(0.0f));
+  p.walker->setGravity(AVATAR_GRAVITY);
+  p.walker->setCollidable(true);
+  p.walker->setVisible(true);
+  setControl(p, p.walker, 0.0f, EYE_HEIGHT, rv->headingYaw());
 }
 
 void VehicleStage::getOutOfRV(Player &p) {
@@ -112,6 +149,13 @@ void VehicleStage::getOutOfRV(Player &p) {
 void VehicleStage::onPlayerGone(Player &p) {
   if (p.possessed)
     endPossession(p);
+  if (p.seated) {
+    p.seated = false;
+    rv->setCopilotOccupied(false);
+    vec3 stand = rv->copilotStand();
+    p.walker->setPosition(stand.x, stand.y, stand.z);
+    p.walker->setCollidable(true);
+  }
   if (p.inVehicle) {
     p.inVehicle = false;
     rv->control(vec2(0.0f), 0.0f, 0.0f);
@@ -168,8 +212,8 @@ void VehicleStage::apply(DynamicGameObject &object, double dt) {
       continue;
     p->paralysis = std::max(0.0f, p->paralysis - (float)dt); // (it wears off)
     updatePossession(*p, dt);
-    if (p->inVehicle || p->inSaucer) {
-      vec3 seat = p->inSaucer ? alien.saucer->hatch() : rv->seatPosition();
+    if (p->inVehicle || p->inSaucer || p->seated) {
+      vec3 seat = p->inSaucer ? alien.saucer->hatch() : p->seated ? rv->copilotSeatPosition() : rv->seatPosition();
       object.setPosition(seat.x, seat.y, seat.z);
       object.setVelocity(vec3(0.0f));
       return;
@@ -347,6 +391,11 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   RV::interiorBox(centre, halfSize);
   rvInside = std::make_shared<SafeSpace>(rv, centre, halfSize);
   addSafeSpace(rvInside);
+  // The cab's two seats: the pilot's (the steering interactable, E behind it) and the copilot's
+  rv->setSeatModel(loadModel("../assets/rv/seat.obj"));
+  passenger = make_shared<PassengerView>(rv);
+  addDynamic(passenger);
+  rv->setSitAction([this]() { sitDown(); });
   createFlatwoods();
   // The dust its wheels throw up on sand (the stage moves and removes it)
   for (const auto &emitter : rv->getDust())
@@ -375,6 +424,7 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   rv->setEnterAction([this]() { enterRV(); });
   interactables.push_back(rv.get());
   interactables.push_back(rv->steeringInteraction());
+  interactables.push_back(rv->copilotInteraction());
 }
 
 void VehicleStage::createWalker(float x, float z, float yaw) {
@@ -568,6 +618,8 @@ void VehicleStage::updatePossession(Player &p, double dt) {
     endPossession(p);
     return;
   }
+  if (p.seated)
+    standUp(p);
   if (p.inVehicle) {
     rv->control(vec2(0.0f), 0.0f, 0.0f);
     if (std::fabs(rv->forwardSpeed()) > 2.0f)
