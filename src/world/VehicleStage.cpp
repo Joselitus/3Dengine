@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "SafeSpace.h"
+
 using namespace glm;
 using std::make_shared;
 
@@ -51,6 +53,10 @@ void VehicleStage::leaveVehicle() {
     setPlayer(walker, 0.0f, EYE_HEIGHT, std::atan2(away.x, -away.z)); // (looking away from it)
     return;
   }
+  if (possessed) { // (the Flatwoods monster holds him: he breaks free, and it goes)
+    endPossession();
+    return;
+  }
   if (!inVehicle) {
     if (alien.bob)
       alien.bob->struggleOnce(); // (held by Bob: he fights to get free)
@@ -58,6 +64,10 @@ void VehicleStage::leaveVehicle() {
   }
   if (std::fabs(rv->forwardSpeed()) > 2.0f)
     return; // (not while it moves: the penguin would be left inside it as it drives off)
+  getOutOfRV();
+}
+
+void VehicleStage::getOutOfRV() {
   inVehicle = false;
   rv->control(vec2(0.0f), 0.0f, 0.0f); // the RV stops being driven
   rv->setOccupied(false);
@@ -72,8 +82,10 @@ void VehicleStage::leaveVehicle() {
 }
 
 void VehicleStage::apply(DynamicGameObject &object, double dt) {
-  if (&object == walker.get())
+  if (&object == walker.get()) {
     paralysis = std::max(0.0f, paralysis - (float)dt); // (it wears off)
+    updatePossession(dt);
+  }
   if ((inVehicle || inSaucer) && &object == walker.get()) {
     vec3 seat = inSaucer ? alien.saucer->hatch() : rv->seatPosition();
     object.setPosition(seat.x, seat.y, seat.z);
@@ -112,7 +124,7 @@ void VehicleStage::fire(const vec3 &eye, const vec3 &direction) {
 }
 
 bool VehicleStage::playerImmobilized() const {
-  return paralysis > 0.0f || (alien.bob && alien.bob->isHolding());
+  return paralysis > 0.0f || possessed || (alien.bob && alien.bob->isHolding());
 }
 
 float VehicleStage::playerParalysis() const { return std::min(1.0f, paralysis / Bob::PARALYSIS_TIME); }
@@ -128,9 +140,10 @@ void VehicleStage::endAlienHiss() {
     alien.bob->silenceHiss();
 }
 
-// The RV's two side mirrors, while somebody drives it
+// The RV's two side mirrors, while the player is in it (driving, or on foot: he sees them through
+// the windows)
 bool VehicleStage::rearMirror(int side, MirrorView &view) const {
-  return inVehicle && rv->rearMirror(side, view);
+  return playerInRV() && rv->rearMirror(side, view);
 }
 
 void VehicleStage::setRearMirrorTexture(int side, unsigned int texture, float aspect) {
@@ -233,6 +246,13 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   rv->setMaxSpeed(20.0f);
   rv->setGravity(25.0f);
   addDynamic(rv);
+  // Inside it the player is safe from the creatures, on foot as well as driving (SafeSpace)... but
+  // not from the Flatwoods monster, which comes for him there
+  vec3 centre, halfSize;
+  RV::interiorBox(centre, halfSize);
+  rvInside = std::make_shared<SafeSpace>(rv, centre, halfSize);
+  addSafeSpace(rvInside);
+  createFlatwoods();
   // The dust its wheels throw up on sand (the stage moves and removes it)
   for (const auto &emitter : rv->getDust())
     addEmitter(emitter);
@@ -298,7 +318,7 @@ void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech,
   creature->setPlayerCaughtCallback([this]() { killPlayer(); });
   creature->setPlayerDeadQuery([this]() { return isPlayerDead(); });
   // It is wary of the RV: when the player drives it, it keeps its distance (see FollaCulos)
-  creature->setPlayerInVehicleQuery([this]() { return inVehicle; });
+  creature->setPlayerInVehicleQuery([this]() { return playerSheltered(); });
   // Its face follows the camera
   creature->setLookTarget([this]() { return viewer; });
   // At night it comes for you; by day it keeps away (the sun is below the horizon)
@@ -310,7 +330,7 @@ void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech,
 void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, float rampYaw) {
   alien = AlienVisit::create(
       *this, landing, rampYaw, [this]() { return environment.sunDir.y < 0.0f; },
-      [this]() { return player->getPosition(); }, [this]() { return inVehicle || inSaucer; },
+      [this]() { return player->getPosition(); }, [this]() { return playerSheltered(); },
       [this]() { return isPlayerDead(); }, [this](const vec3 &into) { abductPlayer(into); },
       [this](float seconds) { paralysis = std::max(paralysis, seconds); },
       [this]() { return paralysis > 0.0f; }, [this]() { enterSaucer(); });
@@ -318,4 +338,97 @@ void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, flo
   alien.saucer->setSounds(sound);
   alien.bob->setViewer([this]() { return viewer; }, [this]() { return viewProjection; });
   interactables.push_back(alien.saucer.get()); // (its ramp: get in)
+}
+
+void VehicleStage::createFlatwoods() {
+  flatwoods = make_shared<Flatwoods>(loadModel("../assets/flatwoods/flatwoods_body.obj"),
+                                     loadModel("../assets/flatwoods/flatwoods_eyes.obj"));
+  flatwoods->setNightQuery([this]() { return environment.sunDir.y < 0.0f; });
+  flatwoods->setPlayerInRVQuery([this]() { return playerInRV() && !isPlayerDead(); });
+  flatwoods->setTarget([this]() { return walker->getPosition(); }); // (driving, he rides in the seat)
+  flatwoods->setVehicleFrame([this](vec3 &position, vec3 &forward) {
+    position = rv->getPosition();
+    forward = mat3(rv->getPose().rotation) * vec3(0.0f, 0.0f, 1.0f);
+  });
+  flatwoods->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
+  // the flashlight on foot shines on it (anywhere within its cone and its reach)
+  flatwoods->setFlashlightQuery([this](const vec3 &point) {
+    if (inVehicle || inSaucer)
+      return false;
+    std::vector<SpotLight> lights;
+    walker->getFlashlight(lights);
+    if (lights.empty())
+      return false;
+    const SpotLight &light = lights[0];
+    vec3 to = point - light.position;
+    float distance = length(to);
+    float edge = 0.5f * (light.innerCos + light.outerCos);
+    return distance < light.range && (distance < 0.01f || dot(to / distance, light.direction) > edge);
+  });
+  flatwoods->setPossessCallback([this]() { startPossession(); });
+  addDynamic(flatwoods);
+}
+
+void VehicleStage::startPossession() {
+  if (possessed || isPlayerDead())
+    return;
+  possessed = true;
+  possessStep = 0;
+  possessStepTime = 0.0f;
+  possessYaw = rv->headingYaw();
+  savedWalkSpeed = walker->getMaxSpeed();
+  walker->setRunning(false);
+}
+
+void VehicleStage::endPossession() {
+  if (!possessed)
+    return;
+  possessed = false;
+  walker->control(vec2(0.0f), 0.0f, 0.0f);
+  walker->setMaxSpeed(savedWalkSpeed);
+  flatwoods->release(); // (it lets go, whatever ended it: it comes again from a new side)
+}
+
+// The monster walks his body out: if he drives, the RV is let go and, once it is (nearly) still, he
+// stands up; then to the doorway (opening the door), out through it, and some steps away
+void VehicleStage::updatePossession(double dt) {
+  if (!possessed)
+    return;
+  if (isPlayerDead() || !flatwoods->isHolding()) { // (it is gone: dawn...)
+    endPossession();
+    return;
+  }
+  if (inVehicle) {
+    rv->control(vec2(0.0f), 0.0f, 0.0f);
+    if (std::fabs(rv->forwardSpeed()) > 2.0f)
+      return;
+    getOutOfRV();
+  }
+  walker->setMaxSpeed(POSSESSED_SPEED);
+  // the way out, in the RV's frame: inside by the doorway, just outside it, and away from it
+  vec3 centre, halfSize;
+  RV::interiorBox(centre, halfSize);
+  const float W = halfSize.x, DOOR_Z = -0.35f;
+  const vec3 way[3] = {vec3(W - 0.5f, 0.0f, DOOR_Z), vec3(W + 1.2f, 0.0f, DOOR_Z), vec3(W + 5.0f, 0.0f, DOOR_Z)};
+  const float REACHED[3] = {0.3f, 0.4f, 0.5f};
+  possessStepTime += (float)dt;
+  if (possessStep >= 3) {
+    walker->control(vec2(0.0f), 0.0f, possessYaw); // (it just stands there)
+    return;
+  }
+  mat3 body = mat3(rv->getPose().rotation);
+  vec3 goal = rv->getPosition() + body * way[possessStep];
+  vec3 at = walker->getPosition();
+  vec2 to(goal.x - at.x, goal.z - at.z);
+  if (possessStep == 0 && length(to) < 1.5f && !rv->isDoorOpen())
+    rv->toggleDoor(); // (it opens the door on its way)
+  if (length(to) < REACHED[possessStep] || possessStepTime > 12.0f) {
+    if (possessStepTime > 12.0f) // (stuck: it gets there anyway)
+      walker->setPosition(goal.x, possessStep == 0 ? at.y : groundAt(goal.x, goal.z), goal.z);
+    possessStep++;
+    possessStepTime = 0.0f;
+    return;
+  }
+  possessYaw = std::atan2(to.x, -to.y);
+  walker->control(vec2(0.0f, -1.0f), 0.0f, possessYaw);
 }

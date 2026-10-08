@@ -182,7 +182,7 @@ private:
     mosquito->setPosition(where.x, where.y, where.z);
     mosquito->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
     mosquito->setTarget([this]() { return player->getPosition(); });
-    mosquito->setPlayerInVehicleQuery([this]() { return inVehicle; });
+    mosquito->setPlayerInVehicleQuery([this]() { return playerSheltered(); });
     mosquito->setPlayerCaughtCallback([this]() { killPlayer(); });
     mosquito->setPlayerDeadQuery([this]() { return isPlayerDead(); });
     mosquito->setEggLayer([this](const vec3 &at) { return layEgg(at); });
@@ -418,6 +418,13 @@ public:
     sign->setPosition(7.5f, groundAt(7.5f, -1.0f), -1.0f);
     sign->setYaw(std::atan2(3.0f - 7.5f, 4.0f + 1.0f)); // face (3, 4)
     add(sign);
+
+    // Bob's ship comes at night and lands on a flat bit of sand off the road, 25 m from the start
+    // (its ground varies 0.23 m within 5 m; the road is 15 m away, the nearest cactus or rock 9 m),
+    // its ramp towards the start
+    vec3 landing(-18.0f, 0.0f, 18.0f);
+    landing.y = groundAt(landing.x, landing.z);
+    createAlienVisit(sound, landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
     interactables.push_back(sign.get());
   }
 };
@@ -484,18 +491,21 @@ int main(int argc, char **argv) {
 
   // Draws the particles (dust...) of the current map
   ParticleRenderer particles;
-  // The rear-view mirrors of the vehicle (two): a camera of its own draws the world behind into
-  // each one's texture (see the main loop, where they take turns); the vehicle's glass shows it
-  const int MIRROR_W = 320, MIRROR_H = 640, MIRRORS = 2;
-  GLuint mirrorTexture[MIRRORS] = {0, 0}, mirrorFbo[MIRRORS] = {0, 0}, mirrorDepth = 0;
+  // The rear-view mirrors of the vehicle (three: the two side ones, tall, and the central one, wide):
+  // a camera of its own draws the world behind into each one's texture (see the main loop, where
+  // they take turns); the vehicle's glass shows it
+  const int MIRRORS = 3;
+  const int MIRROR_SIZE[MIRRORS][2] = {{320, 640}, {320, 640}, {520, 160}}; // pixels, width x height
+  GLuint mirrorTexture[MIRRORS] = {0, 0, 0}, mirrorFbo[MIRRORS] = {0, 0, 0}, mirrorDepth = 0;
   bool mirrorWorks = true;
-  glGenRenderbuffers(1, &mirrorDepth); // (one depth buffer for both: they are never drawn together)
-  glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepth);
-  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, MIRROR_W, MIRROR_H);
+  glGenRenderbuffers(1, &mirrorDepth); // (one depth buffer for all: they are never drawn together;
+  glBindRenderbuffer(GL_RENDERBUFFER, mirrorDepth); // as wide and as tall as the biggest of them)
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 520, 640);
   for (int i = 0; i < MIRRORS; i++) {
     glGenTextures(1, &mirrorTexture[i]);
     glBindTexture(GL_TEXTURE_2D, mirrorTexture[i]);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, MIRROR_W, MIRROR_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, MIRROR_SIZE[i][0], MIRROR_SIZE[i][1], 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -511,8 +521,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "The mirrors' framebuffer is not complete: no mirrors\n");
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
   glBindTexture(GL_TEXTURE_2D, 0);
-  Camera mirrorCamera(window, &shader);
-  mirrorCamera.setAspect((float)MIRROR_W / MIRROR_H);
+  Camera mirrorCamera(window, &shader); // (its aspect is each mirror's, when it draws it)
 
   // Audio: the output, and the text-to-speech the NPCs talk with
   SoundEngine sound;
@@ -544,6 +553,10 @@ int main(int argc, char **argv) {
   DeathOverlay paralysisOverlay;
   paralysisOverlay.setColor(vec3(1.0f, 0.9f, 0.15f));
   ui.addOverlay(&paralysisOverlay);
+  // Controlled by the Flatwoods monster: the screen goes dark red (the same kind of tint)
+  DeathOverlay possessionOverlay;
+  possessionOverlay.setColor(vec3(0.25f, 0.0f, 0.02f));
+  ui.addOverlay(&possessionOverlay);
   // Held by Bob: which key to hammer to get free, and how near he is
   StruggleOverlay struggleOverlay([&controls]() { return controls.keyName(Action::LeaveVehicle); });
   ui.addOverlay(&struggleOverlay);
@@ -685,7 +698,7 @@ int main(int argc, char **argv) {
     mirrorCamera.setFarPlane(stage->getFarPlane());
     if (mirrorWorks)
       for (int i = 0; i < MIRRORS; i++)
-        stage->setRearMirrorTexture(i, mirrorTexture[i], (float)MIRROR_W / MIRROR_H);
+        stage->setRearMirrorTexture(i, mirrorTexture[i], (float)MIRROR_SIZE[i][0] / MIRROR_SIZE[i][1]);
     controller.attach(stage->getPlayer().get(), stage->getCameraDistance(),
                       stage->getCameraHeight(), stage->getCameraYaw());
 
@@ -836,11 +849,21 @@ int main(int argc, char **argv) {
     controller.setEnabled(!ui.hasPanels() && !stage->isPlayerDead() && !stage->playerImmobilized());
     paralysisOverlay.setAmount(0.35f * stage->playerParalysis() * (0.8f + 0.2f * (float)std::sin(now * 9.0)));
     struggleOverlay.setProgress(stage->struggleProgress());
+    struggleOverlay.setPossessed(stage->playerPossessed() && !stage->isPlayerDead());
+    possessionOverlay.setAmount(stage->playerPossessed() ? 0.3f + 0.08f * (float)std::sin(now * 2.0) : 0.0f);
     crosshair.setShown(stage->playerAiming() && !stage->isPlayerDead());
     // In the debug placement mode, the right button turns the selected object
     // with the mouse instead of the camera
     controller.setLookEnabled(!selector.capturesMouse());
     controller.update();
+    // Controlled by the Flatwoods monster: the view turns slowly to where his body walks, level
+    float possessedYaw;
+    if (stage->possessedLook(possessedYaw)) {
+      float turn = std::remainder(possessedYaw - camera.getYaw(), 6.2831853f);
+      float step = 1.5f * (float)dt;
+      camera.setAngles(camera.getYaw() + glm::clamp(turn, -step, step),
+                       camera.getPitch() + glm::clamp(0.1f - camera.getPitch(), -step, step));
+    }
     // The left button fires (Bob's ship's ray gun), once per press: not over a panel, nor in a
     // debug mode (they use the mouse)
     {
@@ -952,23 +975,26 @@ int main(int argc, char **argv) {
     applySpotLights();
     // A mirror's picture first (if the vehicle has one to show now): the world seen from the glass,
     // into its texture; then everything back as it was for the real view. The mirrors take turns, one
-    // each frame, so that both together cost what one would (each is a frame late at most)
+    // each frame, so that all together cost what one would (each is two frames late at most)
     static unsigned mirrorTurn = 0;
     int mirrorSide = (int)(mirrorTurn++ % MIRRORS);
     MirrorView mirror;
     if (mirrorWorks && stage->rearMirror(mirrorSide, mirror)) {
       stage->showRearMirror(mirrorSide, false);
       glBindFramebuffer(GL_FRAMEBUFFER, mirrorFbo[mirrorSide]);
-      glViewport(0, 0, MIRROR_W, MIRROR_H);
+      glViewport(0, 0, MIRROR_SIZE[mirrorSide][0], MIRROR_SIZE[mirrorSide][1]);
       glClearColor(horizon.x, horizon.y, horizon.z, 1.0f);
       glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
       vec3 right = glm::normalize(glm::cross(mirror.forward, mirror.up));
       vec3 up = glm::cross(right, mirror.forward);
+      mirrorCamera.setAspect(mirror.aspect);
       mirrorCamera.setFov(mirror.fov);
       mirrorCamera.setCarrier(mat3(right, up, -mirror.forward));
       mirrorCamera.reposition(mirror.position.x, mirror.position.y, mirror.position.z);
       shader.setFloat("time", (float)now);
+      stage->setMirrorView(true); // (what only shows in mirrors)
       stage->render(&shader, mirror.position, now);
+      stage->setMirrorView(false);
       const Environment &mirrorEnv = stage->getEnvironment();
       particles.setLighting(mirrorEnv.lightColor, mirrorEnv.lightDir, lights);
       particles.draw(stage->getEmitters(), mirrorCamera);

@@ -155,10 +155,17 @@ public:
   virtual void fire(const glm::vec3 &eye, const glm::vec3 &direction) {}
   // The player aims a gun (the main loop shows a crosshair)
   virtual bool playerAiming() const { return false; }
+  // Something controls the player's body (the Flatwoods monster): the main loop shows which key
+  // frees him, and turns the camera to `yaw` (where his body walks) when possessedLook says so
+  virtual bool playerPossessed() const { return false; }
+  virtual bool possessedLook(float &yaw) const { return false; }
+  // The main loop is about to draw a mirror's picture (true), or the player's view (false): what
+  // only shows in mirrors (the Flatwoods monster) shows or hides
+  virtual void setMirrorView(bool inMirror) {}
   // The engine key was pressed: a map with a vehicle the player is driving switches its
   // engine on or off
   virtual void toggleEngine() {}
-  // Rear-view mirrors (`side` 0, 1: see RV; as many as the map has) that show what is behind, drawn by the main loop from a camera of its
+  // Rear-view mirrors (`side` 0, 1, 2: see RV; as many as the map has) that show what is behind, drawn by the main loop from a camera of its
   // own into a texture (see RV): true, and where that camera is, if there is one to draw now
   virtual bool rearMirror(int side, MirrorView &view) const { return false; }
   // The GL texture (2D, RGBA) the mirror's glass shows, and its aspect (width / height); given

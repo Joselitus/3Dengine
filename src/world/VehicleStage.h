@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "AlienVisit.h"
+#include "Flatwoods.h"
 #include "FollaCulos.h"
 #include "GameStage.h"
 #include "RV.h"
@@ -45,6 +46,26 @@ protected:
   bool inVehicle = false;               // the penguin is inside the RV
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
   bool inSaucer = false;                // the penguin flies Bob's ship
+  // The creatures can't reach the player: he drives the RV or flies the ship, or he is on foot in a
+  // SafeSpace (inside the RV): they behave as when he drives (this is their "in a vehicle" query)
+  bool playerSheltered() const {
+    return inVehicle || inSaucer || (walker && isSheltered(walker->getPosition()));
+  }
+  // The Flatwoods monster (in every map with the RV, at night: createRV makes it) and the inside of
+  // the RV, where it comes for the player
+  std::shared_ptr<Flatwoods> flatwoods;
+  std::shared_ptr<SafeSpace> rvInside;
+  bool playerInRV() const {
+    return inVehicle || (walker && rvInside && rvInside->contains(walker->getPosition()));
+  }
+  // It holds the player: his body walks out of the RV (possessStep: to the doorway from inside, out
+  // through it, away from it, then it stands) until he presses the leave key
+  static constexpr float POSSESSED_SPEED = 1.3f; // m/s, his body's pace
+  bool possessed = false;
+  int possessStep = 0;
+  float possessStepTime = 0.0f;
+  float possessYaw = 0.0f;     // where his body walks (the camera turns to it)
+  float savedWalkSpeed = 0.0f;
   float paralysis = 0.0f;               // seconds left paralysed by Bob's ray
   float groundFallback = 0.0f;          // ground height where there is no floor
 
@@ -61,6 +82,13 @@ protected:
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
+  // The Flatwoods monster, wired to the RV and the player (createRV calls it)
+  void createFlatwoods();
+  void startPossession();
+  void endPossession();
+  void updatePossession(double dt);
+  // Out of the RV's seat onto the cab's floor (the leave key, or the monster's doing)
+  void getOutOfRV();
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
@@ -98,6 +126,16 @@ public:
   void toggleShipLegs() override;
   void fire(const glm::vec3 &eye, const glm::vec3 &direction) override;
   bool playerAiming() const override { return inSaucer && alien.saucer->isAiming(); }
+  bool playerPossessed() const override { return possessed; }
+  bool possessedLook(float &yaw) const override {
+    yaw = possessYaw;
+    return possessed && !inVehicle;
+  }
+  // (the Flatwoods monster only shows in the mirrors)
+  void setMirrorView(bool inMirror) override {
+    if (flatwoods)
+      flatwoods->setMirrorView(inMirror);
+  }
 
   // The player (the penguin or the RV) is always drawn, wherever it is
   bool edgeCullExempt(const GameObject &object) const override {
@@ -118,7 +156,7 @@ public:
   void getSpotLights(std::vector<SpotLight> &lights) const override;
   // The penguin gets out at the RV's door, on foot and in first person; or out of Bob's ship, if it
   // stands on its legs (else, the key brings the ship down: see Saucer). On foot, held by Bob, the
-  // key is his struggle to get free.
+  // key is his struggle to get free; held by the Flatwoods monster, it lets him go.
   void leaveVehicle() override;
 };
 
