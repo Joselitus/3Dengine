@@ -84,6 +84,14 @@ public:
   // close button; the pointer is only compared, never used)
   bool isOpen(const UIPanel *panel) const;
   bool hasPanels() const { return !panels.empty(); }
+  // Whether a panel covers the window point (x, y): a tool with panels always open gives the
+  // mouse to the world only where there is none
+  bool isOverPanel(float x, float y) const {
+    for (const auto &panel : panels)
+      if (panel->getRect().contains(x, y))
+        return true;
+    return false;
+  }
 
   // Runs `action` when `key` (GLFW_KEY_*) is pressed and no panel is open,
   // e.g. opening a menu

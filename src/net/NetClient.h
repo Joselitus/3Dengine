@@ -33,6 +33,13 @@
 // apply(). isFailed() says it all went wrong (getError() why).
 class NetClient {
 public:
+  struct Moved {
+    uint8_t kind;
+    int id;
+    uint8_t flags;
+    glm::vec3 position;
+    float heading;
+  };
   enum class State { Connecting, Greeting, Ready, Playing, Failed };
 
 private:
@@ -68,6 +75,8 @@ private:
   std::string error;
   std::string playerName;
   std::vector<std::string> notices;
+  std::vector<Moved> moved;
+  bool resetSeen = false;
 
   // From the server's welcome
   int myId = -1;
@@ -138,6 +147,18 @@ public:
   void sendAction(uint8_t action);
   void sendFire(const glm::vec3 &eye, const glm::vec3 &direction);
   void sendCommand(const std::string &text);
+  // Debug: an object was moved or turned (kind: 0 static, 1 dynamic; id: its index in the stage or its netId)
+  void sendRelocate(uint8_t kind, int id, const glm::vec3 *position, const float *heading);
+  // Debug: a value of the properties window was changed (kind 2 = the world)
+  void sendProperty(uint8_t kind, int id, const std::string &name, float value);
+  // A static object moved by someone (the server said so); null when there is nothing new
+  std::vector<Moved> takeMoved() {
+    std::vector<Moved> taken;
+    taken.swap(moved);
+    return taken;
+  }
+  // The server is starting the map again: leave and come back
+  bool wasReset() const { return resetSeen; }
   void disconnect();
 
   // Where the player's own penguin is after this frame's physics, for input number `seq`

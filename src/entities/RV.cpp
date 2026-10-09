@@ -129,7 +129,7 @@ static const float WHEEL_RIM_RADIUS = 0.27f;
 // front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
 // the engine bay is here, in the frame of rv.obj
 static const float WRECK_SEVERITY = 2.0f;
-static const float FUSE_MIN = 0.1f, FUSE_MAX = 100.0f;
+static const float FUSE_MIN = 0.1f, FUSE_MAX = 30.0f;
 static const float BLAST_RADIUS = 10.0f, BANG_VOLUME = 3.5f, FLASH_TIME = 0.6f;
 static const vec3 ENGINE_BAY(0.0f, 1.35f, 3.0f);
 // The handbrake (assets/rv/generate_handbrake.py: keep them the same): where the lever's pivot is
@@ -141,6 +141,11 @@ static const float HANDBRAKE_ENGAGED = 15.0f, HANDBRAKE_RELEASED = 55.0f, HANDBR
 // long a blink and its beep last (s), and how loud the beep is
 static const vec3 ALARM_LAMP(0.145f, 1.8572f, 2.759f);
 static const float ALARM_PERIOD = 0.6f, ALARM_VOLUME = 0.7f;
+// The lost-wheel lamp, the one beside the alarm's (written by generate_dashboard.py)
+static const vec3 TIRE_LAMP(0.265f, 1.8572f, 2.759f);
+// The sparks of a missing wheel: they start at this speed (m/s) and their number grows with it
+static const float SPARK_MIN_SPEED = 1.0f, SPARK_RATE = 140.0f, SPARK_BACKWARDS = 0.7f, SPARK_UPWARDS = 0.5f,
+                   SPARK_INHERIT = 0.25f;
 static std::shared_ptr<AudioClip> alarmClip();
 // The three mirrors (generate_rv.py, turned_box): 0 the driver's side mirror (+x), 1 the passenger's
 // (-x), heads of 0.22 x 0.42 x 0.12; 2 the central one inside, at the top of the windshield
@@ -271,6 +276,23 @@ RV::RV(std::shared_ptr<Model> model, std::shared_ptr<CompoundShape> hull)
   grain.maxParticles = 300;
   for (unsigned i = 0; i < 4; i++)
     grains.push_back(std::make_shared<ParticleEmitter>(grain, 200 + i));
+
+  ParticleSettings spark; // friction sparks: small, yellow, bright, thrown back, they fall in a trace
+  spark.lifeMin = 0.35f;
+  spark.lifeMax = 0.8f;
+  spark.speedMin = 2.0f;
+  spark.speedMax = 6.0f;
+  spark.spread = 0.6f;
+  spark.sizeStart = 0.07f;
+  spark.sizeEnd = 0.03f;
+  spark.color = vec3(1.0f, 0.85f, 0.25f);
+  spark.alpha = 1.0f;
+  spark.fadeStart = 0.5f;
+  spark.gravity = 12.0f;
+  spark.drag = 0.4f;
+  spark.maxParticles = 250;
+  for (unsigned i = 0; i < 4; i++)
+    sparks.push_back(std::make_shared<ParticleEmitter>(spark, 300 + i));
 
   ParticleSettings flames; // the burning front: hot, it rises
   flames.lifeMin = 0.3f;
@@ -456,6 +478,8 @@ void RV::wreck() {
   updateMirrorParts(); // (the glass is gone)
   if (hasAlarm) // the lamp is in the dashboard, which folds with the front
     parts[alarmPart].model = parts[alarmPart].model->deformed(crumple);
+  if (hasTireLamp)
+    parts[tireLampPart].model = parts[tireLampPart].model->deformed(crumple);
   // the fire alarm goes off
   onFire = true;
   alarmTime = 0.0f;
@@ -478,7 +502,8 @@ void RV::ejectParts(const vec3 &from) {
   std::vector<size_t> list;
   if (hasWheels)
     for (int i = 0; i < 4; i++)
-      list.push_back(wheelParts[i]);
+      if (!flatTires[i]) // (a wheel that is gone already is a prop of its own)
+        list.push_back(wheelParts[i]);
   if (hasCockpit)
     for (size_t part : {dashboardGlowPart - 1, keyPart, speedNeedlePart, fuelNeedlePart})
       list.push_back(part);
@@ -496,9 +521,14 @@ void RV::ejectParts(const vec3 &from) {
     list.push_back(handbrakeBasePart);
     list.push_back(handbrakeLeverPart);
   }
+  for (size_t part : list)
+    launchPart(part, from, 5.0f, 12.0f);
+}
+
+void RV::launchPart(size_t part, const vec3 &from, float lowest, float highest) {
   mat4 object = glm::translate(mat4(1.0f), position) * rotation;
   vec3 carried = getVelocity();
-  for (size_t part : list) {
+  {
     Debris d;
     d.part = part;
     d.world = object * parts[part].local;
@@ -509,7 +539,7 @@ void RV::ejectParts(const vec3 &from) {
         high = glm::max(high, v.Position);
       }
     if (low.x > high.x)
-      continue; // (an empty model)
+      return; // (an empty model)
     d.centre = (low + high) * 0.5f;
     vec3 size = high - low;
     d.radius = 0.5f * std::min(size.x, std::min(size.y, size.z)) + 0.05f;
@@ -517,7 +547,7 @@ void RV::ejectParts(const vec3 &from) {
     vec3 out = at - from;
     out = length(out) > 1e-3f ? normalize(out) : vec3(0.0f, 1.0f, 0.0f);
     float heavy = std::max(size.x, std::max(size.y, size.z)) > 1.5f ? 0.6f : 1.0f; // (the big ones are slower)
-    d.velocity = carried + (out + vec3(0.0f, 0.9f, 0.0f)) * uniform(5.0f, 12.0f) * heavy;
+    d.velocity = carried + (out + vec3(0.0f, 0.9f, 0.0f)) * uniform(lowest, highest) * heavy;
     d.axis = normalize(vec3(uniform(-1.0f, 1.0f), uniform(-1.0f, 1.0f), uniform(-1.0f, 1.0f)) + vec3(0.0f, 0.01f, 0.0f));
     d.spin = uniform(4.0f, 14.0f);
     d.resting = false;
@@ -586,6 +616,11 @@ void RV::updateFire(double dt) {
   }
 }
 
+void RV::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
+  if (!replica)
+    explodeEngine();
+}
+
 void RV::explodeEngine() {
   if (exploded)
     return;
@@ -595,6 +630,8 @@ void RV::explodeEngine() {
   alarmSound.reset(); // (the dashboard is gone: no more alarm)
   if (hasAlarm)
     setPartVisible(alarmPart, false);
+  if (hasTireLamp)
+    setPartVisible(tireLampPart, false);
   vec3 centre = engineBay();
   vec3 carried = getVelocity() * 0.5f;
   const int counts[3] = {110, 60, 160};
@@ -636,6 +673,9 @@ void RV::getFireLight(std::vector<SpotLight> &lights) const {
   if (alarmLit()) // the red lamp lights the panel a little
     lights.push_back(SpotLight::omni(position + vec3(rotation * vec4(crumple(ALARM_LAMP) + vec3(0.0f, 0.0f, -0.1f), 0.0f)),
                                      vec3(1.0f, 0.05f, 0.03f) * 0.6f, 0.6f));
+  for (int i = 0; i < 4; i++) // the sparks of a missing wheel light the road a little
+    if (sparkLit[i])
+      lights.push_back(SpotLight::omni(sparkSpot[i] + vec3(0.0f, 0.15f, 0.0f), vec3(1.0f, 0.7f, 0.2f) * 1.5f, 5.0f));
   if (!wrecked)
     return;
   float flicker = 1.6f + 0.5f * std::sin(23.0f * (float)time) + 0.3f * std::sin(37.0f * (float)time + 1.0f);
@@ -1243,8 +1283,8 @@ void RV::placeWheels() {
     const vec3 &anchor = p.wheels[i].anchor;
     mat4 local = glm::translate(mat4(1.0f), vec3(anchor.x, anchor.y - length, anchor.z));
     local = glm::rotate(local, steer, vec3(0.0f, 1.0f, 0.0f));
-    if (flatTires[i]) // squashed down to the smaller radius it rolls on
-      local = glm::scale(local, vec3(1.0f, (WHEEL_RADIUS - p.flatDrop) / WHEEL_RADIUS, 1.0f));
+    if (flatTires[i]) // gone: the wheel is a prop of its own now (see punctureTire)
+      continue;
     setPartTransform(wheelParts[i], local);
   }
 }
@@ -1257,22 +1297,88 @@ vec3 RV::wheelHub(int wheel) const {
   return position + vec3(rotation * vec4(anchor.x, anchor.y - length, anchor.z, 0.0f));
 }
 
+// The tyre bursts and the wheel leaves: it is thrown out sideways and a little up, and rolls away
+// on the floor like the pieces of an explosion (updateDebris); what is left is a bare corner
 void RV::punctureTire(int wheel) {
-  if (wheel < 0 || wheel > 3)
+  if (wheel < 0 || wheel > 3 || flatTires[wheel])
     return;
+  placeWheels(); // (where the wheel is now: it starts from there)
   flatTires[wheel] = true;
   if (body)
-    body->setFlat(wheel, true);
-  placeWheels();
+    body->setLost(wheel, true);
+  if (hasWheels && !exploded) {
+    vec3 outward = vec3(rotation * vec4(wheel % 2 == 0 ? -1.0f : 1.0f, 0.0f, 0.0f, 0.0f)); // (-x: the right-hand side)
+    size_t before = debris.size();
+    launchPart(wheelParts[wheel], wheelHub(wheel) - outward, 2.5f, 4.5f);
+    if (debris.size() > before) { // it rolls: it spins about its axle, the way it travels
+      Debris &d = debris.back();
+      vec3 along = d.velocity - outward * dot(d.velocity, outward);
+      d.axis = outward * (dot(cross(vec3(0.0f, 1.0f, 0.0f), outward), along) >= 0.0f ? 1.0f : -1.0f);
+      d.spin = std::max(length(vec3(along.x, 0.0f, along.z)), 3.0f) / WHEEL_RADIUS;
+    }
+  }
+  updateTireLamp();
+}
+
+void RV::repairTire(int wheel) {
+  if (!flatTires[wheel])
+    return;
+  flatTires[wheel] = false;
+  if (body)
+    body->setLost(wheel, false);
+  for (size_t i = 0; i < debris.size(); i++) // (the wheel is back on its hub)
+    if (debris[i].part == wheelParts[wheel])
+      debris.erase(debris.begin() + i--);
 }
 
 void RV::repairTires() {
-  for (int i = 0; i < 4; i++) {
-    flatTires[i] = false;
-    if (body)
-      body->setFlat(i, false);
-  }
+  for (int i = 0; i < 4; i++)
+    repairTire(i);
   placeWheels();
+  updateTireLamp();
+}
+
+void RV::setTireLampModel(std::shared_ptr<Model> lamp) {
+  tireLampPart = addPart(lamp, 2); // emissive
+  hasTireLamp = true;
+  updateTireLamp();
+}
+
+// The orange lamp is lit while a wheel is missing (the dashboard goes with the explosion)
+void RV::updateTireLamp() {
+  if (!hasTireLamp)
+    return;
+  bool missing = false;
+  for (bool lost : flatTires)
+    missing = missing || lost;
+  setPartVisible(tireLampPart, missing && !exploded);
+}
+
+// Each missing wheel's bare corner throws sparks while it scrapes along the floor: yellow specks
+// thrown back from the hub, that fall behind the vehicle in a trace
+void RV::updateSparks() {
+  vec3 horizontal(velocity.x, 0.0f, velocity.z);
+  float speed = length(horizontal);
+  vec3 away = speed > 1e-3f ? -horizontal / speed : vec3(0.0f);
+  const VehicleBody::Params &params = body->getParams();
+  for (int i = 0; i < 4; i++) {
+    ParticleEmitter &emitter = *sparks[i];
+    sparkLit[i] = false;
+    if (!flatTires[i] || exploded || !body->getWheels()[i].onGround || speed < SPARK_MIN_SPEED) {
+      emitter.setRate(0.0f);
+      continue;
+    }
+    const VehicleBody::WheelState &wheel = body->getWheels()[i];
+    const vec3 &anchor = params.wheels[i].anchor;
+    vec3 contact = position + vec3(rotation * vec4(anchor.x, anchor.y - wheel.length - (WHEEL_RADIUS - params.lostDrop),
+                                                   anchor.z, 0.0f));
+    sparkSpot[i] = contact + vec3(0.0f, 0.08f, 0.0f);
+    sparkLit[i] = true;
+    emitter.setPosition(sparkSpot[i]);
+    emitter.setDirection(away * SPARK_BACKWARDS + vec3(0.0f, SPARK_UPWARDS, 0.0f));
+    emitter.setBaseVelocity(velocity * SPARK_INHERIT);
+    emitter.setRate(SPARK_RATE * std::min(speed, DUST_MAX_RATE_SPEED) / 10.0f);
+  }
 }
 
 // The cap of the tank: on the -x side (the door is on +x), above and behind the rear wheel
@@ -1323,7 +1429,7 @@ void RV::ensureBody() {
   body.reset(new VehicleBody(vehicleParams(gravity, maxSpeed)));
   body->place(position, facing);
   for (int i = 0; i < 4; i++)
-    body->setFlat(i, flatTires[i]);
+    body->setLost(i, flatTires[i]);
 }
 
 bool RV::contactFloor(const Stage &stage, double dt) {
@@ -1370,6 +1476,7 @@ bool RV::contactFloor(const Stage &stage, double dt) {
   grounded = body->isOnGround();
   placeWheels();
   updateDust(stage);
+  updateSparks();
   updateDebris(stage, dt);
   return true;
 }
@@ -1409,7 +1516,7 @@ void RV::describe(std::vector<std::string> &lines) const {
   const std::vector<VehicleBody::WheelState> &states = body->getWheels();
   for (size_t i = 0; i < states.size(); i++)
     wheels += textFormat(" %s %.2f%s%s", i < 4 ? names[i] : "?", states[i].length,
-                         states[i].onGround ? "*" : "", isTireFlat((int)i) ? " PINCHADA" : "");
+                         states[i].onGround ? "*" : "", isTireFlat((int)i) ? " SIN RUEDA" : "");
   lines.push_back(wheels);
 }
 
@@ -1465,7 +1572,7 @@ void RV::getProperties(std::vector<Property> &properties) {
   }));
   properties.push_back(Property::action("Faros: provocar una averia",
                                         [this]() { startLightFault(); }));
-  properties.push_back(Property::info("Ruedas pinchadas", [this]() {
+  properties.push_back(Property::info("Ruedas perdidas", [this]() {
     const char *names[] = {"DD", "DI", "TD", "TI"};
     std::string flat;
     for (int i = 0; i < 4; i++)
@@ -1473,7 +1580,7 @@ void RV::getProperties(std::vector<Property> &properties) {
         flat += std::string(flat.empty() ? "" : " ") + names[i];
     return flat.empty() ? std::string("ninguna") : flat;
   }));
-  properties.push_back(Property::action("Pinchar una rueda al azar", [this]() {
+  properties.push_back(Property::action("Perder una rueda al azar", [this]() {
     punctureTire(std::uniform_int_distribution<int>(0, 3)(random));
   }));
   properties.push_back(Property::action("Reparar las ruedas", [this]() { repairTires(); }));
@@ -1571,8 +1678,14 @@ void RV::readNetState(NetReader &in) {
   onFire = flags & 256;
   lampLevel = lamps;
   fuel = tank;
-  for (int i = 0; i < 4; i++)
-    flatTires[i] = flags & (1u << (16 + i));
+  for (int i = 0; i < 4; i++) { // (a wheel that went: it flies off here too)
+    bool lost = flags & (1u << (16 + i));
+    if (lost && !flatTires[i])
+      punctureTire(i);
+    else if (!lost && flatTires[i])
+      repairTire(i);
+  }
+  updateTireLamp();
   if (doorLatched != bool(flags & 1024)) {
     doorLatched = flags & 1024;
     if (doorLatched)
@@ -1605,6 +1718,7 @@ void RV::updateReplica(double dt) {
   placeWheels();
   if (stage) {
     updateDust(*stage);
+    updateSparks();
     updateDebris(*stage, dt);
   }
 }

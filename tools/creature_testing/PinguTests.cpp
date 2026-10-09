@@ -3,6 +3,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "AnimatedModel.h"
+#include "DeathPose.h"
 #include "GameObject.h"
 #include "NpcRagdoll.h"
 #include "Stage.h"
@@ -89,17 +90,42 @@ public:
   string status() const override { return "ragdoll"; }
 };
 
+// The player's death (DeathPose): he tips over backwards and ends lying on his back; starts over each
+// time the animation is reset
+class DeathAnimation : public PinguAnimation {
+  DeathPose pose;
+
+public:
+  explicit DeathAnimation(Stage &stage) : PinguAnimation(stage), pose(model) {}
+  string name() const override { return "death (falls backwards)"; }
+  void reset(const TestBody &) override { pose.restart(); }
+  void update(double dt, TestBody &body) override {
+    object->setPosition(body.position.x, body.position.y, body.position.z);
+    object->setYaw(body.heading);
+    pose.step(dt);
+    pose.apply();
+  }
+  void joints(vector<vec3> &out) const override {
+    for (float y = 0.2f; y < 1.4f; y += 0.3f)
+      out.push_back(object->getPosition() + vec3(0.0f, y, 0.0f));
+  }
+  bool walks() const override { return false; }
+  string status() const override { return "fall " + to_string(pose.fallAngle()); }
+};
+
 } // namespace
 
 CreatureEntry pinguEntry() {
   CreatureEntry pingu;
   pingu.name = "pingu";
-  pingu.animations = {"dance (recorded)", "ragdoll (held by the head)"};
+  pingu.animations = {"dance (recorded)", "ragdoll (held by the head)", "death (falls backwards)"};
   pingu.walkSpeed = 1.5f;
   pingu.create = [](int index, Stage &stage) -> unique_ptr<TestAnimation> {
     if (index == 0)
       return unique_ptr<TestAnimation>(new DanceAnimation(stage));
-    return unique_ptr<TestAnimation>(new RagdollAnimation(stage));
+    if (index == 1)
+      return unique_ptr<TestAnimation>(new RagdollAnimation(stage));
+    return unique_ptr<TestAnimation>(new DeathAnimation(stage));
   };
   return pingu;
 }

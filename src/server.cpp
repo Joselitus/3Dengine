@@ -23,13 +23,13 @@ static volatile sig_atomic_t running = 1;
 static void stop(int) { running = 0; }
 
 static void usage(const char *program) {
-  printf("Uso: %s [--port N] [--map N|NOMBRE] [--time H] [--day-duration S] [--ray] [--list]\n"
-         "  --port N           puerto TCP (por defecto %d)\n"
-         "  --map N|NOMBRE     mapa a servir (numero de la lista o nombre; --list los muestra)\n"
-         "  --time H           hora del dia con la que empieza el mapa\n"
-         "  --day-duration S   segundos reales que dura un dia (0 = parado)\n"
-         "  --ray              suelo por rayos (por defecto, mapa de alturas)\n"
-         "  --verbose          cada dos segundos escribe donde esta cada jugador\n",
+  printf("Usage: %s [--port N] [--map N|NAME] [--time H] [--day-duration S] [--ray] [--list]\n"
+         "  --port N           TCP port (default %d)\n"
+         "  --map N|NAME       map to serve (number in the list, or name; --list shows them)\n"
+         "  --time H           hour of the day the map starts at\n"
+         "  --day-duration S   real seconds a day lasts (0 = stopped)\n"
+         "  --ray              floor by ray casting (default: height map)\n"
+         "  --verbose          every two seconds prints where each player is\n",
          program, Net::DEFAULT_PORT);
 }
 
@@ -68,11 +68,11 @@ int main(int argc, char **argv) {
     if (startMap == maps[i].name || startMap == to_string(i))
       mapIndex = (int)i;
   if (mapIndex < 0) {
-    fprintf(stderr, "No hay ningun mapa '%s' (--list los muestra)\n", startMap.c_str());
+    fprintf(stderr, "No map '%s' (--list shows them)\n", startMap.c_str());
     return 1;
   }
   if (!enterSourceDir())
-    fprintf(stderr, "No encuentro src/, uso el directorio actual\n");
+    fprintf(stderr, "Could not find src/, using the current directory\n");
 
   setvbuf(stdout, nullptr, _IOLBF, 0); // (the log shows as it happens, even in a file)
   setNetRole(NetRole::Server);
@@ -83,11 +83,11 @@ int main(int argc, char **argv) {
   SoundEngine sound(true);
   SilentSynthesizer speech;
   MapContext context = {floorMode, sound, speech};
-  printf("[servidor] cargando el mapa '%s'...\n", maps[mapIndex].name.c_str());
+  printf("[server] loading map '%s'...\n", maps[mapIndex].name.c_str());
   fflush(stdout);
   unique_ptr<GameStage> stage = maps[mapIndex].create(context);
   if (!stage) {
-    fprintf(stderr, "No puedo cargar el mapa '%s'\n", maps[mapIndex].name.c_str());
+    fprintf(stderr, "Could not load map '%s'\n", maps[mapIndex].name.c_str());
     return 1;
   }
   if (startHour >= 0.0f)
@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "%s\n", error.c_str());
     return 1;
   }
-  printf("[servidor] listo: mapa '%s' en el puerto %d\n", maps[mapIndex].name.c_str(), port);
+  printf("[server] ready: map '%s' on port %d\n", maps[mapIndex].name.c_str(), port);
   fflush(stdout);
 
   // The world moves in fixed steps; the network is attended to in between
@@ -115,6 +115,26 @@ int main(int argc, char **argv) {
     last = now;
     owed = min(owed + dt, 0.25); // (after a long stall it does not rush to catch up)
     net.poll(dt);
+    if (net.resetWanted()) {
+      // /reset: the map is made again (the players have to come back in)
+      printf("[server] starting map '%s' again...\n", maps[mapIndex].name.c_str());
+      fflush(stdout);
+      unique_ptr<GameStage> fresh = maps[mapIndex].create(context);
+      if (fresh) {
+        if (startHour >= 0.0f)
+          fresh->setTimeOfDay(startHour);
+        if (dayDuration >= 0.0f)
+          fresh->setDayDuration(dayDuration);
+        net.restart(*fresh);
+        stage = std::move(fresh);
+      } else {
+        net.cancelReset();
+        fprintf(stderr, "[server] could not make the map again\n");
+      }
+      last = clock::now();
+      owed = 0.0;
+      continue;
+    }
     while (owed >= Net::TICK) {
       stage->tick(Net::TICK);
       owed -= Net::TICK;
@@ -123,12 +143,12 @@ int main(int argc, char **argv) {
       if (verbose && ticks % 120 == 0)
         for (const auto &p : stage->getPlayers()) {
           glm::vec3 at = p->getPosition();
-          printf("[estado] %s: (%.2f, %.2f, %.2f)%s%s%s\n", p->name.c_str(), at.x, at.y, at.z,
-                 p->dead ? " muerto" : "", p->inVehicle ? " en el RV" : "", p->inSaucer ? " en la nave" : "");
+          printf("[state] %s: (%.2f, %.2f, %.2f)%s%s%s\n", p->name.c_str(), at.x, at.y, at.z,
+                 p->dead ? " dead" : "", p->inVehicle ? " in the RV" : "", p->inSaucer ? " in the ship" : "");
         }
     }
     this_thread::sleep_for(chrono::milliseconds(1));
   }
-  printf("[servidor] adios\n");
+  printf("[server] bye\n");
   return 0;
 }

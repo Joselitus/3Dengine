@@ -185,12 +185,20 @@ string DebugSelector::labelOf(const GameStage &stage, const GameObject &object) 
 void DebugSelector::edit(const GameStage &stage, shared_ptr<GameObject> object) {
   if (!object)
     return;
-  placeAtRight(ui.open(new PropertyPanel(labelOf(stage, *object), object)));
+  vector<Property> properties;
+  object->getProperties(properties);
+  if (onProperty)
+    for (Property &p : properties)
+      onProperty(object.get(), p);
+  placeAtRight(ui.open(new PropertyPanel(labelOf(stage, *object), properties)));
 }
 
 void DebugSelector::editWorld(GameStage &stage) {
   vector<Property> properties;
   stage.getProperties(properties);
+  if (onProperty)
+    for (Property &p : properties)
+      onProperty(nullptr, p);
   placeAtRight(ui.open(new PropertyPanel("Mundo", properties)));
 }
 
@@ -286,6 +294,8 @@ void DebugSelector::update(GameStage &stage, Camera &camera, bool canPick) {
       target = destination(stage, *object, floorPoint);
     if (canPick && leftPressed && hasTarget) {
       stage.relocate(*object, target);
+      if (onRelocate)
+        onRelocate(*object, target);
       hasTarget = false; // it is there now: no outline until the next frame
     }
     // Right button held: the mouse turns the object (the camera doesn't, see
@@ -309,8 +319,11 @@ void DebugSelector::update(GameStage &stage, Camera &camera, bool canPick) {
       // The shortest way there
       float change = std::remainder(wanted - object->getHeading(),
                                     2.0f * pi<float>());
-      if (std::fabs(change) > 1e-5f)
+      if (std::fabs(change) > 1e-5f) {
         stage.turn(*object, change);
+        if (onTurn)
+          onTurn(*object, object->getHeading());
+      }
       turning = true;
       lastCursorX = x;
     } else {

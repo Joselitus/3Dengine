@@ -49,7 +49,7 @@
 // A frontal crash twice as hard as the least that breaks the windshield (ImpactDetector::severity
 // >= 2) also wrecks the vehicle (wreck): the front of the body, the cracked glass and the lamps
 // are replaced by crumpled copies, and the engine bay catches fire (flames and smoke: particle
-// emitters, getFireEmitters, and an orange light, getFireLight). A fuse of 0.1 to 100 seconds (evenly distributed),
+// emitters, getFireEmitters, and an orange light, getFireLight). A fuse of 0.1 to 30 seconds (evenly distributed),
 // picked at random, starts to run; when it ends the engine explodes (explodeEngine): fire, smoke
 // and fuel splash like the mosquito's (effects/Explosion), a flash of light, a bang, a hop of the
 // vehicle, and whoever is inside or near dies (setExplosionCallback). The engine is dead after
@@ -114,7 +114,7 @@ private:
 
   size_t wheelParts[4];              // front -x, front +x, rear -x, rear +x
   bool hasWheels = false;
-  bool flatTires[4] = {false, false, false, false}; // same order (see punctureTire)
+  bool flatTires[4] = {false, false, false, false}; // same order: the wheel is gone (see punctureTire)
   bool occupied = false;             // someone is driving it
   bool keyOn = false;                // the key is turned: the engine is starting or running
   bool engineOn = false;             // the engine has caught and runs (see setEngine)
@@ -235,6 +235,18 @@ private:
   };
   std::vector<Debris> debris;
   void ejectParts(const glm::vec3 &from);
+  // Throws one part out as a prop: away from `from`, at a speed between `lowest` and `highest`
+  void launchPart(size_t part, const glm::vec3 &from, float lowest, float highest);
+  void repairTire(int wheel);
+  // Sparks from the bare corner of each missing wheel while it scrapes along (updateSparks), and
+  // the lamp that says a wheel is missing
+  std::vector<std::shared_ptr<ParticleEmitter>> sparks;
+  glm::vec3 sparkSpot[4];
+  bool sparkLit[4] = {false, false, false, false};
+  size_t tireLampPart = 0;
+  bool hasTireLamp = false;
+  void updateSparks();
+  void updateTireLamp();
   void updateDebris(const Stage &stage, double dt);
   glm::vec3 engineBay() const; // where the fire is, in the world
   size_t mirrorPart[3] = {0, 0, 0};
@@ -385,6 +397,8 @@ public:
   // Blows the engine up now (wrecking it first if need be)
   void explodeEngine();
   bool hasExploded() const { return exploded; }
+  // Hit by the ship's ray: the engine blows up at once (the server's call; a replica does what it is told)
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
   // What the explosion does to the people near it: called with its centre in the world and the
   // radius (m) of the blast, for the stage to kill whoever is inside
   void setExplosionCallback(std::function<void(const glm::vec3 &, float)> callback) {
@@ -483,11 +497,18 @@ public:
   void fuelCap(glm::vec3 &position, glm::vec3 &normal) const;
 
   // The tyres: wheel i (0 front -x, 1 front +x, 2 rear -x, 3 rear +x; -x is the right-hand side)
-  // can be burst. A flat tyre sinks that corner and drags, so the RV pulls towards that side
-  // (VehicleBody::setFlat), and it is drawn squashed. They stay flat until repairTires.
+  // can be burst. A burst tyre leaves: the wheel flies off as a prop of its own (it rolls away and
+  // lies on the floor) and the RV runs on without it: the bare corner drags on the floor and throws
+  // yellow sparks, it pulls towards that side and each wheel lost takes a quarter of the top speed the
+  // terrain allows (none left with all four: VehicleBody::setLost). The orange lamp of the dashboard (setTireLampModel) is lit
+  // while any wheel is missing. Until repairTires.
   void punctureTire(int wheel);
   bool isTireFlat(int wheel) const { return wheel >= 0 && wheel < 4 && flatTires[wheel]; }
   void repairTires();
+  // The orange lost-wheel lamp (dashboard_tire.obj, in the frame of rv.obj, like the alarm's)
+  void setTireLampModel(std::shared_ptr<Model> lamp);
+  // The friction sparks of the missing wheels' corners (same use as getDust)
+  const std::vector<std::shared_ptr<ParticleEmitter>> &getSparkEmitters() const { return sparks; }
   // The middle of wheel i (its hub) in the world
   glm::vec3 wheelHub(int wheel) const;
   // How much of the tank a metre costs (default 1/12000: a full tank is 12 km)

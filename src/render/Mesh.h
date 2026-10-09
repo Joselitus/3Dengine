@@ -48,6 +48,10 @@ public:
        std::vector<Texture> textures);
   virtual ~Mesh() = default;
   const std::vector<Vertex> &getVertices() const { return vertices; }
+  // For editing the geometry (the terrain editor): change the vertices, then tell which ones with
+  // refreshVertices so that only those go to the GPU again
+  std::vector<Vertex> &editableVertices() { return vertices; }
+  void refreshVertices(size_t first, size_t count);
   const std::vector<unsigned int> &getIndices() const { return indices; }
   const std::vector<Texture> &getTextures() const { return textures; }
   void setMaterialName(const std::string &name) { materialName = name; }

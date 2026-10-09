@@ -21,6 +21,7 @@ Controls::Controls() {
   bind(Action::ShipLegs, GLFW_KEY_Q);
   bind(Action::Quit, GLFW_KEY_X);
   bind(Action::Maps, GLFW_KEY_Z);
+  bind(Action::PopTire, GLFW_KEY_P);
   bind(Action::DebugSelect, GLFW_KEY_1);
   bind(Action::DebugPlace, GLFW_KEY_2);
   bind(Action::DebugInspect, GLFW_KEY_0);
@@ -46,6 +47,7 @@ const char *Controls::describe(Action action) {
   case Action::DebugPlace: return "Modo colocacion de objetos (debug)";
   case Action::DebugInspect: return "Modo propiedades de objetos (debug)";
   case Action::Console: return "Consola de comandos (o /)";
+  case Action::PopTire: return "Pinchar una rueda al azar (debug)";
   case Action::Count: break;
   }
   return "?";
@@ -70,6 +72,7 @@ const char *Controls::id(Action action) {
   case Action::DebugPlace: return "debug_place";
   case Action::DebugInspect: return "debug_inspect";
   case Action::Console: return "console";
+  case Action::PopTire: return "pop_tire";
   case Action::Count: break;
   }
   return "?";
@@ -142,6 +145,7 @@ const char *Controls::group(Action action) {
   case Action::DebugPlace:
   case Action::DebugInspect:
   case Action::Console: return "Menus";
+  case Action::PopTire: return "Depuracion"; // (a group the ControlsMenu does not list)
   default: return "Movimiento";
   }
 }

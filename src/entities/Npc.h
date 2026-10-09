@@ -8,6 +8,7 @@
 #include "Dialogue.h"
 #include "DynamicGameObject.h"
 #include "Interactable.h"
+#include "DeathPose.h"
 #include "NpcRagdoll.h"
 #include "Voice.h"
 
@@ -32,6 +33,8 @@ private:
   std::unique_ptr<NpcRagdoll> ragdoll;
   Ragdoll::FloorQuery ragdollFloor;
   std::function<bool(glm::vec3 &)> headHold;
+  std::unique_ptr<DeathPose> death; // once it has been shot (startDeath)
+  bool dead = false;
   bool wasHeld = false;       // its head was held and let go: it is itself again
   bool wasIdle = false;       // (its model was in the breathing pose before)
   Ragdoll::FloorQuery replicaFloor;
@@ -66,9 +69,8 @@ public:
   const Voice &getVoice() const { return voice; }
 
   void update(double dt) override;
-  // Shot: once its health is gone it falls (a ragdoll, for good), knocked the way the shot went
+  // Shot: once its health is gone it dies (startDeath: it falls over backwards, for good)
   void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override;
-  static constexpr float SHOT_KNOCK = 4.0f; // m/s, the push of the shot that fells it
 protected:
   float health = 1.0f;
 public:
@@ -81,7 +83,11 @@ public:
   // it stays a ragdoll for good.
   // False if its model can't be made into one (or it already is).
   bool startRagdoll(Ragdoll::FloorQuery floor, std::function<bool(glm::vec3 &)> holdHead = nullptr);
-  bool isRagdolling() const { return ragdoll != nullptr; }
+  // Dies: it stops talking and can no longer be used, and falls over backwards where it stands to lie
+  // on its back for good (DeathPose: the same fall as the player's penguin)
+  void startDeath();
+  // Out of action: a ragdoll (carried by a creature or not) or dead
+  bool isRagdolling() const { return ragdoll != nullptr || dead; }
   // A client: where a ragdoll falls to (the floor), for the copy of an NPC that was shot
   void setReplicaFloor(Ragdoll::FloorQuery floor) { replicaFloor = floor; }
   // The server tells the clients whether it lies for good (shot); one that a creature carries is
@@ -98,7 +104,7 @@ private:
 public:
 
   // Interactable
-  bool isInteractionAvailable() const override { return !ragdoll; }
+  bool isInteractionAvailable() const override { return !ragdoll && !dead; }
   std::string getInteractionName() const override { return name; }
   std::string getInteractionVerb() const override { return "hablar con"; }
   glm::vec3 getInteractionPoint() const override;

@@ -26,7 +26,9 @@ struct MapEntry {
   std::function<std::unique_ptr<GameStage>(const MapContext &)> create;
 };
 
-// The maps, in the order the map selector lists them
+// The maps, in the order the map selector lists them. Each one comes with the edits the map editor
+// saved for it (MapEdits) already applied, unless setMapEditsApplied(false)
 const std::vector<MapEntry> &mapList();
+void setMapEditsApplied(bool applied);
 
 #endif

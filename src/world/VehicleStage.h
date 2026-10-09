@@ -2,6 +2,7 @@
 #define VEHICLE_STAGE
 
 #include <memory>
+#include <random>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -31,6 +32,7 @@
 // Player, and what the creatures and Bob do is done for whoever of them is nearest.
 class VehicleStage : public GameStage {
 protected:
+  std::mt19937 tireRandom{std::random_device()()}; // (which tyre popRandomTire bursts)
   // PenguinoAnimado.fbx holds two takes of the same dance; take 0 (".002") has
   // the right flipper detached from the body and the feet in the air, take 1
   // (".003") is the clean one.
@@ -77,6 +79,8 @@ protected:
   // A night creature at (x, z) (a map may have several: see `creatures`), wired to the players, the RV and the clock. The
   // map may still add prey (setPreyQuery)
   void createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x, float z);
+  std::vector<std::string> entityKinds() const override { return {"folla_culos"}; }
+  bool spawnEntity(const std::string &kind, const glm::vec3 &where, float yaw, EntityContext &context) override;
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
@@ -146,6 +150,7 @@ public:
   void toggleEngine(Player &p) override;
   // Q: the legs of Bob's ship, while the penguin flies it
   void toggleShipLegs(Player &p) override;
+  void popRandomTire(Player &p) override;
   void fire(Player &p, const glm::vec3 &eye, const glm::vec3 &direction) override;
   // Space: the handbrake, only while the penguin is driving
   void toggleHandbrake(Player &p) override;

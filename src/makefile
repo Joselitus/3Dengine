@@ -5,7 +5,8 @@ DIRS = $(shell find . -type d)
 # The creature testing tool lives in ../tools/creature_testing (its sources use the engine's
 # headers by name too)
 TOOL_DIR = ../tools/creature_testing
-CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR)
+EDITOR_DIR = ../tools/map_editor
+CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR) -I$(EDITOR_DIR)
 LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
 # macOS (MacPorts in /opt/local): no libGL/Vulkan, OpenGL is a framework
@@ -27,8 +28,10 @@ SRCS = $(shell find . -name '*.cpp')
 SHARED_OBJS = $(filter-out ./client.o ./server.o,$(SRCS:%.cpp=%.o))
 TOOL_SRCS = $(wildcard $(TOOL_DIR)/*.cpp)
 TOOL_OBJS = $(TOOL_SRCS:%.cpp=%.o)
+EDITOR_SRCS = $(wildcard $(EDITOR_DIR)/*.cpp)
+EDITOR_OBJS = $(EDITOR_SRCS:%.cpp=%.o)
 
-all: server client creature_testing
+all: server client creature_testing map_editor
 
 # The binaries go to ../test/; they can be run from any directory
 server: server.o $(SHARED_OBJS)
@@ -43,6 +46,10 @@ creature_testing: $(TOOL_OBJS) $(SHARED_OBJS)
 	mkdir -p ../test
 	$(CC) -o ../test/$@ $^ $(LIBS) -g
 
+map_editor: $(EDITOR_OBJS) $(SHARED_OBJS)
+	mkdir -p ../test
+	$(CC) -o ../test/$@ $^ $(LIBS) -g
+
 %.o: %.cpp
 	$(CC) $(CXXFLAGS) $< -c -o $@ -MMD -MP
 
@@ -50,12 +57,12 @@ creature_testing: $(TOOL_OBJS) $(SHARED_OBJS)
 third_party/%.o: third_party/%.cpp
 	$(CC) $(CXXFLAGS) -w $< -c -o $@ -MMD -MP
 
--include $(SRCS:%.cpp=%.d) $(TOOL_SRCS:%.cpp=%.d)
+-include $(SRCS:%.cpp=%.d) $(TOOL_SRCS:%.cpp=%.d) $(EDITOR_SRCS:%.cpp=%.d)
 
 clean:
 	find . -name '*.o' -delete
 	find . -name '*.d' -delete
-	find $(TOOL_DIR) -name '*.o' -delete -o -name '*.d' -delete
-	rm -f ../test/server ../test/client ../test/test ../test/creature_testing
+	find $(TOOL_DIR) $(EDITOR_DIR) -name '*.o' -delete -o -name '*.d' -delete
+	rm -f ../test/server ../test/client ../test/test ../test/creature_testing ../test/map_editor
 
-.PHONY: all clean server client creature_testing
+.PHONY: all clean server client creature_testing map_editor

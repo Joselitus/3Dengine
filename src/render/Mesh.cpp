@@ -1,4 +1,5 @@
 #include "Mesh.h"
+#include <algorithm>
 #include "Gfx.h"
 #include "RenderStats.h"
 using namespace std;
@@ -40,6 +41,14 @@ void Mesh::setupMesh() {
 
     glBindVertexArray(0);
 } 
+
+void Mesh::refreshVertices(size_t first, size_t count) {
+    if (Gfx::headless || count == 0 || first >= vertices.size())
+        return;
+    count = std::min(count, vertices.size() - first);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferSubData(GL_ARRAY_BUFFER, first * sizeof(Vertex), count * sizeof(Vertex), &vertices[first]);
+}
 
 void Mesh::Draw(Shader * shader) {
     if (Gfx::headless)

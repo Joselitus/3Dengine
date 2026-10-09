@@ -36,3 +36,14 @@ FloorMaterial MaterialMap::at(float u, float v) const {
   int y = std::min(std::max((int)(v * height), 0), height - 1);
   return (FloorMaterial)cells[(size_t)y * width + x];
 }
+
+shared_ptr<MaterialMap> MaterialMap::resized(int newWidth, int newHeight) const {
+  auto map = make_shared<MaterialMap>();
+  map->width = newWidth;
+  map->height = newHeight;
+  map->cells.resize((size_t)newWidth * newHeight);
+  for (int y = 0; y < newHeight; y++)
+    for (int x = 0; x < newWidth; x++)
+      map->cells[(size_t)y * newWidth + x] = (unsigned char)at((x + 0.5f) / newWidth, (y + 0.5f) / newHeight);
+  return map;
+}

@@ -87,15 +87,26 @@ public:
 
     float bumperFriction = 0.8f;  // of the chassis against the floor
 
-    // A flat tyre (setFlat): its radius is this much smaller (that corner sinks), it is this
-    // many times harder to roll (the drag on one side pulls the vehicle towards it) and it
-    // grips this share of a good one
-    float flatDrop = 0.18f;
-    float flatRolling = 10.0f;
-    float flatGrip = 0.7f;
-    // ...and the squashed rubber drags it as if it were turned this much (radians) towards its
+    // A lost wheel (setLost: the tyre blew off): nothing holds that corner up but the bare hub, a
+    // stump as much smaller than the wheel as lostDrop: the corner falls until the underside of
+    // the body is nearly on the floor (the chassis' lowest edge is 0.46 above the wheels' ground
+    // level: the stump is nearly a point), and scrapes along it. It rolls lostRolling times as hard and grips lostGrip of a good wheel. Each lost wheel takes
+    // lostSpeed of the top speed the terrain allows (a quarter: with all four gone it is zero and
+    // the engine has nothing to push), whatever the speed the vehicle has now.
+    float lostDrop = 0.45f;
+    float lostRolling = 1.0f;
+    float lostGrip = 1.0f;
+    float lostSpeed = 0.25f;
+    // With all four gone the hubs scrape along the floor and stop it: the rolling drag is this
+    // many times harder
+    float lostScrape = 6.0f;
+    // The drift (below) costs some speed: the top speed is raised by this much while a wheel is
+    // missing (and not all), so that the speed it really reaches is the stated one (measured)
+    float lostDragMakeUp = 1.15f;
+    float lostDragMakeUpMore = 0.10f; // ...and this more for each wheel after the first
+    // ...and the scraping drags it as if the wheel were turned this much (radians) towards its
     // own side, which makes the whole vehicle drift that way
-    float flatSteer = 0.06f;
+    float lostSteer = 0.01f;
     // The strongest push of one contact point of the chassis, in vehicle
     // weights: a point that has sunk deep is pushed out firmly but not shot
     // out (the stage also pushes the chassis out of the floor)
@@ -149,13 +160,13 @@ public:
   // The terminal speed (Params::maxSpeed), e.g. from the debug inspector
   void setMaxSpeed(float speed) { params.maxSpeed = speed; }
 
-  // A flat tyre on wheel i (see Params::flatDrop...): that side drags and the vehicle pulls
-  // towards it
-  void setFlat(size_t wheel, bool isFlat) {
-    if (wheel < flatTyre.size())
-      flatTyre[wheel] = isFlat;
+  // Wheel i is gone (see Params::lostDrop...): its corner drags on the floor, the vehicle pulls
+  // towards it and the top speed falls
+  void setLost(size_t wheel, bool isLost) {
+    if (wheel < lostWheel.size())
+      lostWheel[wheel] = isLost;
   }
-  bool isFlat(size_t wheel) const { return wheel < flatTyre.size() && flatTyre[wheel]; }
+  bool isLost(size_t wheel) const { return wheel < lostWheel.size() && lostWheel[wheel]; }
 
   // Turns the chassis (e.g. to test it upside down); no other state changes
   void setOrientation(const glm::quat &q) { orientation = glm::normalize(q); }
@@ -197,7 +208,7 @@ private:
   SurfaceQuery surfaces;
   float steerAngle = 0.0f;
   std::vector<WheelState> wheelStates;
-  std::vector<bool> flatTyre; // per wheel (see setFlat)
+  std::vector<bool> lostWheel; // per wheel (see setLost)
 
   void substep(float h, const FloorQuery &floor);
 };

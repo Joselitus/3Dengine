@@ -1,13 +1,17 @@
 #include "MapList.h"
 
 #include "ForestStage.h"
+#include "MapEdits.h"
 #include "PineForestStage.h"
 #include "Route66Stage.h"
 #include "SceneStage.h"
 #include "TestStage.h"
 
+static bool editsApplied = true;
+void setMapEditsApplied(bool applied) { editsApplied = applied; }
+
 const std::vector<MapEntry> &mapList() {
-  static const std::vector<MapEntry> maps = {
+  static const std::vector<MapEntry> built = {
       {"Desierto de dia",
        [](const MapContext &c) {
          return std::unique_ptr<GameStage>(new TestStage(c.floorMode, c.sound, c.speech));
@@ -35,5 +39,25 @@ const std::vector<MapEntry> &mapList() {
          return std::unique_ptr<GameStage>(new PineForestStage(c.floorMode, c.sound));
        }},
   };
+  // Each map, with the map editor's changes over it
+  static const std::vector<MapEntry> maps = [&]() {
+    std::vector<MapEntry> list;
+    for (const MapEntry &entry : built) {
+      MapEntry wrapped;
+      wrapped.name = entry.name;
+      auto create = entry.create;
+      std::string name = entry.name;
+      wrapped.create = [create, name](const MapContext &c) {
+        std::unique_ptr<GameStage> stage = create(c);
+        if (stage && editsApplied) {
+          EntityContext context = {c.sound, c.speech};
+          applyMapEdits(*stage, name, context);
+        }
+        return stage;
+      };
+      list.push_back(wrapped);
+    }
+    return list;
+  }();
   return maps;
 }

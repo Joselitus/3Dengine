@@ -9,6 +9,7 @@
 class Camera;
 class Model;
 class SeatedPose;
+class DeathPose;
 
 // A character on foot. WASD walks relative to where the camera looks (W
 // forward, A/D sideways) and it turns to face where it walks. Under gravity
@@ -27,6 +28,9 @@ class SeatedPose;
 // In a seat of the RV it sits (sit(), every frame, see SeatedPose): the stage puts it on the seat
 // and turns it with the vehicle; the model is posed sitting and, driving, it holds the steering wheel
 // and a can of beer (setHeldModel: a part of the walker shown only then). standUp() ends it.
+//
+// Dead (setDying) it tips over backwards like the death camera does and ends lying on its back,
+// flippers wide (see DeathPose).
 class Walker : public PlayableCharacter {
 private:
   Camera *camera = nullptr;
@@ -41,6 +45,8 @@ private:
   std::function<void()> damageCallback; // what happens when something shoots him (the stage kills him)
   std::shared_ptr<SeatedPose> seated; // sitting (see sit)
   bool sitting = false;
+  std::shared_ptr<DeathPose> dying; // its fall, while it is dead (see setDying)
+  bool dead = false;
   size_t heldPart = 0;
   bool hasHeld = false;
 
@@ -82,6 +88,11 @@ public:
   // Gets up: it plays its own animation again, and stands upright facing where it faced
   void standUp();
   bool isSitting() const { return sitting; }
+  // Starts or ends its death: it falls over backwards and stays on the floor until it is revived
+  void setDying(bool dead);
+  bool isDying() const { return dead; }
+  // How far its fall has gone (0 upright .. pi/2 on its back): what the death camera follows
+  float getFallAngle() const;
 };
 
 #endif

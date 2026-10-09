@@ -146,6 +146,20 @@ void NetClient::handle(const NetConnection::Message &message) {
       notices.push_back(text);
     break;
   }
+  case S_RELOCATED: {
+    Moved m;
+    m.kind = in.u8();
+    m.id = in.i32();
+    m.flags = in.u8();
+    m.position = in.vec3();
+    m.heading = in.f32();
+    if (in.isOk())
+      moved.push_back(m);
+    break;
+  }
+  case S_RESET:
+    resetSeen = true;
+    break;
   default:
     break;
   }
@@ -279,6 +293,7 @@ void NetClient::readSnapshot(NetReader &in) {
   for (auto &entry : flags)
     if (Player *p = stage->findPlayer(entry.first)) {
       p->dead = entry.second & PLAYER_DEAD;
+      p->walker->setDying(p->dead);
       p->abducted = entry.second & PLAYER_ABDUCTED;
       p->inVehicle = entry.second & PLAYER_IN_VEHICLE;
       p->inSaucer = entry.second & PLAYER_IN_SAUCER;
@@ -420,9 +435,9 @@ void NetClient::apply(double dt) {
         object->readNetState(extra);
         // The two halves of a class must agree on what is sent: say it once if they do not
         if ((!extra.isOk() || extra.remaining() != 0) && warnedClasses.insert(typeid(*object).name()).second)
-          fprintf(stderr, "Red: el estado de un %s no coincide con el del servidor (%zu bytes sin leer%s): "
-                          "hay que compilar el cliente y el servidor de la misma version\n",
-                  typeid(*object).name(), extra.remaining(), extra.isOk() ? "" : ", y se pidio mas de lo enviado");
+          fprintf(stderr, "Net: the state of a %s does not match the server's (%zu unread bytes%s): "
+                          "the client and the server must be built from the same version\n",
+                  typeid(*object).name(), extra.remaining(), extra.isOk() ? "" : ", and more was asked for than was sent");
       }
     }
 
@@ -504,4 +519,27 @@ void NetClient::sendCommand(const std::string &text) {
   NetWriter w;
   w.string(text);
   connection->send(C_COMMAND, w);
+}
+
+void NetClient::sendRelocate(uint8_t kind, int id, const glm::vec3 *position, const float *heading) {
+  if (state != State::Playing)
+    return;
+  NetWriter w;
+  w.u8(kind);
+  w.i32(id);
+  w.u8((position ? 1 : 0) | (heading ? 2 : 0));
+  w.vec3(position ? *position : glm::vec3(0.0f));
+  w.f32(heading ? *heading : 0.0f);
+  connection->send(C_RELOCATE, w);
+}
+
+void NetClient::sendProperty(uint8_t kind, int id, const std::string &name, float value) {
+  if (state != State::Playing)
+    return;
+  NetWriter w;
+  w.u8(kind);
+  w.i32(id);
+  w.string(name);
+  w.f32(value);
+  connection->send(C_PROPERTY, w);
 }

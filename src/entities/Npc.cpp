@@ -1,4 +1,5 @@
 #include "Npc.h"
+#include "Gfx.h"
 
 #include <cmath>
 
@@ -34,13 +35,21 @@ void Npc::faceTowards(const vec3 &point) {
 }
 
 void Npc::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
-  if (ragdoll || health <= 0.0f)
+  if (ragdoll || dead || health <= 0.0f)
     return;
   health -= amount;
   if (health > 0.0f)
     return;
-  velocity += normalize(direction) * SHOT_KNOCK;
-  startRagdoll([&stage](float x, float z, float &height) { return stage.floorAt(x, z, height); });
+  startDeath();
+}
+
+void Npc::startDeath() {
+  if (ragdoll || dead)
+    return;
+  dead = true;
+  voice.stop(); // (dead people do not talk)
+  velocity = acceleration = vec3(0.0f);
+  setCollidable(false); // (the body lies there: nothing bumps into it)
 }
 
 bool Npc::startRagdoll(Ragdoll::FloorQuery floor, function<bool(vec3 &)> holdHead) {
@@ -90,13 +99,13 @@ void Npc::endRagdoll() {
 }
 
 void Npc::writeNetState(NetWriter &out) const {
-  out.boolean(ragdoll && !headHold); // (lies for good)
+  out.boolean((ragdoll && !headHold) || dead); // (lies for good)
 }
 
 void Npc::readNetState(NetReader &in) {
   bool lies = in.boolean();
-  if (in.isOk() && lies && !ragdoll && replicaFloor)
-    startRagdoll(replicaFloor, nullptr);
+  if (in.isOk() && lies && !ragdoll)
+    startDeath();
 }
 
 void Npc::update(double dt) {
@@ -120,6 +129,15 @@ void Npc::update(double dt) {
     return;
   }
   DynamicGameObject::update(dt);
+  if (dead) {
+    if (!Gfx::headless && aniModel) { // (only a client draws it)
+      if (!death)
+        death.reset(new DeathPose(aniModel));
+      death->step(dt);
+      death->apply();
+    }
+    return;
+  }
   voice.update(dt, position + vec3(0.0f, MOUTH_HEIGHT, 0.0f));
 }
 

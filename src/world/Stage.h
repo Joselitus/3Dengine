@@ -16,6 +16,7 @@
 #include "SafeSpace.h"
 #include "GameObject.h"
 #include "MaterialMap.h"
+#include "TerrainPaint.h"
 #include "Property.h"
 
 // How the stage finds the height of its floor. Chosen when the stage is
@@ -119,6 +120,18 @@ private:
 
   // What the floor is made of (see setFloor and materialAt)
   std::shared_ptr<const MaterialMap> floorMaterials;
+  // Terrain editing: where each grid point is in the floor model's meshes, the points changed since
+  // the last commitTerrain, and the floor's position in the world
+  struct VertexRef {
+    unsigned int mesh, index;
+  };
+  std::vector<std::vector<VertexRef>> terrainVertices; // per grid point
+  std::vector<unsigned int> terrainDirty;              // grid points
+  glm::vec3 floorOffset = glm::vec3(0.0f);
+  std::vector<unsigned char> baseMaterials; // the squares' materials before any change (one per square)
+  std::shared_ptr<TerrainPaint> paint;      // the picture of the squares whose material changed
+  int dirtyX0 = 0, dirtyZ0 = 0, dirtyX1 = -1, dirtyZ1 = -1; // grid points changed since commitTerrain
+  void prepareTerrainEditing();
 
   std::map<std::string, std::shared_ptr<Model>> models; // loaded only once
   std::vector<std::shared_ptr<GameObject>> objects;
@@ -252,6 +265,32 @@ public:
   void keepInsideFloor(glm::vec3 &position, glm::vec3 &velocity,
                        float margin = 0.0f) const;
   bool hasFloor() const { return floor_mesh != nullptr; }
+  std::shared_ptr<Model> getFloorModel() const { return floor_mesh; }
+  // After moving many static objects by hand (object.teleport / turn): places them all on the grid again once
+  void refreshStaticGrid() { rebuildStaticGrid(); }
+
+  // --- Terrain editing (the map editor, and the edits it saves: see MapEdits). Only a HeightField
+  // floor can be edited. The grid is nx x nz points, (x0 + ix*dx, z0 + iz*dz); the materials are
+  // one per square between four points, (nx-1) x (nz-1), column cx / row cz.
+  struct TerrainGrid {
+    int nx = 0, nz = 0;
+    float x0 = 0, z0 = 0, dx = 1, dz = 1;
+  };
+  bool terrainEditable() const { return floorMode == FloorMode::HeightField && floor_mesh && !heights.empty(); }
+  TerrainGrid terrainGrid() const {
+    TerrainGrid g;
+    g.nx = nx; g.nz = nz; g.x0 = x0; g.z0 = z0; g.dx = dx; g.dz = dz;
+    return g;
+  }
+  // World height of a grid point
+  float terrainHeight(int ix, int iz) const { return heights[(size_t)iz * nx + ix]; }
+  // Moves a grid point (the floor collision follows at once; the picture on commitTerrain)
+  void setTerrainHeight(int ix, int iz, float height);
+  FloorMaterial terrainMaterial(int cx, int cz) const;
+  // Changes what a square is made of (the floor's behaviour; see paintedCells for its picture)
+  void setTerrainMaterial(int cx, int cz, FloorMaterial material);
+  // Sends the heights changed since the last call to the floor's picture (its vertices and normals)
+  void commitTerrain();
 
   // Objects whose position is closer than `margin` to the edge of the floor are not drawn
   // (the edge of the world is not shown: what is left there is cut short). 0 = off.

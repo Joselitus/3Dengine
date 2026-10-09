@@ -8,6 +8,7 @@
 
 #include <glm/glm.hpp>
 
+#include "EntityContext.h"
 #include "Interactable.h"
 #include "MirrorView.h"
 #include "SpotLight.h"
@@ -170,6 +171,12 @@ public:
   void makeReplicas();
   // A client: the server says something appeared (see Stage::trackNet): makes the same, with that
   // network number, as a replica. False if this map does not know such a thing.
+  // Map editing (see MapEdits): the kinds of creature or NPC this map can have more of, and one made
+  // at `where` facing `yaw` (false if the map does not know the kind)
+  virtual std::vector<std::string> entityKinds() const { return {}; }
+  virtual bool spawnEntity(const std::string &kind, const glm::vec3 &where, float yaw, EntityContext &context) {
+    return false;
+  }
   virtual bool spawnReplica(unsigned char kind, int netId, const glm::vec3 &where, float arg) { return false; }
   Player *findPlayer(int id);
   const std::vector<std::unique_ptr<Player>> &getPlayers() const { return players; }
@@ -214,6 +221,8 @@ public:
   virtual void toggleVehicleCamera(Player &p) {}
   // The ship-legs key (Q): flying Bob's ship, its landing legs go in or out
   virtual void toggleShipLegs(Player &p) {}
+  // Debug: bursts a random tyre of the vehicle (a map with one)
+  virtual void popRandomTire(Player &p) {}
   // The fire button: the player's eye at `eye` looking along `direction`: a map where he can
   // shoot (Bob's ship's ray gun) shoots
   virtual void fire(Player &p, const glm::vec3 &eye, const glm::vec3 &direction) {}
@@ -293,6 +302,8 @@ public:
   float getCameraDistance() const { return local ? local->cameraDistance : 0.0f; }
   float getCameraHeight() const { return local ? local->cameraHeight : 1.6f; }
   float getFarPlane() const { return farPlane; }
+  // Where the players start (the map editor begins its look there)
+  glm::vec3 getSpawnPoint() const { return spawnPoint; }
   float getCameraYaw() const { return local ? local->cameraYaw : 0.0f; }
   const std::vector<Interactable *> &getInteractables() const {
     return interactables;

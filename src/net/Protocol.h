@@ -30,7 +30,7 @@
 //   Notice    string text    something to show the player
 namespace Net {
 
-constexpr uint32_t PROTOCOL_VERSION = 3;
+constexpr uint32_t PROTOCOL_VERSION = 5;
 constexpr int DEFAULT_PORT = 7777;
 constexpr int MAX_PLAYERS = 16;
 
@@ -50,6 +50,10 @@ enum ClientMessage : uint8_t {
   C_ACTION,
   C_FIRE,
   C_COMMAND,
+  C_RELOCATE, // debug: u8 kind (0 static: i32 = index in the stage, 1 dynamic: i32 = netId), i32 id,
+              //   u8 flags (1 = position, 2 = heading), vec3 position, f32 heading (radians)
+  C_PROPERTY, // debug: u8 kind (0 static, 1 dynamic, 2 the world), i32 id, string name, f32 value
+              //   (a button's property is just run)
 };
 
 enum ServerMessage : uint8_t {
@@ -61,6 +65,8 @@ enum ServerMessage : uint8_t {
   S_NOTICE,
   S_SPAWN,
   S_DESPAWN,
+  S_RELOCATED, // the same as C_RELOCATE: someone moved a static object, move it here too
+  S_RESET,     // the server starts the map again: this connection is about to close, come back
 };
 
 // What a player can ask for with a key
@@ -72,6 +78,7 @@ enum Action : uint8_t {
   A_VEHICLE_CAMERA,
   A_SHIP_LEGS,
   A_REFUEL,          // fill the RV's tank at a pump
+  A_POP_TIRE,        // debug: burst a random tyre of the RV
 };
 
 // The flags of an object in a snapshot

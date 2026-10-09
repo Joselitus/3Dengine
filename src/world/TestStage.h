@@ -114,11 +114,57 @@ private:
     addDynamicLater(egg);
     return true;
   }
+  // Pingu: an NPC at (where.x, where.z) facing `lookAt`, who talks to the player (Use key)
+  std::shared_ptr<Pingu> addPingu(const vec3 &where, const vec3 &lookAt, SoundEngine &sound,
+                                  SpeechSynthesizer &speech) {
+    VoiceSettings voice;
+    voice.pitch = 62; // a bit higher than the default
+    // Pingu dances; while he talks to the player he stands still, breathing
+    // calmly (the same model in its idle pose): both are loaded
+    auto dancing = make_shared<AnimatedModel>(
+        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
+    auto standing = make_shared<AnimatedModel>(
+        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
+    standing->setIdle(true);
+    auto guide = make_shared<Pingu>(
+        dancing, standing,
+        "Pingu", std::vector<std::string>{
+            "¡Hola, viajero! Soy Pingu y vigilo esta antena en mitad del desierto.",
+            "Acércate al satélite y úsalo: puedes girarlo en azimut y en cénit para apuntar a cualquier punto del cielo.",
+            "Dicen que de noche este desierto cambia por completo. Yo, por si acaso, me quedo aquí.",
+        },
+        sound, speech, voice);
+    guide->setPosition(where.x, groundAt(where.x, where.z), where.z);
+    guide->faceTowards(lookAt);
+    guide->setGravity(25.0f);
+    addDynamic(guide);
+    interactables.push_back(guide.get());
+    return guide;
+  }
+
   static constexpr float GROUND_Y = -1.0f; // ground level of the clearing
   // What is within this many metres of the edge of the terrain is not drawn
   static constexpr float EDGE_CULL_MARGIN = 12.0f;
 
 public:
+  // Map editing: more mosquitoes and more Pingus than the map brings
+  std::vector<std::string> entityKinds() const override {
+    return {"folla_culos", "mosquito", "pingu"};
+  }
+  bool spawnEntity(const std::string &kind, const vec3 &where, float yaw, EntityContext &context) override {
+    if (kind == "mosquito") {
+      vec3 nest(where.x, groundAt(where.x, where.z), where.z);
+      addMosquito(nest + vec3(0.0f, 5.0f, 0.0f), nest, 1.0f, false)->setBlood(1.0f);
+      return true;
+    }
+    if (kind == "pingu") {
+      auto pingu = addPingu(where, where + vec3(std::sin(yaw), 0.0f, std::cos(yaw)), context.sound, context.speech);
+      pingu->setYaw(yaw);
+      return true;
+    }
+    return VehicleStage::spawnEntity(kind, where, yaw, context);
+  }
+
   // A client: the server's mosquitoes and eggs that appear while the game runs
   bool spawnReplica(unsigned char kind, int netId, const vec3 &where, float arg) override {
     if (kind == NET_MOSQUITO) {
@@ -269,28 +315,7 @@ public:
 
     // An NPC a few steps ahead of the start, facing it: talk to it with the
     // Use key. Same model as the player, standing on its feet.
-    VoiceSettings voice;
-    voice.pitch = 62; // a bit higher than the default
-    // Pingu dances; while he talks to the player he stands still, breathing
-    // calmly (the same model in its idle pose): both are loaded
-    auto dancing = make_shared<AnimatedModel>(
-        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
-    auto standing = make_shared<AnimatedModel>(
-        "../assets/ping/PenguinoAnimado.fbx", true, PENGUIN_ANIMATION);
-    standing->setIdle(true);
-    auto guide = make_shared<Pingu>(
-        dancing, standing,
-        "Pingu", std::vector<std::string>{
-            "¡Hola, viajero! Soy Pingu y vigilo esta antena en mitad del desierto.",
-            "Acércate al satélite y úsalo: puedes girarlo en azimut y en cénit para apuntar a cualquier punto del cielo.",
-            "Dicen que de noche este desierto cambia por completo. Yo, por si acaso, me quedo aquí.",
-        },
-        sound, speech, voice);
-    guide->setPosition(3.0f, groundAt(3.0f, 0.5f), 0.5f);
-    guide->faceTowards(vec3(3.0f, 0.0f, 4.0f));
-    guide->setGravity(25.0f);
-    addDynamic(guide);
-    interactables.push_back(guide.get());
+    auto guide = addPingu(vec3(3.0f, 0.0f, 0.5f), vec3(3.0f, 0.0f, 4.0f), sound, speech);
 
     createCreature(sound, speech, 18.0f, 24.0f);
     // The other NPCs are its prey if they come near

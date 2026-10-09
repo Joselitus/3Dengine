@@ -21,6 +21,7 @@
 #include "NetRole.h"
 #include "Paths.h"
 #include "Commands.h"
+#include "Property.h"
 #include "TextFormat.h"
 #include "DebugSelector.h"
 #include "CreditsOverlay.h"
@@ -152,7 +153,7 @@ int main(int argc, char **argv) {
     else if (std::string(argv[i]) == "--profile")
       profile = true;
     else {
-      printf("Uso: %s [--windowed] [--connect DIRECCION[:PUERTO]] [--name NOMBRE] [--ray] [--profile]\n", argv[0]);
+      printf("Usage: %s [--windowed] [--connect ADDRESS[:PORT]] [--name NAME] [--ray] [--profile]\n", argv[0]);
       return std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h" ? 0 : 1;
     }
   if (!enterSourceDir())
@@ -275,7 +276,7 @@ int main(int argc, char **argv) {
   vec3 abductFrom = vec3(0.0f);  // (abducted) where the camera was when Bob took him
   float deathStartPitch = 0.0f;  // where the camera was looking when it happened
   float deathEyeHeight = 1.6f;   // ...how high it was above his feet
-  float deathAngle = 0.0f, deathSpeed = 0.0f; // the fall: how far over it is and how fast it tips (radians)
+  float deathAngle = 0.0f; // the fall: how far over his penguin is (radians)
 
   const std::vector<MapEntry> &maps = mapList();
   std::unique_ptr<NetClient> net;     // the connection (null: not connecting)
@@ -403,7 +404,7 @@ int main(int argc, char **argv) {
     settings.setString("net.server", lastAddress);
     settings.setString("net.name", playerName);
     settings.save();
-    printf("Conectado a %s: mapa '%s', jugador %d\n", lastAddress.c_str(), maps[index].name.c_str(), net->getPlayerId());
+    printf("Connected to %s: map '%s', player %d\n", lastAddress.c_str(), maps[index].name.c_str(), net->getPlayerId());
     return std::string();
   };
 
@@ -441,6 +442,65 @@ int main(int argc, char **argv) {
       ui.open(new PauseMenu(menus));
   });
 
+  // Which object the server knows by what: a static one by its place in the stage's list, a dynamic
+  // one by its netId (false if it has none)
+  auto identify = [&](const GameObject &object, uint8_t &kind, int &id) {
+    const auto &list = stage->getObjects();
+    for (size_t i = 0; i < list.size(); i++)
+      if (list[i].get() == &object) {
+        kind = 0;
+        id = (int)i;
+        return true;
+      }
+    kind = 1;
+    id = object.getNetId();
+    return id >= 0;
+  };
+  // Moving, turning and changing values are the server's: it is asked (and we do it here too, at once)
+  selector.onRelocate = [&](GameObject &object, const glm::vec3 &to) {
+    uint8_t kind;
+    int id;
+    if (net && identify(object, kind, id))
+      net->sendRelocate(kind, id, &to, nullptr);
+  };
+  selector.onTurn = [&](GameObject &object, float heading) {
+    uint8_t kind;
+    int id;
+    if (net && identify(object, kind, id))
+      net->sendRelocate(kind, id, nullptr, &heading);
+  };
+  selector.onProperty = [&](GameObject *object, Property &p) {
+    uint8_t kind = 2;
+    int id = -1;
+    if (object && !identify(*object, kind, id))
+      return;
+    std::string name = p.name;
+    auto set = p.set;
+    auto run = p.run;
+    if (p.kind == Property::Kind::Action)
+      p.run = [&net, kind, id, name]() {
+        if (net)
+          net->sendProperty(kind, id, name, 0.0f);
+      };
+    else if (set)
+      p.set = [&net, kind, id, name, set](float value) {
+        set(value);
+        if (net)
+          net->sendProperty(kind, id, name, value);
+      };
+  };
+  // Debug placement (2) and properties (0) modes, like selection (1) below
+  ui.bindKey([&controls]() { return controls.key(Action::DebugPlace); },
+             [&]() {
+               if (stage)
+                 selector.togglePlace();
+             });
+  ui.bindKey([&controls]() { return controls.key(Action::DebugInspect); },
+             [&]() {
+               if (stage)
+                 selector.toggleInspect();
+             });
+
   // Debug select key (1): turns the object selection mode on and off
   ui.bindKey([&controls]() { return controls.key(Action::DebugSelect); },
              [&]() {
@@ -468,13 +528,15 @@ int main(int argc, char **argv) {
   act(Action::VehicleCamera, Net::A_VEHICLE_CAMERA);
   // Ship-legs key: flying Bob's ship, its legs go in or out
   act(Action::ShipLegs, Net::A_SHIP_LEGS);
+  // Pop-tyre key (P, debug): a random tyre of the RV bursts
+  act(Action::PopTire, Net::A_POP_TIRE);
 
   // The command console (key T): what is typed goes to the server, which knows the commands
   Commands commands;
   auto sendToServer = [&](const std::vector<std::string> &) {
     return std::string("Enviado al servidor");
   };
-  for (const char *name : {"day", "night", "time"})
+  for (const char *name : {"day", "night", "time", "reset"})
     commands.add(name, "se lo pide al servidor", sendToServer);
   std::vector<std::string> commandHistory;
   auto openConsole = [&](const std::string &text) {
@@ -502,6 +564,7 @@ int main(int argc, char **argv) {
 
   // The player's controls in the last input sent (the number the server will answer with)
   unsigned lastInputSeq = 0;
+  double reconnectAt = 0.0; // after /reset, when to connect again
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -518,6 +581,26 @@ int main(int argc, char **argv) {
         netOverlay.showNotice(text);
     }
     netOverlay.update((float)dt);
+    // Static objects somebody moved
+    if (net && stage)
+      for (const NetClient::Moved &m : net->takeMoved()) {
+        if (m.kind != 0 || m.id < 0 || m.id >= (int)stage->getObjects().size())
+          continue;
+        GameObject &object = *stage->getObjects()[m.id];
+        stage->relocate(object, m.position);
+        stage->turn(object, std::remainder(m.heading - object.getHeading(), 6.2831853f));
+      }
+    // The server starts the map again (/reset): back in a moment
+    if (net && net->wasReset()) {
+      leaveGame("El servidor reinicia el mapa...");
+      reconnectAt = glfwGetTime() + 1.5;
+    }
+    if (!net && !stage && reconnectAt > 0.0 && glfwGetTime() >= reconnectAt) {
+      reconnectAt = 0.0;
+      net.reset(new NetClient(lastAddress, playerName));
+      connectMenu->setBusy(true);
+      connectMenu->setStatus("Conectando con " + lastAddress + "...");
+    }
 
     // --- The connect screen: until the server accepts us and the map is ready
     if (!stage) {
@@ -667,26 +750,21 @@ int main(int argc, char **argv) {
       const float FADE_FROM = 3.5f, FADE_TIME = 6.0f, CREDITS_PAUSE = 1.5f;
       float fade = glm::clamp(((float)deathTime - FADE_FROM) / FADE_TIME, 0.0f, 1.0f);
       deathOverlay.setColor(glm::mix(vec3(0.7f, 0.0f, 0.02f), vec3(0.0f), fade));
-      const float G = 9.81f, FALL_BOUNCE = 0.3f, LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
-      const float START_ANGLE = 0.04f, START_SPEED = 0.3f; // (the blow that starts it)
+      const float LOOK_UP = -1.5f, ROLL = 0.2f, TINT = 0.65f;
       const float HALF_TURN = 1.5707963f;
       vec3 feet = stage->getPlayer()->getPosition();
       if (deathTime < 0.0) {
         deathTime = 0.0;
         deathStartPitch = camera.getPitch();
         deathEyeHeight = glm::max(camera.getPosition().y - feet.y, 0.5f);
-        deathAngle = START_ANGLE;
-        deathSpeed = START_SPEED;
+        deathAngle = 0.0f;
       }
       deathTime += dt;
-      // theta'' = (3 g / 2 L) sin(theta): a rod of length L (the height of the eyes) falling over
+      // the angle is the penguin's own fall (DeathPose: a rod of the eyes' height falling over, with a
+      // small bounce), so the camera and his body tip over together
       float L = deathEyeHeight;
-      deathSpeed += 1.5f * G / L * std::sin(deathAngle) * (float)dt;
-      deathAngle += deathSpeed * (float)dt;
-      if (deathAngle >= HALF_TURN) { // it hits the ground: a small bounce, and it settles
-        deathAngle = HALF_TURN;
-        deathSpeed = deathSpeed > 0.0f ? -deathSpeed * FALL_BOUNCE : 0.0f;
-      }
+      if (Player *me = stage->getLocalPlayer())
+        deathAngle = me->walker->getFallAngle();
       float yaw = camera.getYaw();
       vec3 flatForward(std::sin(yaw), 0.0f, -std::cos(yaw));
       vec3 eye = feet - flatForward * (L * std::sin(deathAngle));

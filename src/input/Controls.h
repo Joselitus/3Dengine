@@ -25,6 +25,7 @@ enum class Action {
   DebugPlace,  // debug: move the selected object where the camera points
   DebugInspect, // debug: see and change the values of objects (DebugSelector)
   Console,      // the command console (CommandConsole)
+  PopTire,      // debug: bursts a random tyre of the RV (P); not listed in the ControlsMenu (it has no room)
   Count     // number of actions, not an action
 };
 

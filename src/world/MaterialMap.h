@@ -29,6 +29,11 @@ public:
   static std::shared_ptr<MaterialMap> loadImage(const std::string &path);
 
   FloorMaterial at(float u, float v) const;
+  // For editing (the map editor): the same map as a grid of width x height cells (each cell takes
+  // the material that was there), and one cell read or written by its column and row
+  std::shared_ptr<MaterialMap> resized(int newWidth, int newHeight) const;
+  FloorMaterial cell(int x, int y) const { return (FloorMaterial)cells[(size_t)y * width + x]; }
+  void setCell(int x, int y, FloorMaterial m) { cells[(size_t)y * width + x] = (unsigned char)m; }
   int getWidth() const { return width; }
   int getHeight() const { return height; }
 };

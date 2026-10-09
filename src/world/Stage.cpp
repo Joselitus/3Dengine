@@ -1,4 +1,5 @@
 #include "Stage.h"
+#include "Gfx.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -252,6 +253,7 @@ bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position,
   }
   floorMaterials = materials;
   floor_mesh = mesh;
+  floorOffset = position;
   return true;
 }
 
@@ -671,4 +673,108 @@ void Stage::getProperties(std::vector<Property> &properties) {
     snprintf(text, sizeof(text), "%.0f s reales", dayDuration / timeScale);
     return std::string(text);
   }));
+}
+
+// ------------------------------------------------------------ terrain editing
+// Finds each grid point's vertices in the floor model, and gives the material map one cell per square
+void Stage::prepareTerrainEditing() {
+  if (!terrainVertices.empty() || !terrainEditable())
+    return;
+  terrainVertices.assign((size_t)nx * nz, {});
+  for (unsigned int m = 0; m < floor_mesh->meshes.size(); m++) {
+    const vector<Vertex> &vs = floor_mesh->meshes[m].getVertices();
+    for (unsigned int i = 0; i < vs.size(); i++) {
+      int ix = (int)lround((vs[i].Position.x + floorOffset.x - x0) / dx);
+      int iz = (int)lround((vs[i].Position.z + floorOffset.z - z0) / dz);
+      if (ix >= 0 && ix < nx && iz >= 0 && iz < nz)
+        terrainVertices[(size_t)iz * nx + ix].push_back({m, i});
+    }
+  }
+  if (floorMaterials && (floorMaterials->getWidth() != nx - 1 || floorMaterials->getHeight() != nz - 1))
+    floorMaterials = floorMaterials->resized(nx - 1, nz - 1);
+  baseMaterials.assign((size_t)(nx - 1) * (nz - 1), 0);
+  for (int cz = 0; cz < nz - 1; cz++)
+    for (int cx = 0; cx < nx - 1; cx++)
+      baseMaterials[(size_t)cz * (nx - 1) + cx] = (unsigned char)terrainMaterial(cx, cz);
+}
+
+void Stage::setTerrainHeight(int ix, int iz, float height) {
+  if (!terrainEditable() || ix < 0 || ix >= nx || iz < 0 || iz >= nz)
+    return;
+  prepareTerrainEditing();
+  heights[(size_t)iz * nx + ix] = height;
+  terrainDirty.push_back((unsigned int)((size_t)iz * nx + ix));
+  if (dirtyX1 < dirtyX0) {
+    dirtyX0 = dirtyX1 = ix;
+    dirtyZ0 = dirtyZ1 = iz;
+  } else {
+    dirtyX0 = std::min(dirtyX0, ix);
+    dirtyX1 = std::max(dirtyX1, ix);
+    dirtyZ0 = std::min(dirtyZ0, iz);
+    dirtyZ1 = std::max(dirtyZ1, iz);
+  }
+}
+
+FloorMaterial Stage::terrainMaterial(int cx, int cz) const {
+  if (!floorMaterials || cx < 0 || cz < 0 || cx >= nx - 1 || cz >= nz - 1)
+    return FloorMaterial::Sand;
+  return floorMaterials->at((cx + 0.5f) / (nx - 1), (cz + 0.5f) / (nz - 1));
+}
+
+void Stage::setTerrainMaterial(int cx, int cz, FloorMaterial material) {
+  if (!terrainEditable() || cx < 0 || cz < 0 || cx >= nx - 1 || cz >= nz - 1)
+    return;
+  prepareTerrainEditing();
+  // (the map is only read through const pointers elsewhere; this stage owns it)
+  const_cast<MaterialMap *>(floorMaterials.get())->setCell(cx, cz, material);
+  // Its picture: the floor's own stays, a square of the new material goes over it
+  if (Gfx::headless)
+    return;
+  bool changed = (unsigned char)material != baseMaterials[(size_t)cz * (nx - 1) + cx];
+  if (!paint) {
+    if (!changed)
+      return;
+    paint = make_shared<TerrainPaint>(*this);
+  }
+  paint->set(cx, cz, material, changed);
+  paint->flush();
+}
+
+void Stage::commitTerrain() {
+  if (terrainDirty.empty())
+    return;
+  // The points that changed, and their neighbours (whose normals changed)
+  vector<unsigned int> points;
+  for (unsigned int p : terrainDirty) {
+    int ix = (int)(p % nx), iz = (int)(p / nx);
+    for (int j = std::max(iz - 1, 0); j <= std::min(iz + 1, nz - 1); j++)
+      for (int i = std::max(ix - 1, 0); i <= std::min(ix + 1, nx - 1); i++)
+        points.push_back((unsigned int)((size_t)j * nx + i));
+  }
+  terrainDirty.clear();
+  sort(points.begin(), points.end());
+  points.erase(unique(points.begin(), points.end()), points.end());
+  auto h = [&](int i, int j) { return heights[(size_t)std::min(std::max(j, 0), nz - 1) * nx + std::min(std::max(i, 0), nx - 1)]; };
+  vector<size_t> low(floor_mesh->meshes.size(), SIZE_MAX), high(floor_mesh->meshes.size(), 0);
+  for (unsigned int p : points) {
+    int ix = (int)(p % nx), iz = (int)(p / nx);
+    vec3 normal = normalize(vec3((h(ix - 1, iz) - h(ix + 1, iz)) / (2.0f * dx), 1.0f,
+                                 (h(ix, iz - 1) - h(ix, iz + 1)) / (2.0f * dz)));
+    for (const VertexRef &r : terrainVertices[p]) {
+      Vertex &v = floor_mesh->meshes[r.mesh].editableVertices()[r.index];
+      v.Position.y = heights[p] - floorOffset.y;
+      v.Normal = normal;
+      low[r.mesh] = std::min(low[r.mesh], (size_t)r.index);
+      high[r.mesh] = std::max(high[r.mesh], (size_t)r.index);
+    }
+  }
+  for (size_t m = 0; m < low.size(); m++)
+    if (low[m] != SIZE_MAX)
+      floor_mesh->meshes[m].refreshVertices(low[m], high[m] - low[m] + 1);
+  if (paint) {
+    paint->heightsChanged(dirtyX0, dirtyZ0, dirtyX1, dirtyZ1);
+    paint->flush();
+  }
+  dirtyX0 = dirtyZ0 = 0;
+  dirtyX1 = dirtyZ1 = -1;
 }

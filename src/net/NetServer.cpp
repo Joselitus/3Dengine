@@ -48,7 +48,7 @@ void NetServer::broadcast(uint8_t type, const NetWriter &payload, const Client *
 void NetServer::poll(double dt) {
   clock += dt;
   while (auto connection = listener.accept()) {
-    printf("[red] conexion de %s\n", connection->peerName().c_str());
+    printf("[net] connection from %s\n", connection->peerName().c_str());
     std::unique_ptr<Client> client(new Client());
     client->connection = std::move(connection);
     client->connectedAt = clock;
@@ -61,7 +61,7 @@ void NetServer::poll(double dt) {
       handle(*client, message);
     // A client that never says hello is a stranger (or a port scan)
     if (client->playerId < 0 && clock - client->connectedAt > 10.0)
-      drop(*client, "no ha saludado");
+      drop(*client, "never said hello");
   }
   // The ones that have gone
   for (size_t i = 0; i < clients.size();) {
@@ -69,8 +69,8 @@ void NetServer::poll(double dt) {
     if (!c.connection->isOpen()) {
       if (c.playerId >= 0) {
         int id = c.playerId;
-        printf("[red] %s (jugador %d) se ha ido: %s\n", c.name.c_str(), id, c.connection->getError().c_str());
-        stage.removePlayer(id);
+        printf("[net] %s (player %d) has left: %s\n", c.name.c_str(), id, c.connection->getError().c_str());
+        stage->removePlayer(id);
         NetWriter w;
         w.i32(id);
         c.playerId = -1;
@@ -86,7 +86,7 @@ void NetServer::poll(double dt) {
 }
 
 void NetServer::drop(Client &client, const std::string &why) {
-  printf("[red] se echa a %s: %s\n", client.name.empty() ? client.connection->peerName().c_str() : client.name.c_str(),
+  printf("[net] dropping %s: %s\n", client.name.empty() ? client.connection->peerName().c_str() : client.name.c_str(),
          why.c_str());
   client.connection->close();
 }
@@ -95,7 +95,7 @@ void NetServer::hello(Client &client, NetReader &in) {
   uint32_t version = in.u32();
   std::string name = in.string();
   if (!in.isOk() || client.playerId >= 0) {
-    drop(client, "saludo no valido");
+    drop(client, "invalid hello");
     return;
   }
   auto reject = [&](const std::string &reason) {
@@ -117,10 +117,10 @@ void NetServer::hello(Client &client, NetReader &in) {
     name = "Pingu";
   if (name.size() > 24)
     name.resize(24);
-  Player &player = stage.addPlayer(nextPlayerId++, name);
+  Player &player = stage->addPlayer(nextPlayerId++, name);
   client.playerId = player.id;
   client.name = name;
-  printf("[red] %s entra como jugador %d (%zu en total)\n", name.c_str(), player.id, playerCount());
+  printf("[net] %s joins as player %d (%zu in total)\n", name.c_str(), player.id, playerCount());
 
   NetWriter w;
   w.u32(PROTOCOL_VERSION);
@@ -128,15 +128,15 @@ void NetServer::hello(Client &client, NetReader &in) {
   w.u16((uint16_t)mapIndex);
   w.string(mapName);
   w.u32(dynamicCount);
-  w.u16((uint16_t)stage.getPlayers().size());
-  for (const auto &p : stage.getPlayers()) {
+  w.u16((uint16_t)stage->getPlayers().size());
+  for (const auto &p : stage->getPlayers()) {
     w.i32(p->id);
     w.string(p->name);
     w.i32(p->walker->getNetId());
   }
   send(client, S_WELCOME, w);
   // What has appeared since the map was made (the clients do not have it)
-  for (const auto &entry : stage.getLiveSpawns())
+  for (const auto &entry : stage->getLiveSpawns())
     sendSpawn(&client, entry.second);
 
   NetWriter joined;
@@ -181,17 +181,108 @@ void NetServer::command(Player &player, const std::string &text) {
     word.resize(space);
   }
   if (word == "day") {
-    stage.setTimeOfDay(12.0f);
+    stage->setTimeOfDay(12.0f);
     notice(player, "Hora: 12:00");
   } else if (word == "night") {
-    stage.setTimeOfDay(0.0f);
+    stage->setTimeOfDay(0.0f);
     notice(player, "Hora: 00:00");
   } else if (word == "time" && !argument.empty()) {
-    stage.setTimeOfDay((float)atof(argument.c_str()));
+    stage->setTimeOfDay((float)atof(argument.c_str()));
     notice(player, "Hora: " + argument);
+  } else if (word == "reset") {
+    printf("[net] %s asks for the map to start again\n", player.name.c_str());
+    reset = true;
   } else {
     notice(player, "Comando desconocido en el servidor: " + text);
   }
+}
+
+// Debug: a client moved or turned an object
+void NetServer::relocate(NetReader &in) {
+  uint8_t kind = in.u8();
+  int id = in.i32();
+  uint8_t flags = in.u8();
+  vec3 position = in.vec3();
+  float heading = in.f32();
+  if (!in.isOk())
+    return;
+  GameObject *object = nullptr;
+  if (kind == 0) {
+    const auto &list = stage->getObjects();
+    if (id >= 0 && id < (int)list.size())
+      object = list[id].get();
+  } else {
+    object = stage->findDynamic(id);
+  }
+  if (!object)
+    return;
+  if (flags & 1)
+    stage->relocate(*object, position);
+  if (flags & 2)
+    stage->turn(*object, std::remainder(heading - object->getHeading(), 2.0f * pi<float>()));
+  // The static ones do not travel in the snapshots: everybody is told
+  if (kind == 0) {
+    NetWriter w;
+    w.u8(kind);
+    w.i32(id);
+    w.u8(flags);
+    w.vec3(object->getPosition());
+    w.f32(object->getHeading());
+    broadcast(S_RELOCATED, w);
+  }
+}
+
+// Debug: a client changed a value in the properties window
+void NetServer::changeProperty(NetReader &in) {
+  uint8_t kind = in.u8();
+  int id = in.i32();
+  std::string name = in.string();
+  float value = in.f32();
+  if (!in.isOk())
+    return;
+  std::vector<Property> properties;
+  if (kind == 2) {
+    stage->getProperties(properties);
+  } else {
+    GameObject *object = nullptr;
+    if (kind == 0) {
+      const auto &list = stage->getObjects();
+      if (id >= 0 && id < (int)list.size())
+        object = list[id].get();
+    } else {
+      object = stage->findDynamic(id);
+    }
+    if (!object)
+      return;
+    object->getProperties(properties);
+  }
+  for (Property &p : properties) {
+    if (p.name != name)
+      continue;
+    if (p.kind == Property::Kind::Action) {
+      if (p.run)
+        p.run();
+    } else if (p.set) {
+      p.set(value);
+    }
+    break;
+  }
+}
+
+void NetServer::restart(GameStage &next) {
+  NetWriter w;
+  for (auto &c : clients) {
+    if (c->playerId >= 0)
+      send(*c, S_RESET, w);
+    c->connection->update(); // (let it out before the door closes)
+    c->connection->close();
+  }
+  clients.clear();
+  stage = &next;
+  dynamicCount = (uint32_t)next.getDynamicObjects().size();
+  next.trackNet();
+  reset = false;
+  printf("[net] map started again\n");
 }
 
 void NetServer::handle(Client &client, const NetConnection::Message &message) {
@@ -200,10 +291,10 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
     if (message.type == C_HELLO)
       hello(client, in);
     else
-      drop(client, "mensaje antes del saludo");
+      drop(client, "message before the hello");
     return;
   }
-  Player *player = stage.findPlayer(client.playerId);
+  Player *player = stage->findPlayer(client.playerId);
   if (!player)
     return;
   switch (message.type) {
@@ -212,30 +303,31 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
     float mx = in.f32(), my = in.f32(), up = in.f32(), yaw = in.f32(), pitch = in.f32();
     uint8_t flags = in.u8();
     if (in.isOk() && (int)(seq - player->inputSeq) > 0)
-      stage.setInput(*player, vec2(mx, my), up, yaw, pitch, flags & 1, seq);
+      stage->setInput(*player, vec2(mx, my), up, yaw, pitch, flags & 1, seq);
     break;
   }
   case C_USE: {
     unsigned index = in.u16();
     vec3 at = in.vec3();
-    const auto &targets = stage.getInteractables();
+    const auto &targets = stage->getInteractables();
     if (in.isOk() && index < targets.size())
-      stage.useInteractable(*player, *targets[index], at);
+      stage->useInteractable(*player, *targets[index], at);
     break;
   }
   case C_ACTION: {
     uint8_t action = in.u8();
     if (!in.isOk() || player->dead)
       break;
-    stage.performAs(*player, [&]() {
+    stage->performAs(*player, [&]() {
       switch (action) {
-      case A_LEAVE: stage.leaveVehicle(*player); break;
-      case A_HEADLIGHTS: stage.toggleHeadlights(*player); break;
-      case A_ENGINE: stage.toggleEngine(*player); break;
-      case A_HANDBRAKE: stage.toggleHandbrake(*player); break;
-      case A_VEHICLE_CAMERA: stage.toggleVehicleCamera(*player); break;
-      case A_SHIP_LEGS: stage.toggleShipLegs(*player); break;
-      case A_REFUEL: stage.refuel(*player); break;
+      case A_LEAVE: stage->leaveVehicle(*player); break;
+      case A_HEADLIGHTS: stage->toggleHeadlights(*player); break;
+      case A_ENGINE: stage->toggleEngine(*player); break;
+      case A_HANDBRAKE: stage->toggleHandbrake(*player); break;
+      case A_VEHICLE_CAMERA: stage->toggleVehicleCamera(*player); break;
+      case A_SHIP_LEGS: stage->toggleShipLegs(*player); break;
+      case A_REFUEL: stage->refuel(*player); break;
+      case A_POP_TIRE: stage->popRandomTire(*player); break;
       default: break;
       }
     });
@@ -244,7 +336,7 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
   case C_FIRE: {
     vec3 eye = in.vec3(), direction = in.vec3();
     if (in.isOk() && !player->dead)
-      stage.performAs(*player, [&]() { stage.fire(*player, eye, direction); });
+      stage->performAs(*player, [&]() { stage->fire(*player, eye, direction); });
     break;
   }
   case C_COMMAND: {
@@ -253,6 +345,12 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
       command(*player, text);
     break;
   }
+  case C_RELOCATE:
+    relocate(in);
+    break;
+  case C_PROPERTY:
+    changeProperty(in);
+    break;
   default:
     break;
   }
@@ -267,11 +365,11 @@ void NetServer::handle(Client &client, const NetConnection::Message &message) {
 //       u8 flags, vec3 position, quat turn, f32 scale, vec3 velocity, then its own writeNetState
 void NetServer::sendSnapshots() {
   snapshotCount++;
-  for (const Stage::NetEvent &event : stage.takeNetEvents())
+  for (const Stage::NetEvent &event : stage->takeNetEvents())
     sendSpawn(nullptr, event);
   objects.clear();
   objectCount = 0;
-  for (const auto &o : stage.getDynamicObjects()) {
+  for (const auto &o : stage->getDynamicObjects()) {
     if (o->getNetId() < 0)
       continue;
     NetWriter blob;
@@ -294,14 +392,14 @@ void NetServer::sendSnapshots() {
   for (auto &c : clients) {
     if (c->playerId < 0)
       continue;
-    Player *me = stage.findPlayer(c->playerId);
+    Player *me = stage->findPlayer(c->playerId);
     if (!me)
       continue;
     NetWriter w;
     w.u32((uint32_t)(clock * 1000.0));
-    w.f32(stage.getTimeOfDay());
-    w.f32(stage.getDayDuration());
-    w.f32(stage.getTimeScale());
+    w.f32(stage->getTimeOfDay());
+    w.f32(stage->getDayDuration());
+    w.f32(stage->getTimeScale());
     w.u32(me->inputSeq);
     w.u8(flagsOf(*me));
     w.vec3(me->abductPoint);
@@ -312,8 +410,8 @@ void NetServer::sendSnapshots() {
     w.f32(me->cameraDistance);
     w.f32(me->cameraHeight);
     w.f32(me->cameraYaw);
-    w.u16((uint16_t)stage.getPlayers().size());
-    for (const auto &p : stage.getPlayers()) {
+    w.u16((uint16_t)stage->getPlayers().size());
+    for (const auto &p : stage->getPlayers()) {
       w.i32(p->id);
       w.u8(flagsOf(*p));
     }

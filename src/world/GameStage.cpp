@@ -101,10 +101,11 @@ void GameStage::killPlayer(Player &p) {
   p.timeDead = 0.0;
   p.moveDir = vec2(0.0f);
   if (netRole() == NetRole::Server)
-    printf("[juego] %s ha muerto\n", p.name.c_str());
+    printf("[game] %s has died\n", p.name.c_str());
   onPlayerGone(p);
   p.walker->control(vec2(0.0f), 0.0f, 0.0f);
   p.walker->setCollidable(false); // (the body lies there: nothing bumps into it)
+  p.walker->setDying(true);
 }
 
 void GameStage::abductPlayer(Player &p, const vec3 &into) {
@@ -112,7 +113,7 @@ void GameStage::abductPlayer(Player &p, const vec3 &into) {
     return;
   killPlayer(p);
   if (netRole() == NetRole::Server)
-    printf("[juego] %s se lo ha llevado Bob\n", p.name.c_str());
+    printf("[game] Bob has taken %s\n", p.name.c_str());
   p.abducted = true;
   p.abductPoint = into;
   p.walker->setVisible(false); // (he is in the beam)
@@ -120,7 +121,7 @@ void GameStage::abductPlayer(Player &p, const vec3 &into) {
 
 void GameStage::respawn(Player &p) {
   if (netRole() == NetRole::Server)
-    printf("[juego] %s vuelve a empezar\n", p.name.c_str());
+    printf("[game] %s starts again\n", p.name.c_str());
   p.dead = false;
   p.abducted = false;
   p.timeDead = 0.0;
@@ -128,6 +129,7 @@ void GameStage::respawn(Player &p) {
   for (size_t i = 0; i < players.size(); i++)
     if (players[i].get() == &p)
       index = (int)i;
+  p.walker->setDying(false);
   p.walker->setVisible(true);
   p.walker->setCollidable(true);
   p.walker->setGravity(AVATAR_GRAVITY);

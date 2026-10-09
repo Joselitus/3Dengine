@@ -4,6 +4,7 @@
 
 #include "Camera.h"
 #include "Gfx.h"
+#include "DeathPose.h"
 #include "SeatedPose.h"
 
 using namespace glm;
@@ -48,7 +49,12 @@ void Walker::update(double dt) {
     setYaw(facing);
   }
   // standing still it breathes in its idle pose (the others' penguins, seen from outside)
-  if (aniModel && !sitting)
+  if (dead && !Gfx::headless && aniModel && !sitting) {
+    if (!dying)
+      dying = std::make_shared<DeathPose>(aniModel);
+    dying->step(dt);
+    dying->apply();
+  } else if (aniModel && !sitting && !dead)
     aniModel->setIdle(length(vec2(velocity.x, velocity.z)) < 0.3f && heading == vec2(0.0f));
   float speed = running ? maxSpeed * RUN_FACTOR : maxSpeed;
   vec3 wanted = vec3(heading.x, 0.0f, heading.y) * speed;
@@ -132,13 +138,28 @@ void Walker::sit(bool driver, const vec3 &grip, double dt) {
     setPartTransform(heldPart, seated->canTransform());
 }
 
+void Walker::setDying(bool dead) {
+  if (this->dead == dead)
+    return;
+  this->dead = dead;
+  if (dead) {
+    if (dying)
+      dying->restart();
+    return;
+  }
+  if (aniModel && !sitting) // (back on his feet: his own animation again)
+    aniModel->usePlayedAnimation();
+}
+
+float Walker::getFallAngle() const { return dying ? dying->fallAngle() : 0.0f; }
+
 void Walker::standUp() {
   if (!sitting)
     return;
   sitting = false;
   if (hasHeld)
     setPartVisible(heldPart, false);
-  if (aniModel)
+  if (aniModel && !dead)
     aniModel->usePlayedAnimation();
   setYaw(facing); // (upright again: the seat turned it with the vehicle)
 }

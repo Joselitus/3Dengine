@@ -745,6 +745,16 @@ Va un comando por línea, con los campos separados por espacios. `#` inicia un c
 
 Si hay un error, el juego muestra `fichero:línea: mensaje` y no cambia de mapa (si es el primero, termina). El visor muestra el mismo mensaje en su barra de estado.
 
+## Editor de mapas (`tools/map_editor/`, `world/MapEdits`, `PropCatalog`, `TerrainPaint`)
+
+`../test/map_editor [--map N|NOMBRE] [--time H] [--list]`: abre un mapa (cámara libre: botón der. + ratón, WASD, Q/E, Mayús rápido) con un panel de herramientas: seleccionar/mover (clic, arrastrar, rueda gira, Supr borra), colocar objeto o criatura del catálogo, pinceles de terreno (elevar, bajar, suavizar, aplanar) y pintar tipo de suelo (arena, asfalto, hierba). Ctrl+S guarda, **Ctrl+Z deshace** (pila de hasta 200 acciones: colocar, borrar, mover, girar, escalar con la rueda y cada trazo de pincel; no el slider de tamaño ni la hora). Cámara: Q/E o C/Espacio bajan/suben. Solo terrenos de rejilla regular (`FloorMode::HeightField`; los cinco mapas lo son).
+
+Lo editado se guarda como **capa sobre el mapa**, `assets/edits/<mapa>.edit` (texto; formato en `world/MapEdits.h`): el mapa se construye como siempre y `MapList` aplica la capa al final (`applyMapEdits`), igual en servidor y cliente (mismos `netId`). El editor la carga con `setMapEditsApplied(false)` y trabaja sobre el mismo `MapEdits`. Pasos de `MapEdits::apply`: terreno (`Stage::setTerrainHeight/Material` + `commitTerrain`; lo sólido que estaba en el suelo conserva su altura sobre él), objetos del mapa movidos/borrados (por índice en `getObjects()`/`getDynamicObjects()`, altura **sobre el suelo**), objetos nuevos (`PropCatalog::makeProp`) y criaturas nuevas (`GameStage::spawnEntity`, que cada mapa implementa: `VehicleStage` FollaCulos; `TestStage` además mosquito y Pingu).
+
+- **Catálogo** (`PropCatalog.cpp`): `propTypes()` (cactus, rocas, charco, 10 árboles con LOD, pinos bajos, poste, escudo, valla, meseta) y `entityTypes()`. Para ofrecer algo nuevo: una línea ahí (y `spawnEntity` si es criatura).
+- **Terreno:** `Stage::terrainGrid/terrainHeight/setTerrainHeight/commitTerrain` (actualiza vértices y normales del suelo y solo sube a la GPU lo cambiado: `Mesh::refreshVertices`). El tipo de suelo es `setTerrainMaterial` (cambia el comportamiento: `materialAt`) y su imagen es `TerrainPaint`: cuadros 4 cm sobre el suelo con la textura del material, por bloques de 32 × 32; el suelo original no se toca y los cuadros siguen al terreno. Solo se guardan los cambios respecto al mapa base (el editor compara contra copias hechas al cargar).
+- **Limitaciones:** las carreteras (`road.obj`) y otras mallas fijas no siguen al terreno (hay que aplanar debajo); solo se pueden añadir criaturas que el mapa sepa crear; el deshacer se pierde al abrir otro mapa; Bob/RV/satélite/surtidores solo se mueven (por `move`), no se duplican; el tamaño de los objetos del mapa no se edita.
+
 ## Pipeline de assets
 
 - `desert/`, `sky/` y `creature/` se generan con `python3 assets/<dir>/generate_*.py` (necesita numpy y Pillow). La salida es reproducible porque usan semilla. **No edites los OBJ ni los JPG a mano: cambia el script y regenera.**

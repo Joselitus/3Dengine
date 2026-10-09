@@ -1,6 +1,7 @@
 #ifndef DEBUG_SELECTOR
 #define DEBUG_SELECTOR
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "CollisionShape.h"
 #include "Controls.h"
 #include "LineRenderer.h"
+#include "Property.h"
 #include "UIManager.h"
 #include "UIOverlay.h"
 
@@ -103,6 +105,13 @@ private:
                const glm::vec4 &color);
 
 public:
+  // The world is the server's: moving, turning or changing a value is asked of it through these
+  // (the client also does it at once on its own copy). Without them it is done here only.
+  std::function<void(GameObject &, const glm::vec3 &)> onRelocate;
+  std::function<void(GameObject &, float heading)> onTurn;
+  // Called on each property of a window; returns the one the window should use
+  std::function<void(GameObject *object, Property &)> onProperty;
+
   DebugSelector(GLFWwindow *window, UIManager &ui, const Controls &controls);
   ~DebugSelector();
 

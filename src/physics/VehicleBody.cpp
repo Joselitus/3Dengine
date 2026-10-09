@@ -23,7 +23,7 @@ VehicleBody::VehicleBody(const Params &p) : params(p) {
   bumpDamping = 6.0f * damping;
   wheelStates.assign(params.wheels.size(),
                      WheelState{params.restLength, 0.0f, false});
-  flatTyre.assign(params.wheels.size(), false);
+  lostWheel.assign(params.wheels.size(), false);
 }
 
 void VehicleBody::place(const vec3 &origin, float yaw) {
@@ -103,7 +103,15 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     topSpeed += surface[i].topSpeed / params.wheels.size();
     rollingFactor += surface[i].rolling / params.wheels.size();
   }
-  float maxSpeed = max(params.maxSpeed * topSpeed, 0.1f);
+  // Each lost wheel takes a quarter of the top speed the terrain allows (all four: none)
+  int lostCount = 0;
+  for (bool lost : lostWheel)
+    lostCount += lost ? 1 : 0;
+  float lostShare = max(1.0f - params.lostSpeed * lostCount, 0.0f) * (lostCount > 0 ? params.lostDragMakeUp + params.lostDragMakeUpMore * (lostCount - 1) : 1.0f);
+  bool noEngine = lostCount >= (int)lostWheel.size();
+  // (with no wheel left the engine does not push, but the air still opposes the motion as it did: a
+  // top speed of nothing would give the drag a huge coefficient and blow the velocity up)
+  float maxSpeed = max(params.maxSpeed * topSpeed * (noEngine ? 1.0f : lostShare), 0.1f);
 
   // maxSpeed is the terminal speed: the engine pushes with the same force at
   // any speed and what opposes the motion grows with it, linearly (the tyres'
@@ -120,7 +128,9 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
   // Engine and brake: the total force along the heading, shared by the wheels
   // that touch the floor
   float drive = 0.0f;
-  if (throttle > 0.0f) {
+  if (noEngine) {
+    // (no wheel left to push with)
+  } else if (throttle > 0.0f) {
     if (speed < -0.5f)
       drive = params.mass * params.braking * throttle; // brakes
     else
@@ -156,10 +166,11 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     float upDot = dot(up, n);
     if (upDot < MIN_UP_DOT)
       continue;
-    // Suspension length at which the wheel just touches the floor (a flat tyre is smaller)
-    float radius = params.wheelRadius - (flatTyre[i] ? params.flatDrop : 0.0f);
+    // Suspension length at which the wheel just touches the floor (a lost wheel's hub is smaller)
+    float radius = params.wheelRadius - (lostWheel[i] ? params.lostDrop : 0.0f);
     float touch = (height - radius) / upDot;
-    if (touch >= params.fullDroop)
+    float droop = params.fullDroop;
+    if (touch >= droop)
       continue; // in the air, hanging from the spring
 
     float length = max(touch, params.fullBump);
@@ -171,7 +182,7 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     vec3 contact = anchor - up * length - n * radius;
     vec3 pointVelocity = velocity + cross(angular, contact - com);
     float approach = -dot(pointVelocity, n);
-    float load = stiffness * (params.fullDroop - length) + damping * approach;
+    float load = stiffness * (droop - length) + damping * approach;
     if (bumped > 0.0f)
       load += bumpStiffness * bumped + bumpDamping * max(approach, 0.0f);
     load = max(load, 0.0f);
@@ -179,10 +190,10 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     // Tyre: along the wheel's heading and sideways, in the floor's plane
     vec3 heading = fwd;
     float turned = wheel.steered ? state.steer : 0.0f;
-    if (flatTyre[i]) { // the vehicle drifts towards the flat's side (+x is its left): a front
+    if (lostWheel[i]) { // the vehicle drifts towards the lost wheel's side (+x is its left): a front
                        // wheel turns that way, a rear one the other (it steers the tail)
       float towards = wheel.anchor.x > 0.0f ? 1.0f : -1.0f;
-      turned += (wheel.anchor.z > 0.0f ? towards : -towards) * params.flatSteer;
+      turned += (wheel.anchor.z > 0.0f ? towards : -towards) * params.lostSteer;
     }
     if (turned != 0.0f)
       heading = angleAxis(turned, up) * fwd;
@@ -192,9 +203,9 @@ void VehicleBody::substep(float h, const FloorQuery &floor) {
     float along = dot(pointVelocity, heading);
     float across = dot(pointVelocity, side);
     Surface ground = surface[i];
-    if (flatTyre[i]) {
-      ground.rolling *= params.flatRolling;
-      ground.grip *= params.flatGrip;
+    if (lostWheel[i]) {
+      ground.rolling *= noEngine ? params.lostScrape : params.lostRolling;
+      ground.grip *= params.lostGrip;
     }
     float alongForce =
         perWheel - params.rolling * ground.rolling * wheelMass * along;

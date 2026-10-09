@@ -271,6 +271,16 @@ void VehicleStage::toggleEngine(Player &p) {
     alien.saucer->toggleEngine();
 }
 
+// Debug: one of the RV's wheels still on bursts (any player can ask, wherever he is)
+void VehicleStage::popRandomTire(Player &p) {
+  std::vector<int> left;
+  for (int i = 0; i < 4; i++)
+    if (rv && !rv->isTireFlat(i))
+      left.push_back(i);
+  if (!left.empty())
+    rv->punctureTire(left[std::uniform_int_distribution<size_t>(0, left.size() - 1)(tireRandom)]);
+}
+
 void VehicleStage::toggleShipLegs(Player &p) {
   if (p.inSaucer)
     alien.saucer->toggleLegs();
@@ -411,6 +421,8 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
                          loadModel("../assets/rv/handbrake_lever.obj"));
   rv->setDoorModel(loadModel("../assets/rv/door.obj"));
   rv->setAlarmLampModel(loadModel("../assets/rv/dashboard_alarm.obj"));
+  rv->setTireLampModel(loadModel("../assets/rv/dashboard_tire.obj"));
+  rv->setTireLampModel(loadModel("../assets/rv/dashboard_tire.obj"));
   rv->setMaxSpeed(20.0f);
   rv->setGravity(25.0f);
   rv->setStage(this);
@@ -432,6 +444,10 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   for (const auto &emitter : rv->getDust())
     addEmitter(emitter);
   for (const auto &emitter : rv->getGrains())
+    addEmitter(emitter);
+  for (const auto &emitter : rv->getSparkEmitters()) // (the sparks of a missing wheel)
+    addEmitter(emitter);
+  for (const auto &emitter : rv->getSparkEmitters()) // (the sparks of a missing wheel)
     addEmitter(emitter);
   // The fire of a wrecked front and the explosion of its engine (a blast kills whoever is in
   // the RV or close to it)
@@ -462,6 +478,14 @@ void VehicleStage::createWalker(float x, float z, float yaw) {
   // The players' penguins appear here, on foot, their feet on the floor (see GameStage::addPlayer)
   spawnPoint = vec3(x, groundAt(x, z), z);
   spawnYaw = yaw;
+}
+
+bool VehicleStage::spawnEntity(const std::string &kind, const vec3 &where, float yaw, EntityContext &context) {
+  if (kind != "folla_culos" || !rv)
+    return false;
+  createCreature(context.sound, context.speech, where.x, where.z);
+  creature->setYaw(yaw);
+  return true;
 }
 
 void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x,
