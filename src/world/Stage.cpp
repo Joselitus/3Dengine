@@ -110,6 +110,7 @@ void Stage::update(double dt) {
   for (auto &object : dynamicObjects)
     if (!object->isReplica())
       collideShapeWithFloor(*object);
+  afterUpdate(dt);
   // The emitters, once their owners have moved them
   for (auto &emitter : emitters)
     emitter->update(dt);

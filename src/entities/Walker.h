@@ -1,10 +1,14 @@
 #ifndef WALKER
 #define WALKER
 
+#include <memory>
+
 #include "PlayableCharacter.h"
 #include <functional>
 
 class Camera;
+class Model;
+class SeatedPose;
 
 // A character on foot. WASD walks relative to where the camera looks (W
 // forward, A/D sideways) and it turns to face where it walks. Under gravity
@@ -19,6 +23,10 @@ class Camera;
 //
 // Its flashlight is held a little below and to the right of the eyes and
 // points where the camera looks.
+//
+// In a seat of the RV it sits (sit(), every frame, see SeatedPose): the stage puts it on the seat
+// and turns it with the vehicle; the model is posed sitting and, driving, it holds the steering wheel
+// and a can of beer (setHeldModel: a part of the walker shown only then). standUp() ends it.
 class Walker : public PlayableCharacter {
 private:
   Camera *camera = nullptr;
@@ -31,6 +39,10 @@ private:
   bool hasLook = false;
   float lookYaw = 0.0f, lookPitch = 0.0f;
   std::function<void()> damageCallback; // what happens when something shoots him (the stage kills him)
+  std::shared_ptr<SeatedPose> seated; // sitting (see sit)
+  bool sitting = false;
+  size_t heldPart = 0;
+  bool hasHeld = false;
 
 public:
   using PlayableCharacter::PlayableCharacter;
@@ -59,6 +71,17 @@ public:
     if (damageCallback)
       damageCallback();
   }
+
+  // What it holds in its right flipper while it drives (the can of beer), in its own frame (its
+  // centre where it is held, +y its axis)
+  void setHeldModel(std::shared_ptr<Model> model);
+  bool hasHeldModel() const { return hasHeld; }
+  // Sits for dt more seconds: as the driver (its left flipper on the wheel at `grip`, in its own
+  // frame) or as the passenger. Call it every frame after it is placed; it does not move it
+  void sit(bool driver, const glm::vec3 &grip, double dt);
+  // Gets up: it plays its own animation again, and stands upright facing where it faced
+  void standUp();
+  bool isSitting() const { return sitting; }
 };
 
 #endif

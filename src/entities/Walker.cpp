@@ -3,6 +3,8 @@
 #include <cmath>
 
 #include "Camera.h"
+#include "Gfx.h"
+#include "SeatedPose.h"
 
 using namespace glm;
 
@@ -46,7 +48,7 @@ void Walker::update(double dt) {
     setYaw(facing);
   }
   // standing still it breathes in its idle pose (the others' penguins, seen from outside)
-  if (aniModel)
+  if (aniModel && !sitting)
     aniModel->setIdle(length(vec2(velocity.x, velocity.z)) < 0.3f && heading == vec2(0.0f));
   float speed = running ? maxSpeed * RUN_FACTOR : maxSpeed;
   vec3 wanted = vec3(heading.x, 0.0f, heading.y) * speed;
@@ -104,4 +106,39 @@ void Walker::readNetState(NetReader &in) {
   running = run;
   if (!camera) // (our own walker looks where our camera does)
     setLook(yaw, pitch);
+}
+
+void Walker::setHeldModel(std::shared_ptr<Model> model) {
+  heldPart = addPart(model);
+  setPartVisible(heldPart, false);
+  hasHeld = true;
+}
+
+void Walker::sit(bool driver, const vec3 &grip, double dt) {
+  sitting = true;
+  facing = getHeading();
+  if (hasHeld)
+    setPartVisible(heldPart, driver);
+  // (the server draws nothing: only the clients pose it)
+  if (Gfx::headless || !aniModel)
+    return;
+  if (!seated)
+    seated = std::make_shared<SeatedPose>(aniModel);
+  seated->setDriver(driver);
+  seated->setGrip(grip);
+  seated->step(dt);
+  seated->apply();
+  if (hasHeld)
+    setPartTransform(heldPart, seated->canTransform());
+}
+
+void Walker::standUp() {
+  if (!sitting)
+    return;
+  sitting = false;
+  if (hasHeld)
+    setPartVisible(heldPart, false);
+  if (aniModel)
+    aniModel->usePlayedAnimation();
+  setYaw(facing); // (upright again: the seat turned it with the vehicle)
 }

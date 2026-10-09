@@ -120,6 +120,11 @@ static const float DOOR_DAMPING = 1.5f, DOOR_BOUNCE_OPEN = 0.25f, DOOR_BOUNCE_SH
 // z 1.16 to 1.94, its back leaning to z 0.95)
 static const vec3 DRIVER_STAND(0.45f, 0.55f, 0.45f);
 static const vec3 SEAT_ORIGIN(0.45f, 0.55f, 1.55f); // the pilot's seat's floor point; the copilot's is at -x
+// A penguin sitting there: his hips over the cushion's top (generate_seat.py: 0.46 m over the floor,
+// times its SCALE 1.45) at this z: the driver nearer its front edge (to reach the wheel)
+static const float SEAT_CUSHION = 0.667f, SIT_Z_DRIVER = 1.5f, SIT_Z_PASSENGER = 1.5f;
+// The steering wheel's rim (generate_steering_wheel.py: RIM_R)
+static const float WHEEL_RIM_RADIUS = 0.27f;
 // The wreck: a crash this many times harder than the least that breaks the windshield wrecks the
 // front; the fuse of the explosion lasts between these (s); the blast reaches this far (m); and
 // the engine bay is here, in the frame of rv.obj
@@ -979,6 +984,18 @@ vec3 RV::copilotSeatPosition() const {
   return position + vec3(rotation * vec4(-EYE_X, EYE_Y - 1.6f, EYE_Z, 0.0f));
 }
 
+vec3 RV::sittingPoint(bool copilot) {
+  return vec3(copilot ? -SEAT_ORIGIN.x : SEAT_ORIGIN.x, SEAT_ORIGIN.y + SEAT_CUSHION,
+              copilot ? SIT_Z_PASSENGER : SIT_Z_DRIVER);
+}
+
+float RV::steeringWheelAngle() const { return (body ? body->getWheels()[0].steer : 0.0f) * STEERING_RATIO; }
+
+vec3 RV::steeringRim(float angle) const {
+  float a = angle + steeringWheelAngle();
+  return WHEEL_ORIGIN + WHEEL_RIM_RADIUS * (std::cos(a) * WHEEL_X + std::sin(a) * WHEEL_Y);
+}
+
 void RV::setDoorModel(std::shared_ptr<Model> door) {
   doorPart = addPart(door);
   hasDoor = true;
@@ -1082,9 +1099,8 @@ void RV::setSteeringWheelModel(std::shared_ptr<Model> wheel) {
 void RV::placeSteeringWheel() {
   if (!hasSteeringWheel)
     return;
-  float steer = body ? body->getWheels()[0].steer : 0.0f;
   mat4 frame(vec4(WHEEL_X, 0.0f), vec4(WHEEL_Y, 0.0f), vec4(WHEEL_Z, 0.0f), vec4(WHEEL_ORIGIN, 1.0f));
-  setPartTransform(steeringWheelPart, glm::rotate(frame, steer * STEERING_RATIO, vec3(0.0f, 0.0f, 1.0f)));
+  setPartTransform(steeringWheelPart, glm::rotate(frame, steeringWheelAngle(), vec3(0.0f, 0.0f, 1.0f)));
 }
 
 // With the headlights on the dashboard lights up: its lit marks, lamps and display are
