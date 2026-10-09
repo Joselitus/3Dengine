@@ -12,7 +12,8 @@ class RV;
 // the camera: it is in his eyes on the copilot's side of the cab and turns, pitches and rolls with the
 // vehicle, as the pilot's does (the mouse looks round from there). It is an invisible object of the
 // stage that rides on the seat (so that the server and the clients all have it, and the camera
-// follows it like any other character); the player's penguin is hidden in the seat meanwhile.
+// follows it like any other character); the player's penguin sits in the seat meanwhile (the others see
+// it; his own client does not draw it: VehicleStage::afterUpdate).
 class PassengerView : public PlayableCharacter {
 private:
   std::shared_ptr<RV> rv;

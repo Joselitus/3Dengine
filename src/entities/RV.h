@@ -329,6 +329,14 @@ public:
   // Puts `camera` in the cockpit's eyes (the pilot's, or the copilot's), turning, pitching and
   // rolling with the vehicle (what followCamera does while somebody drives)
   void placeCockpitCamera(Camera &camera, bool copilot) const;
+  // Where a penguin sitting in the pilot's or the copilot's seat sits (a point of the cushion's top,
+  // under his hips), in the RV's frame; he faces forward and turns with the RV (see SeatedPose)
+  static glm::vec3 sittingPoint(bool copilot);
+  // A point of the steering wheel's rim, in the RV's frame: `angle` radians round it from the
+  // driver's right, counterclockwise seen from him (pi/2 is the top), turning with the wheel
+  glm::vec3 steeringRim(float angle) const;
+  // How far the steering wheel is turned now (radians, positive to the left)
+  float steeringWheelAngle() const;
   // Where the driver stands on the floor inside, behind the steering wheel (world)
   glm::vec3 driverStand() const;
 

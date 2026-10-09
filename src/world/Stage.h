@@ -307,6 +307,9 @@ public:
   // dynamic ones and resolves the collisions
   // Moves the clock (see setDayDuration), then the objects and emitters
   void update(double dt);
+  // Called by update() once every object has moved (and before the emitters): a map's own rules that
+  // need things where they are this frame (on a client too, where the server moves them)
+  virtual void afterUpdate(double dt) {}
 
   // The clock of the stage, common to every map. The time of day is in hours
   // (0 = midnight, 12 = noon, wraps at 24); it advances with update() so a whole

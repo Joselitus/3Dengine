@@ -4,6 +4,7 @@
 
 #include "FuelPump.h"
 #include "SafeSpace.h"
+#include "SeatedPose.h"
 #include "NetRole.h"
 
 using namespace glm;
@@ -36,8 +37,7 @@ void VehicleStage::enterRV() {
   p.walker->control(vec2(0.0f), 0.0f, 0.0f); // stops walking
   p.walker->setVelocity(vec3(0.0f));
   p.walker->setGravity(0.0f);       // it rides: nothing pulls it down
-  p.walker->setCollidable(false);   // inside the RV's box
-  p.walker->setVisible(false);
+  p.walker->setCollidable(false);   // inside the RV's box (it sits in the seat: see afterUpdate)
   vec3 seat = rv->seatPosition();
   p.walker->setPosition(seat.x, seat.y, seat.z);
   rv->setOccupied(true);
@@ -107,8 +107,7 @@ void VehicleStage::sitDown() {
   p.walker->control(vec2(0.0f), 0.0f, 0.0f);
   p.walker->setVelocity(vec3(0.0f));
   p.walker->setGravity(0.0f);      // it rides
-  p.walker->setCollidable(false);
-  p.walker->setVisible(false);
+  p.walker->setCollidable(false); // (it sits in the seat: see afterUpdate)
   vec3 at = rv->copilotSeatPosition();
   p.walker->setPosition(at.x, at.y, at.z);
   rv->setCopilotOccupied(true);
@@ -204,6 +203,33 @@ void VehicleStage::onTick(double dt) {
     alien.saucer->toggleEngine();
   if (alien.saucer->canDisembark())
     alien.saucer->setPiloted(false);
+}
+
+// The penguins in the RV's seats sit there, turned with it: the driver with his left flipper on the
+// wheel (a little above 9 o'clock, following it as it turns, but not further than he can reach) and a beer in the
+// other. Whoever sits at this computer is not drawn while he looks from his own eyes
+void VehicleStage::afterUpdate(double dt) {
+  const float GRIP_ANGLE = 2.95f, GRIP_MIN = 2.0f, GRIP_MAX = 3.9f; // (radians round the rim)
+  for (auto &p : players) {
+    Walker &walker = *p->walker;
+    if (!rv || p->dead || (!p->inVehicle && !p->seated)) {
+      walker.standUp();
+      continue;
+    }
+    bool driver = p->inVehicle;
+    vec3 sit = RV::sittingPoint(!driver) + SeatedPose::originFromSeat(); // (where the walker goes)
+    mat4 turn = rv->getRotationMatrix();
+    vec3 at = rv->getPosition() + vec3(turn * vec4(sit, 0.0f));
+    walker.setPosition(at.x, at.y, at.z);
+    walker.setRotation(turn);
+    if (beerCan && !walker.hasHeldModel())
+      walker.setHeldModel(beerCan);
+    float steer = rv->steeringWheelAngle();
+    vec3 grip = rv->steeringRim(clamp(GRIP_ANGLE + steer, GRIP_MIN, GRIP_MAX) - steer) - sit;
+    walker.sit(driver, grip, dt);
+    if (p.get() == local)
+      walker.setVisible(driver && rv->getCameraView() == RV::CameraView::Chase);
+  }
 }
 
 void VehicleStage::apply(DynamicGameObject &object, double dt) {
@@ -393,6 +419,7 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   addSafeSpace(rvInside);
   // The cab's two seats: the pilot's (the steering interactable, E behind it) and the copilot's
   rv->setSeatModel(loadModel("../assets/rv/seat.obj"));
+  beerCan = loadModel("../assets/rv/beer_can.obj");
   passenger = make_shared<PassengerView>(rv);
   addDynamic(passenger);
   rv->setSitAction([this]() { sitDown(); });

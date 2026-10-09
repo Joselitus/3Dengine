@@ -46,6 +46,7 @@ protected:
 
   std::shared_ptr<RV> rv;
   std::shared_ptr<PassengerView> passenger; // what a player controls while he sits in the passenger seat
+  std::shared_ptr<Model> beerCan; // in the driver's flipper (Walker::setHeldModel)
   std::shared_ptr<FollaCulos> creature; // the last night creature made (null if the map has none)
   std::vector<std::shared_ptr<FollaCulos>> creatures; // all of them (each lights its eyes)
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
@@ -92,8 +93,8 @@ protected:
   // The procedural sky and the clock: DAY_DURATION seconds a day, starting at START_HOUR
   void startDay();
 
-  // The acting player's penguin gets into the RV (if nobody drives it): it is hidden inside its
-  // body and goes wherever the RV goes, and the RV gets his controls and camera
+  // The acting player's penguin gets into the RV (if nobody drives it): it sits in the driver's seat
+  // (see afterUpdate) and goes wherever the RV goes, and the RV gets his controls and camera
   void enterRV();
   // The acting player's penguin gets into Bob's ship (its ramp is down): it rides in it, and the
   // ship gets his controls and camera (from behind and above)
@@ -122,6 +123,8 @@ protected:
   // The ship nobody flies comes down and stands (see tick)
   void onTick(double dt) override;
 
+  // The penguins in the RV's seats sit in them (on the server, where they are; on a client, posed too)
+  void afterUpdate(double dt) override;
   // Everything dynamic stays on the floor (a penguin inside the RV just rides in it)
   void apply(DynamicGameObject &object, double dt) override;
 
