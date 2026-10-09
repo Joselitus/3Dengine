@@ -8,6 +8,18 @@ TOOL_DIR = ../tools/creature_testing
 CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR)
 LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
+# macOS (MacPorts in /opt/local): no libGL/Vulkan, OpenGL is a framework
+ifeq ($(shell uname),Darwin)
+PREFIX = /opt/local
+CXXFLAGS += -I$(PREFIX)/include -DGL_SILENCE_DEPRECATION
+LIBS = -L$(PREFIX)/lib `pkg-config --static --libs glfw3` -lGLEW -framework OpenGL -lassimp -ldl -lpthread -lm
+# The MacPorts ld cannot read the .tbd files of the newest SDK ("malformed file"): use an older one
+OLD_SDK = /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
+ifneq ($(wildcard $(OLD_SDK)),)
+export SDKROOT ?= $(OLD_SDK)
+endif
+endif
+
 # The three programs: the game's server (server.cpp is its main: it rules the world, with no
 # window), the game's client (client.cpp: draws it and takes the player's input) and the creature
 # testing tool (all of ../tools/creature_testing); everything else in src/ is shared

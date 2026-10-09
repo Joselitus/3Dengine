@@ -69,7 +69,7 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   // Initialise GLFW
   glewExperimental = true; // Needed for core profile
 
-#ifdef GLFW_PLATFORM // GLFW >= 3.4 only
+#if defined(GLFW_PLATFORM) && !defined(__APPLE__) // GLFW >= 3.4 only; macOS has no X11
   glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 #endif
 

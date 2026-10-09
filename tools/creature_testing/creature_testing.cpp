@@ -98,7 +98,7 @@ bool enterSourceDir() {
 
 GLFWwindow *openWindow() {
   glewExperimental = true;
-#ifdef GLFW_PLATFORM
+#if defined(GLFW_PLATFORM) && !defined(__APPLE__) // macOS has no X11
   glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
 #endif
   if (!glfwInit()) {
