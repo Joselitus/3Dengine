@@ -2,6 +2,7 @@
 #define WALKER
 
 #include "PlayableCharacter.h"
+#include <functional>
 
 class Camera;
 
@@ -29,6 +30,7 @@ private:
   // server's, and those of the other players on a client. The flashlight points there.
   bool hasLook = false;
   float lookYaw = 0.0f, lookPitch = 0.0f;
+  std::function<void()> damageCallback; // what happens when something shoots him (the stage kills him)
 
 public:
   using PlayableCharacter::PlayableCharacter;
@@ -51,6 +53,12 @@ public:
   void getFlashlight(std::vector<SpotLight> &lights) const override;
   // It climbs ledges up to this high (the sill of the RV's door, with its step)
   float getStepHeight() const override { return 0.7f; }
+  // A shot (the ship's ray) kills him: the stage decides what that means (setDamageCallback)
+  void setDamageCallback(std::function<void()> callback) { damageCallback = callback; }
+  void takeDamage(float amount, const glm::vec3 &direction, const Stage &stage) override {
+    if (damageCallback)
+      damageCallback();
+  }
 };
 
 #endif

@@ -81,6 +81,7 @@ public:
 
 private:
   const aiAnimation *chosenAnimation() const;
+  void correctSkinScale();
   void computeFit();
 };
 

@@ -59,10 +59,17 @@ public:
   bool PoseGlobal(const std::string &name, glm::mat4 &matrix) const;
   // A bone's matrix in the bind pose (false if the file has no such bone)
   bool BindGlobal(const std::string &name, glm::mat4 &matrix) const;
+  // Some importers (Assimp 5.4 with the penguin's FBX) leave the file's unit scale on the mesh's node
+  // instead of in the offsets: the offsets then expect vertices 100 times bigger than they are. This
+  // matrix (the mesh node's) is applied to the vertices before skinning to put that right: every
+  // bone matrix gets it on its right (see Update, SetPose, PoseGlobal). Identity (the default) when
+  // the file is consistent.
+  void SetSkinCorrection(const glm::mat4 &m) { skinFix = m; }
   // Object-space transform of a node for the last Update().
   glm::mat4 NodeGlobal(const aiNode *node) const;
 
 private:
+  glm::mat4 skinFix = glm::mat4(1.0f);
   aiNode *root;
   const aiAnimation *animation;
   std::unordered_map<std::string, const aiNodeAnim *> channels;

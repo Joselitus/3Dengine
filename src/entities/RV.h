@@ -458,6 +458,9 @@ public:
   // Pushes a sphere of this radius out of the vehicle's body (its side profile, a convex
   // shape: for a ragdoll that falls on it)
   void pushOutOfBody(glm::vec3 &point, float radius) const;
+  // Would the vehicle, moving, run over someone standing with his feet at this world point? (it
+  // goes faster than a walking pace and the point is within its footprint, at body height)
+  bool isRunningOver(const glm::vec3 &feet) const;
   // Its velocity in the world (m/s)
   glm::vec3 getVelocity() const { return body ? body->getVelocity() : glm::vec3(0.0f); }
   // How fast it goes forwards (m/s)

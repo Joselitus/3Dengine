@@ -28,9 +28,39 @@ void AnimatedModel::loadModel(string path) {
   const aiAnimation *animation = chosenAnimation();
   skeleton.Init(scene->mRootNode, animation, std::move(pendingBones));
   skeleton.SetBindPoses(allOffsets);
+  correctSkinScale();
   pendingBones.clear();
 
   computeFit();
+}
+
+// The file's static matrix of a node (the root's included)
+static glm::mat4 staticGlobal(const aiNode *node) {
+  glm::mat4 m(1.0f);
+  for (; node; node = node->mParent) {
+    aiMatrix4x4 local = node->mTransformation;
+    m = AiToGLMMat4(local) * m;
+  }
+  return m;
+}
+
+// In a consistent file a bone's static matrix times its offset is the matrix that takes the mesh to
+// the skin's space, the mesh's own node (whose transform carries the file's units and axes). With
+// Assimp 5.4 and the penguin's FBX it is not: the offsets are in centimetres and the vertices are
+// not, so skinned it comes out a hundred times too small and torn. Then the mesh's node is applied
+// to the vertices before skinning (Skeleton::SetSkinCorrection); the idle pose already does that.
+void AnimatedModel::correctSkinScale() {
+  if (skeleton.bones.empty() || meshNodes.empty() || !skeleton.bones[0].node)
+    return;
+  glm::mat4 own = staticGlobal(skeleton.bones[0].node) * skeleton.bones[0].offset;
+  glm::mat4 mesh = staticGlobal(meshNodes[0]);
+  for (int c = 0; c < 4; c++)
+    for (int r = 0; r < 4; r++)
+      if (std::fabs(own[c][r] - mesh[c][r]) > 1e-3f * (1.0f + std::fabs(mesh[c][r]))) {
+        skeleton.SetSkinCorrection(mesh);
+        skeleton.Update(0.0);
+        return;
+      }
 }
 
 void AnimatedModel::processNode(aiNode *node, const aiScene *scene) {

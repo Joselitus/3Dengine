@@ -58,6 +58,12 @@ Player &GameStage::addPlayer(int id, const string &name, int netId) {
   p->walker->setPosition(at.x, at.y, at.z);
   p->walker->setYaw(spawnYaw + 3.14159265f); // (the camera's yaw 0 looks towards -z, the body's towards +z)
   p->walker->setGravity(AVATAR_GRAVITY);
+  // A shot (the alien ship's ray) kills him; only the server says who dies
+  Player *raw = p.get();
+  p->walker->setDamageCallback([this, raw]() {
+    if (netRole() != NetRole::Client)
+      killPlayer(*raw);
+  });
   addDynamic(p->walker, netId);
   setControl(*p, p->walker, walkCameraDistance, walkCameraHeight, spawnYaw);
   players.push_back(std::move(p));

@@ -75,7 +75,7 @@ bool Skeleton::PoseGlobal(const std::string &name, glm::mat4 &matrix) const {
     for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++)
       if (bones[i].name == up) {
         // skin = inverse-root * M * offset, so M is the matrix of a weighted bone
-        glm::mat4 skinned = glm::inverse(globalInverseTransform) * boneMats[i] * glm::inverse(bones[i].offset);
+        glm::mat4 skinned = glm::inverse(globalInverseTransform) * boneMats[i] * glm::inverse(skinFix) * glm::inverse(bones[i].offset);
         if (up == name) {
           matrix = skinned;
           return true;
@@ -140,7 +140,7 @@ void Skeleton::SetPose(const std::unordered_map<std::string, glm::mat4> &globals
   for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++) {
     auto it = resolved.find(bones[i].name);
     if (it != resolved.end())
-      boneMats[i] = globalInverseTransform * it->second * bones[i].offset;
+      boneMats[i] = globalInverseTransform * it->second * bones[i].offset * skinFix;
   }
 }
 
@@ -229,5 +229,5 @@ void Skeleton::Update(double seconds) {
 
   for (size_t i = 0; i < bones.size() && i < MAX_BONES; i++)
     boneMats[i] = globalInverseTransform * nodeGlobals[bones[i].node] *
-                  bones[i].offset;
+                  bones[i].offset * skinFix;
 }

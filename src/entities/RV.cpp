@@ -334,6 +334,8 @@ void RV::windshieldFrame(vec3 &center, vec3 &up, vec3 &normal) const {
 static const float BODY_PROFILE[7][2] = {{-3.55f, 0.55f}, {3.55f, 0.55f}, {3.55f, 1.7f}, {3.0f, 2.95f},
                                          {2.85f, 3.05f}, {-3.4f, 3.05f}, {-3.55f, 2.9f}};
 static const float BODY_HALF_WIDTH = 1.2f;
+// It kills whoever it hits on foot when it goes faster than this (m/s)
+static const float RUN_OVER_SPEED = 3.0f;
 
 void RV::pushOutOfBody(vec3 &point, float radius) const {
   vec3 local = vec3(transpose(mat3(rotation)) * (point - position));
@@ -366,6 +368,16 @@ bool RV::isInFront(const vec3 &p) const {
   vec3 local = vec3(transpose(mat3(rotation)) * (p - position));
   return local.z > FRONT_Z - FRONT_REACH && local.z < FRONT_Z + 2.0f * FRONT_REACH &&
          std::fabs(local.x) < FRONT_HALF_WIDTH;
+}
+
+bool RV::isRunningOver(const vec3 &feet) const {
+  if (wrecked || length(getVelocity()) < RUN_OVER_SPEED)
+    return false;
+  vec3 local = vec3(transpose(mat3(rotation)) * (feet - position));
+  // (a little wider than the body, so that its side hits as well; from the bottom of the body up
+  // to its roof)
+  return std::fabs(local.x) < BODY_HALF_WIDTH + 0.3f && std::fabs(local.z) < FRONT_Z + 0.3f &&
+         local.y > -0.5f && local.y < 2.5f;
 }
 
 void RV::setWindshieldModels(std::shared_ptr<Model> intact, std::shared_ptr<Model> broken) {

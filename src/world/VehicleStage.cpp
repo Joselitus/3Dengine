@@ -218,6 +218,10 @@ void VehicleStage::apply(DynamicGameObject &object, double dt) {
       object.setVelocity(vec3(0.0f));
       return;
     }
+    // The RV runs him over: on foot, outside it, and it comes at him fast
+    if (!p->dead && netRole() != NetRole::Client && rv->isRunningOver(p->walker->getPosition()) &&
+        !playerSheltered(*p))
+      killPlayer(*p);
     break;
   }
   collideWithFloor(object, dt);
