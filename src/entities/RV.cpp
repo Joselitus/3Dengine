@@ -23,6 +23,9 @@ using namespace glm;
 #define GRASS_GRIP 0.85f
 #define GRASS_ROLLING 1.8f
 #define GRASS_TOP_SPEED 0.65f
+#define DIRT_GRIP 0.8f // dirt roads: between sand and grass
+#define DIRT_ROLLING 2.0f
+#define DIRT_TOP_SPEED 0.6f
 // The dust a wheel throws up on sand: the particles go backwards (against the
 // direction of travel) and upwards, and then fall. It starts above a walking
 // pace, and the faster it goes, the more there is.
@@ -707,6 +710,10 @@ static VehicleBody::Surface surfaceOf(FloorMaterial material) {
     surface.grip = GRASS_GRIP;
     surface.rolling = GRASS_ROLLING;
     surface.topSpeed = GRASS_TOP_SPEED;
+  } else if (material == FloorMaterial::Dirt) {
+    surface.grip = DIRT_GRIP;
+    surface.rolling = DIRT_ROLLING;
+    surface.topSpeed = DIRT_TOP_SPEED;
   }
   return surface;
 }
@@ -1423,7 +1430,8 @@ void RV::updateDust(const Stage &stage) {
                                                    anchor.y - wheel.length - WHEEL_RADIUS,
                                                    anchor.z, 0.0f));
     bool onSand = wheel.onGround &&
-                  stage.materialAt(contact.x, contact.z) == FloorMaterial::Sand;
+                  (stage.materialAt(contact.x, contact.z) == FloorMaterial::Sand ||
+                   stage.materialAt(contact.x, contact.z) == FloorMaterial::Dirt);
     ParticleEmitter &emitter = *dust[i];
     ParticleEmitter &grain = *grains[i];
     if (!onSand || speed < DUST_MIN_SPEED) {

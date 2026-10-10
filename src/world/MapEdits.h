@@ -11,6 +11,8 @@
 
 #include "EntityContext.h"
 #include "GameObject.h"
+#include "RoadMesh.h"
+#include "RoadSet.h"
 
 class GameStage;
 
@@ -22,6 +24,7 @@ class GameStage;
 //   material CX CZ M                  a square of the terrain made of FloorMaterial M
 //   prop TYPE X Z ABOVE YAW SCALE     a catalog prop (PropCatalog) added to the map
 //   entity KIND X Z YAW               a creature or NPC added (GameStage::spawnEntity)
+//   road TYPE WIDTH CLOSED N X Z ...  a road: a spline through N points (TYPE 0 asphalt, 1 dirt)
 //   move s|d INDEX X ABOVE Z YAW      an object the map made (s static, d dynamic: its place in the
 //                                     stage's list) put somewhere else, ABOVE metres over the floor
 //   delete s|d INDEX                  ...taken away
@@ -51,9 +54,12 @@ public:
   std::vector<Prop> props;
   std::vector<Entity> entities;
   std::vector<Move> moves;
+  std::vector<Road> roads;
 
   // What apply() made, parallel to props and entities (the editor changes them later)
   std::vector<std::shared_ptr<GameObject>> propObjects, entityObjects;
+  // The pictures of the roads, one per road (the editor makes them again when a road changes)
+  std::vector<std::shared_ptr<RoadMesh>> roadMeshes;
   // How many static and dynamic objects the map had before the edits
   size_t baseStatics = 0, baseDynamics = 0;
 
@@ -62,12 +68,16 @@ public:
   bool load(const std::string &path);
   bool save(const std::string &path) const;
   bool empty() const {
-    return heights.empty() && materials.empty() && props.empty() && entities.empty() && moves.empty();
+    return heights.empty() && materials.empty() && props.empty() && entities.empty() && moves.empty() && roads.empty();
   }
 
   // Puts the layer over the map just built: terrain first (what stood on the ground goes up or down
   // with it), then the objects moved or taken away, then the new ones
   void apply(GameStage &stage, EntityContext &context);
+
+  // Makes the roads (the stage's RoadSet and their pictures) again from `roads`, on the terrain as
+  // it is now
+  void rebuildRoads(GameStage &stage);
 
   // Edits of an object of the map (adds the move, or changes the one it has)
   Move &moveOf(bool dynamic, int index);

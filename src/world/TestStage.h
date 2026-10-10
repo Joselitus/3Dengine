@@ -367,6 +367,10 @@ public:
     // porch towards the start
     placeHouse(9.0f, 57.0f, std::atan2(-(4.0f - 57.0f), 3.0f - 9.0f));
 
+    // The sky is covered by one layer of cloud, a slab 6 km wide and 80 m thick 120 m up (see
+    // CloudRenderer: the blobs come out hundreds of metres across, with CloudSettings::tiling)
+    clouds.push_back({vec3(-3000.0f, 120.0f, -3000.0f), vec3(3000.0f, 200.0f, 3000.0f)});
+
     // A garden gnome a few steps from the start, facing it (see Gnome: do not look at it too much)
     createGnome(-8.0f, 8.0f, std::atan2(3.0f + 8.0f, 4.0f - 8.0f));
   }

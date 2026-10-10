@@ -16,6 +16,7 @@
 #include "SafeSpace.h"
 #include "GameObject.h"
 #include "MaterialMap.h"
+#include "RoadSet.h"
 #include "TerrainPaint.h"
 #include "Property.h"
 
@@ -129,6 +130,7 @@ private:
   std::vector<unsigned int> terrainDirty;              // grid points
   glm::vec3 floorOffset = glm::vec3(0.0f);
   std::vector<unsigned char> baseMaterials; // the squares' materials before any change (one per square)
+  RoadSet roads;
   std::shared_ptr<TerrainPaint> paint;      // the picture of the squares whose material changed
   int dirtyX0 = 0, dirtyZ0 = 0, dirtyX1 = -1, dirtyZ1 = -1; // grid points changed since commitTerrain
   void prepareTerrainEditing();
@@ -322,6 +324,10 @@ public:
   // on different ground (a vehicle is slower on sand). Sand where there is no
   // floor, or the floor has no such information.
   FloorMaterial materialAt(float x, float z) const;
+
+  // The roads drawn by the map editor (MapEdits): where one runs, materialAt answers its surface
+  RoadSet &roadSet() { return roads; }
+  const RoadSet &roadSet() const { return roads; }
 
   // Particle emitters (dust, smoke...) of the stage: it moves their particles
   // every update and removes the ones that reach the floor. Whoever owns an

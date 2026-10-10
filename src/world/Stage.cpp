@@ -258,6 +258,9 @@ bool Stage::setFloor(shared_ptr<Model> mesh, const vec3 &position,
 }
 
 FloorMaterial Stage::materialAt(float x, float z) const {
+  FloorMaterial onRoad;
+  if (roads.surfaceAt(x, z, onRoad))
+    return onRoad;
   if (!floor_mesh || x < minX || x > maxX || z < minZ || z > maxZ)
     return FloorMaterial::Sand;
   if (floorMaterials)

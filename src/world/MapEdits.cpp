@@ -61,6 +61,18 @@ bool MapEdits::load(const string &path) {
       ok = (bool)(fields >> e.kind >> e.x >> e.z >> e.yaw);
       if (ok)
         entities.push_back(e);
+    } else if (command == "road") {
+      Road r;
+      int closed = 0, count = 0;
+      ok = (bool)(fields >> r.type >> r.width >> closed >> count) && count >= 0 && count < 100000;
+      for (int i = 0; ok && i < count; i++) {
+        vec2 p;
+        ok = (bool)(fields >> p.x >> p.y);
+        r.points.push_back(p);
+      }
+      r.closed = closed != 0;
+      if (ok)
+        roads.push_back(r);
     } else if (command == "move" || command == "delete") {
       Move m;
       char kind;
@@ -109,6 +121,14 @@ bool MapEdits::save(const string &path) const {
     for (const Entity &e : entities) {
       snprintf(buffer, sizeof(buffer), "entity %s %.4f %.4f %.4f\n", e.kind.c_str(), e.x, e.z, e.yaw);
       out << buffer;
+    }
+    for (const Road &r : roads) {
+      out << "road " << r.type << " " << r.width << " " << (r.closed ? 1 : 0) << " " << r.points.size();
+      for (const vec2 &p : r.points) {
+        snprintf(buffer, sizeof(buffer), " %.3f %.3f", p.x, p.y);
+        out << buffer;
+      }
+      out << "\n";
     }
     for (const Move &m : moves) {
       if (m.deleted)
@@ -226,6 +246,22 @@ void MapEdits::apply(GameStage &stage, EntityContext &context) {
     if (!made)
       fprintf(stderr, "MapEdits: this map cannot have a '%s'\n", e.kind.c_str());
   }
+
+  // --- Roads (on the terrain as it is after the edits)
+  roadMeshes.clear();
+  rebuildRoads(stage);
+}
+
+void MapEdits::rebuildRoads(GameStage &stage) {
+  stage.roadSet().set(roads);
+  while (roadMeshes.size() < roads.size())
+    roadMeshes.push_back(make_shared<RoadMesh>(stage));
+  for (size_t i = 0; i < roadMeshes.size(); i++) {
+    if (i < roads.size())
+      roadMeshes[i]->update(stage, roads[i], (int)i);
+    else
+      roadMeshes[i]->setVisible(false);
+  }
 }
 
 void applyMapEdits(GameStage &stage, const string &mapName, EntityContext &context) {
@@ -233,6 +269,7 @@ void applyMapEdits(GameStage &stage, const string &mapName, EntityContext &conte
   if (!edits.load(MapEdits::pathFor(mapName)))
     return;
   edits.apply(stage, context);
-  fprintf(stderr, "Map edits applied to '%s': %zu props, %zu creatures, %zu objects moved, %zu terrain points\n",
-          mapName.c_str(), edits.props.size(), edits.entities.size(), edits.moves.size(), edits.heights.size());
+  fprintf(stderr, "Map edits applied to '%s': %zu props, %zu creatures, %zu roads, %zu objects moved, %zu terrain points\n",
+          mapName.c_str(), edits.props.size(), edits.entities.size(), edits.roads.size(), edits.moves.size(),
+          edits.heights.size());
 }

@@ -64,22 +64,41 @@ float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
-// Stars of the procedural sky: one possible star per cell of a grid over the
-// sphere (azimuth squeezed by cos(elevation) so the cells stay square)
+// Stars of the procedural sky, spread evenly over the sphere with no rows, poles or lattice: a
+// random point (or none) in every cell of a 3D grid, and only the points whose distance from the
+// middle falls in a shell one cell thick count, each seen in the direction it is from the middle.
+// The shell has the same volume in every direction and the points are uniform and independent
+// inside it, so their density per solid angle is the same everywhere (a uniform Poisson
+// process on the sphere). STAR_RADIUS cells make the sphere: the stars' size is measured in
+// cells at that radius, as it was in the grid of angles used before.
+const float STAR_RADIUS = 420.0;
+
+float hash3(vec3 p) {
+  p = fract(p * 0.1031);
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+
 float stars(vec3 dir) {
-	float el = asin(clamp(dir.y, -1.0, 1.0));
-	float az = atan(dir.z, dir.x);
-	vec2 g = vec2(az * cos(el), el) * 420.0;
-	vec2 cell = floor(g);
-	float h = hash(cell);
-	if (h < 0.965)
-		return 0.0;
-	vec2 centre = vec2(hash(cell + 7.1), hash(cell + 3.7)) * 0.6 + 0.2;
-	float d = length(fract(g) - centre);
-	float size = 0.18 + 0.22 * hash(cell + 1.3);
-	float bright = 0.45 + 0.55 * hash(cell + 9.9);
-	float twinkle = 1.0 - 0.4 * (0.5 + 0.5 * sin(time * 2.5 + h * 400.0));
-	return smoothstep(size, 0.0, d) * bright * twinkle;
+  vec3 probe = dir * STAR_RADIUS;
+  vec3 base = floor(probe);
+  float best = 0.0;
+  for (int i = -1; i <= 1; i++)
+    for (int j = -1; j <= 1; j++)
+      for (int k = -1; k <= 1; k++) {
+        vec3 cell = base + vec3(float(i), float(j), float(k));
+        float h = hash3(cell);
+        if (h < 0.965) continue; // most cells have no star
+        vec3 point = cell + vec3(hash3(cell + 7.1), hash3(cell + 3.7), hash3(cell + 5.3));
+        float radius = length(point);
+        if (abs(radius - STAR_RADIUS) > 0.5) continue; // outside the shell
+        float d = length(point / radius - dir) * STAR_RADIUS; // in cells, along the sky
+        float size = 0.18 + 0.22 * hash3(cell + 1.3);
+        float bright = 0.45 + 0.55 * hash3(cell + 9.9);
+        float twinkle = 1.0 - 0.4 * (0.5 + 0.5 * sin(time * 2.5 + h * 400.0));
+        best = max(best, smoothstep(size, 0.0, d) * bright * twinkle);
+      }
+  return best;
 }
 
 // ---- Dunes on the horizon of the procedural sky ----
@@ -213,7 +232,7 @@ void main() {
 		c += warm * (pow(max(sunCos, 0.0), 24.0) * 0.35 +
 		             pow(max(sunCos, 0.0), 400.0) * 0.6) * sunVisible;
 		c = mix(c, vec3(1.0, 0.97, 0.88), smoothstep(0.99955, 0.99975, sunCos) * above);
-		c += vec3(0.9, 0.95, 1.0) * stars(dir) * starAlpha * above;
+		if (starAlpha > 0.001) c += vec3(0.9, 0.95, 1.0) * stars(dir) * starAlpha * above;
 		if (forestHorizon > 0.5)
 			c = forest(c, dir);
 		else if (skyDunes == 1)

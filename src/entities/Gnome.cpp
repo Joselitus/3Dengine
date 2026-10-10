@@ -156,8 +156,16 @@ void Gnome::update(double dt) {
     vec3 want = d > 0.05f ? to / d * CHASE_SPEED : vec3(0.0f);
     steerTowards(vec3(want.x, velocity.y, want.z), 12.0f);
     acceleration.y = 0.0f;
-    if (d < KILL_DISTANCE && fabsf(victim.position.y - position.y) < 1.3f && caught)
+    if (d < KILL_DISTANCE && fabsf(victim.position.y - position.y) < 1.3f && caught) {
       caught(victim.id);
+      // His job is done: he vanishes
+      dead = true;
+      armed = false;
+      velocity = vec3(0.0f);
+      setCollidable(false);
+      showFace();
+      return;
+    }
   } else {
     // (otherwise he is a statue: no sliding about from a push, either)
     velocity.x = velocity.z = 0.0f;
