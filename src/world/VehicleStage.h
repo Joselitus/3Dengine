@@ -1,6 +1,7 @@
 #ifndef VEHICLE_STAGE
 #define VEHICLE_STAGE
 
+#include <algorithm>
 #include <memory>
 #include <random>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "GameStage.h"
 #include "PassengerView.h"
 #include "RV.h"
+#include "Shade.h"
 #include "SoundEngine.h"
 #include "SpeechSynthesizer.h"
 #include "Walker.h"
@@ -91,6 +93,20 @@ protected:
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
   // The Flatwoods monster, wired to the RV and the players (createRV calls it)
   void createFlatwoods();
+  // The shades (createRV makes them, in every map with the RV): night monsters of darkness that
+  // follow a player at a distance and turn into smoke if he gets near (see Shade)
+  static constexpr int SHADES = 6;
+  std::vector<std::shared_ptr<Shade>> shades;
+  void createShades();
+  // A place for a shade to come to near some living player, hidden from him: behind something of
+  // the map (a rock, a tree, a cactus...) or a dune or hill, and if possible out of his sight
+  bool findShadeSpot(glm::vec3 &where, int &target);
+  // (a client) seconds left of the grain of a shade's smoke on this player's screen
+  std::mt19937 shadeRandom{std::random_device()()};
+  float hazeTime = 0.0f;
+  static constexpr float HAZE_TIME = 60.0f;   // s, after walking into the smoke (it fades in the last HAZE_FADE)
+  static constexpr float HAZE_FADE = 10.0f;
+  static constexpr float HAZE_AMOUNT = 1.0f / 3.0f; // of FilmGrain's strongest: specks at 10 % opacity
   void startPossession(Player &p);
   void endPossession(Player &p);
   void updatePossession(Player &p, double dt);
@@ -141,6 +157,7 @@ public:
   float playerParalysis() const override;
   float struggleProgress() const override;
   float alienPresence() const override;
+  float smokeHaze() const override { return HAZE_AMOUNT * std::min(1.0f, hazeTime / HAZE_FADE); }
   void endAlienHiss() override;
   bool playerAiming() const override { return local && local->inSaucer && alien.saucer->isAiming(); }
   // (the Flatwoods monster only shows in the mirrors)

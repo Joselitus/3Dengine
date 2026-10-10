@@ -9,8 +9,8 @@
 
 // Debug menu, opened with Z: one button per map. Choosing one calls
 // `select(index)` and closes the menu. The caller must not swap the map
-// inside that call (the menu's own button is still running): it should only
-// remember the request and switch after UIManager::update (see test.cpp).
+// inside that call (the menu's own button is still running): the client only
+// asks the server for it (/map N) and the map changes when it reconnects.
 // Its own key (Action::Maps, Z by default) or Esc close it.
 class MapSelector : public UIPanel {
 private:

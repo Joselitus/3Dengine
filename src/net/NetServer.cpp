@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
+#include "MapList.h"
 #include "Protocol.h"
 
 using namespace glm;
@@ -192,6 +193,22 @@ void NetServer::command(Player &player, const std::string &text) {
   } else if (word == "reset") {
     printf("[net] %s asks for the map to start again\n", player.name.c_str());
     reset = true;
+  } else if (word == "map") {
+    const std::vector<MapEntry> &maps = mapList();
+    int index = -1;
+    for (size_t i = 0; i < maps.size(); i++)
+      if (argument == maps[i].name || argument == std::to_string(i))
+        index = (int)i;
+    if (index < 0) {
+      std::string names;
+      for (size_t i = 0; i < maps.size(); i++)
+        names += (i ? ", " : "") + std::to_string(i) + " " + maps[i].name;
+      notice(player, "No hay ese mapa. Mapas: " + names);
+      return;
+    }
+    printf("[net] %s asks for map '%s'\n", player.name.c_str(), maps[index].name.c_str());
+    nextMap = index;
+    reset = true;
   } else {
     notice(player, "Comando desconocido en el servidor: " + text);
   }
@@ -269,7 +286,7 @@ void NetServer::changeProperty(NetReader &in) {
   }
 }
 
-void NetServer::restart(GameStage &next) {
+void NetServer::restart(GameStage &next, int index, const std::string &name) {
   NetWriter w;
   for (auto &c : clients) {
     if (c->playerId >= 0)
@@ -279,10 +296,13 @@ void NetServer::restart(GameStage &next) {
   }
   clients.clear();
   stage = &next;
+  mapIndex = index;
+  mapName = name;
+  nextMap = -1;
   dynamicCount = (uint32_t)next.getDynamicObjects().size();
   next.trackNet();
   reset = false;
-  printf("[net] map started again\n");
+  printf("[net] map '%s' started\n", mapName.c_str());
 }
 
 void NetServer::handle(Client &client, const NetConnection::Message &message) {

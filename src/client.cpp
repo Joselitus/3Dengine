@@ -16,6 +16,7 @@
 #include "CommandConsole.h"
 #include "ConnectMenu.h"
 #include "MapList.h"
+#include "MapSelector.h"
 #include "NetClient.h"
 #include "NetOverlay.h"
 #include "NetRole.h"
@@ -531,12 +532,26 @@ int main(int argc, char **argv) {
   // Pop-tyre key (P, debug): a random tyre of the RV bursts
   act(Action::PopTire, Net::A_POP_TIRE);
 
+  // Map selector (Z): the server serves one map; choosing another asks it to change (/map N), and
+  // everybody connects again to the new one
+  ui.bindKey([&controls]() { return controls.key(Action::Maps); }, [&]() {
+    if (!stage || !net)
+      return;
+    std::vector<std::string> names;
+    for (const MapEntry &m : maps)
+      names.push_back(m.name);
+    ui.open(new MapSelector(names, net->getMapIndex(), controls.key(Action::Maps), [&](int index) {
+      if (net && index != net->getMapIndex())
+        net->sendCommand("/map " + std::to_string(index));
+    }));
+  });
+
   // The command console (key T): what is typed goes to the server, which knows the commands
   Commands commands;
   auto sendToServer = [&](const std::vector<std::string> &) {
     return std::string("Enviado al servidor");
   };
-  for (const char *name : {"day", "night", "time", "reset"})
+  for (const char *name : {"day", "night", "time", "reset", "map"})
     commands.add(name, "se lo pide al servidor", sendToServer);
   std::vector<std::string> commandHistory;
   auto openConsole = [&](const std::string &text) {
@@ -592,7 +607,7 @@ int main(int argc, char **argv) {
       }
     // The server starts the map again (/reset): back in a moment
     if (net && net->wasReset()) {
-      leaveGame("El servidor reinicia el mapa...");
+      leaveGame("El servidor carga el mapa...");
       reconnectAt = glfwGetTime() + 1.5;
     }
     if (!net && !stage && reconnectAt > 0.0 && glfwGetTime() >= reconnectAt) {
@@ -868,7 +883,7 @@ int main(int argc, char **argv) {
       netOverlay.setTags(tags);
     }
     selector.draw(camera); // the selected object's outline, if any
-    grain.draw(stage->alienPresence(), (float)now);
+    grain.draw(std::max(stage->alienPresence(), stage->smokeHaze()), (float)now);
     ui.draw(); // last, over everything
 
     // Swap buffers

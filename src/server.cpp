@@ -116,20 +116,22 @@ int main(int argc, char **argv) {
     owed = min(owed + dt, 0.25); // (after a long stall it does not rush to catch up)
     net.poll(dt);
     if (net.resetWanted()) {
-      // /reset: the map is made again (the players have to come back in)
-      printf("[server] starting map '%s' again...\n", maps[mapIndex].name.c_str());
+      // /reset or /map: the map is made again, or another one (the players have to come back in)
+      int wanted = net.wantedMap();
+      printf("[server] starting map '%s'...\n", maps[wanted].name.c_str());
       fflush(stdout);
-      unique_ptr<GameStage> fresh = maps[mapIndex].create(context);
+      unique_ptr<GameStage> fresh = maps[wanted].create(context);
       if (fresh) {
         if (startHour >= 0.0f)
           fresh->setTimeOfDay(startHour);
         if (dayDuration >= 0.0f)
           fresh->setDayDuration(dayDuration);
-        net.restart(*fresh);
+        net.restart(*fresh, wanted, maps[wanted].name);
         stage = std::move(fresh);
+        mapIndex = wanted;
       } else {
         net.cancelReset();
-        fprintf(stderr, "[server] could not make the map again\n");
+        fprintf(stderr, "[server] could not make map '%s'\n", maps[wanted].name.c_str());
       }
       last = clock::now();
       owed = 0.0;

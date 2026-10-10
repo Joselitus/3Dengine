@@ -209,6 +209,15 @@ void VehicleStage::onTick(double dt) {
 // wheel (a little above 9 o'clock, following it as it turns, but not further than he can reach) and a beer in the
 // other. Whoever sits at this computer is not drawn while he looks from his own eyes
 void VehicleStage::afterUpdate(double dt) {
+  // (a client) its player walks into the smoke of a shade: the grain comes, and stays a minute
+  if (local) {
+    hazeTime = std::max(0.0f, hazeTime - (float)dt);
+    vec3 at = local->getPosition() + vec3(0.0f, 1.0f, 0.0f);
+    for (const auto &shade : shades)
+      if (!local->dead && shade->hasCloud() &&
+          length(at - (shade->getPosition() + vec3(0.0f, 0.8f, 0.0f))) < Shade::CLOUD_RADIUS)
+        hazeTime = HAZE_TIME;
+  }
   const float GRIP_ANGLE = 2.95f, GRIP_MIN = 2.0f, GRIP_MAX = 3.9f; // (radians round the rim)
   for (auto &p : players) {
     Walker &walker = *p->walker;
@@ -440,6 +449,7 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   addDynamic(passenger);
   rv->setSitAction([this]() { sitDown(); });
   createFlatwoods();
+  createShades();
   // The dust its wheels throw up on sand (the stage moves and removes it)
   for (const auto &emitter : rv->getDust())
     addEmitter(emitter);
@@ -778,4 +788,110 @@ void VehicleStage::updatePossession(Player &p, double dt) {
   }
   p.possessYaw = std::atan2(to.x, -to.y);
   p.walker->control(vec2(0.0f, -1.0f), 0.0f, p.possessYaw);
+}
+
+void VehicleStage::createShades() {
+  std::vector<std::shared_ptr<Model>> shapes;
+  for (int i = 0; i < Shade::VARIANTS; i++)
+    shapes.push_back(loadModel("../assets/shades/shade_" + std::to_string(i) + ".obj"));
+  for (int i = 0; i < SHADES; i++) {
+    auto shade = std::make_shared<Shade>(shapes, std::random_device()() + i);
+    // night: from 19:00 to 5:00 (see onTimeChanged)
+    shade->setNightQuery([this]() {
+      float hour = getTimeOfDay();
+      return hour >= 19.0f || hour < 5.0f;
+    });
+    shade->setSpotQuery([this](vec3 &where, int &target) { return findShadeSpot(where, target); });
+    shade->setTargetQuery([this](int id, vec3 &where) {
+      Player *p = findPlayer(id);
+      if (!p || p->dead || p->abducted)
+        return false;
+      where = p->getPosition();
+      return true;
+    });
+    shade->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
+    shade->setFirstDelay(2.0f + 7.0f * i); // (they come one after another)
+    addDynamic(shade);
+    addEmitter(shade->getSmoke());
+    shades.push_back(shade);
+  }
+}
+
+bool VehicleStage::findShadeSpot(vec3 &where, int &target) {
+  const float NEAREST = 16.0f, FARTHEST = 50.0f; // m from the player
+  const float APART = 6.0f;                      // m from another shade
+  std::vector<Player *> alive;
+  for (auto &p : players)
+    if (!p->dead && !p->abducted)
+      alive.push_back(p.get());
+  if (alive.empty())
+    return false;
+  Player &p = *alive[std::uniform_int_distribution<size_t>(0, alive.size() - 1)(shadeRandom)];
+  vec3 feet = p.getPosition(), eye = feet + vec3(0.0f, EYE_HEIGHT, 0.0f);
+  vec2 look(std::sin(p.lookYaw), -std::cos(p.lookYaw));
+  auto free = [&](const vec3 &at) {
+    for (const auto &s : shades)
+      if (s->getState() != Shade::State::Away && length(s->getPosition() - at) < APART)
+        return false;
+    return true;
+  };
+  // (seen: within 55 degrees of where he looks)
+  auto inSight = [&](const vec3 &at) {
+    vec2 to = normalize(vec2(at.x - feet.x, at.z - feet.z));
+    return dot(to, look) > 0.57f;
+  };
+  std::vector<vec3> hidden;
+  // behind something of the map: on the far side of it from him
+  for (const auto &o : getObjects()) {
+    if (!o->isCollidable() || !o->isVisible())
+      continue;
+    vec3 low, high;
+    o->getShape().bounds(o->getPose(), low, high);
+    float radius = 0.5f * std::max(high.x - low.x, high.z - low.z);
+    if (high.y - low.y < 1.2f || radius < 0.25f || radius > 8.0f)
+      continue;
+    vec3 centre = 0.5f * (low + high);
+    vec2 away(centre.x - feet.x, centre.z - feet.z);
+    float distance = length(away);
+    if (distance < NEAREST || distance > FARTHEST)
+      continue;
+    away /= distance;
+    vec3 at(centre.x + away.x * (radius + 1.0f), 0.0f, centre.z + away.y * (radius + 1.0f));
+    if (!floorAt(at.x, at.z, at.y) || !free(at))
+      continue;
+    hidden.push_back(at);
+  }
+  // behind a dune or a hill: the ground is between his eyes and its middle
+  std::uniform_real_distribution<float> angle(-3.14159265f, 3.14159265f), range(NEAREST, FARTHEST);
+  for (int tries = 0; tries < 40; tries++) {
+    float a = angle(shadeRandom), d = range(shadeRandom);
+    vec3 at(feet.x + d * std::sin(a), 0.0f, feet.z + d * std::cos(a));
+    if (!floorAt(at.x, at.z, at.y) || !free(at))
+      continue;
+    vec3 middle = at + vec3(0.0f, 1.0f, 0.0f);
+    bool covered = false;
+    for (int i = 1; i < 30 && !covered; i++) {
+      vec3 step = mix(eye, middle, i / 30.0f);
+      float ground;
+      covered = floorAt(step.x, step.z, ground) && ground > step.y;
+    }
+    if (covered)
+      hidden.push_back(at);
+  }
+  // rather where he is not looking
+  std::vector<vec3> unseen;
+  for (const vec3 &at : hidden)
+    if (!inSight(at))
+      unseen.push_back(at);
+  const std::vector<vec3> &choice = unseen.empty() ? hidden : unseen;
+  if (!choice.empty()) {
+    where = choice[std::uniform_int_distribution<size_t>(0, choice.size() - 1)(shadeRandom)];
+  } else {
+    // nothing to hide behind: behind his back, far
+    where = feet - vec3(look.x, 0.0f, look.y) * (0.5f * (NEAREST + FARTHEST));
+    if (!floorAt(where.x, where.z, where.y) || !free(where))
+      return false;
+  }
+  target = p.id;
+  return true;
 }

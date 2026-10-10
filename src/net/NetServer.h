@@ -34,6 +34,7 @@ private:
   NetWriter objects; // the objects of the snapshot being sent (the same for everybody)
   uint16_t objectCount = 0;
   bool reset = false;
+  int nextMap = -1; // the map /map asked for (-1: the same one again)
 
   void handle(Client &client, const NetConnection::Message &message);
   void hello(Client &client, NetReader &in);
@@ -54,11 +55,13 @@ public:
     stage.trackNet(); // (what appears from now on is told to the clients)
   }
 
-  // The /reset command asked for the map to start again
+  // The /reset command asked for the map to start again (or /map for another one)
   bool resetWanted() const { return reset; }
-  void cancelReset() { reset = false; }
-  // Tells the clients and lets them go, then serves `next` (a new map, the same one) instead
-  void restart(GameStage &next);
+  // The map /map asked for (an index in mapList()), or the one being served
+  int wantedMap() const { return nextMap >= 0 ? nextMap : mapIndex; }
+  void cancelReset() { reset = false; nextMap = -1; }
+  // Tells the clients and lets them go, then serves `next` (map `index` of mapList(), called `name`) instead
+  void restart(GameStage &next, int index, const std::string &name);
 
   bool start(int port, std::string &error);
   // Accepts new clients and takes what the ones there are have sent; drops the ones that went

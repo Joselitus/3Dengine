@@ -295,7 +295,7 @@ Reglas para no romper nada:
 - `Controller`: las teclas de movimiento;
 - `InteractionSystem`: Usar, y también el texto del aviso;
 - `PauseMenu`: Salir;
-- el atajo del selector de mapas (ya no existe en el cliente: el mapa lo elige el servidor);
+- el atajo del selector de mapas (Z: no cambia el mapa en el cliente, se lo pide al servidor con `/map N`);
 - `ControlsMenu`, que lo lista y lo cambia.
 
 | Acción | Tecla por defecto | Dónde se lee |
@@ -331,7 +331,7 @@ Ya no hay acciones para subir y bajar (eran "sin gravedad"): todo camina con gra
 ## Mapas
 
 - Los mapas están en la lista de `world/MapList.cpp` (`mapList()`), la misma para el servidor y los clientes: el servidor dice el **índice** del mapa y el cliente hace el suyo con esa lista. Cada entrada tiene un **nombre** y una **función que crea su `GameStage`** (con un `MapContext`: modo de suelo, sonido y voz), que devuelve `nullptr` si falla. Hoy: "Desierto de dia" (`TestStage`), "Bosque" (`ForestStage`), "Ruta 66" (`Route66Stage`), "Desierto de noche" (`SceneStage` con `desert.scene`) y "Bosque de pinos" (`PineForestStage`).
-- **El servidor sirve un mapa:** `server --map N|Nombre` (`--list` los muestra), `--time H` y `--day-duration S`. Cambiar de mapa es reiniciar el servidor. El selector de mapas (Z) y el comando `/reset` ya no existen en el cliente (`MapSelector` sigue en el código, sin usar).
+- **El servidor sirve un mapa:** `server --map N|Nombre` (`--list` los muestra), `--time H` y `--day-duration S`. Para cambiar de mapa en partida, Z abre `MapSelector`, que manda el comando `/map N` (también se puede escribir en la consola, con el número o el nombre): el servidor anota el mapa (`NetServer::wantedMap`) y en `server.cpp` lo construye por el mismo camino que `/reset` (`NetServer::restart(stage, índice, nombre)`: `S_RESET` y cierre de las conexiones); los clientes se reconectan solos a los 1.5 s y hacen el mapa que dice el `Welcome`.
 - **Regla de oro:** el servidor y el cliente construyen el mapa **igual**, en el mismo orden, porque los objetos dinámicos se numeran por orden de creación (`Stage::addDynamic` → `GameObject::getNetId`) y los interactuables se mandan por su posición en `getInteractables()`. Nada en el constructor de un mapa puede depender de cosas que difieran entre las dos mitades (el azar con semilla fija vale; `random_device` solo para decisiones que luego toma el servidor). Si el cliente hace un mapa con otro número de objetos que el servidor, `NetClient::attach` lo rechaza («hay que compilar las dos mitades de la misma versión»).
 
 **Añadir un mapa:**
@@ -662,6 +662,20 @@ No hay sombras de verdad en el motor (no hay shadow mapping). El Bosque de pinos
 3. Armado: cuchillo visible, brazo alzado, y si hay un jugador (`setVictimQuery`: el más cercano a pie) a ≤ `CHASE_RANGE` corre a `CHASE_SPEED` y lo mata a `KILL_DISTANCE` (`setCaughtCallback` → `killPlayer`). Sin víctima se queda quieto.
 
 Red: `writeNetState` manda cara, armado y muerto; la réplica solo enseña la cara/cuchillo y balancea piernas y brazo según lo que se mueve. Para otro mapa: `createGnome(x, z, yaw)` en el constructor (comprueba antes que el sitio se ve desde donde se va a mirar: un montículo lo esconde).
+
+## Las sombras (`Shade`)
+
+`entities/Shade` (modelos en `assets/shades/`, `generate_shades.py`: ocho formas negras o de tonos muy oscuros, todas con jirones colgando: lobo, ciervo, felino —animales—, el alto, el jorobado —humanoides—, el reptante, el hombre cabra y el hombre cuervo —entre medias—; `Shade::VARIANTS` = 8 ↔ los `shade_N.obj`). Las crea `VehicleStage::createShades` desde `createRV` (`SHADES` = 6 en cada mapa con RV, presentes desde el principio y escondidas, para que servidor y cliente tengan los mismos objetos; aparecen una tras otra, `setFirstDelay`). No son sólidas ni atacan. Estados (`State`):
+
+1. `Away`: escondida. De noche (19:00–5:00, la hora del reloj), tras `awayFor`, pide sitio (`setSpotQuery` → `VehicleStage::findShadeSpot`) y aparece con forma al azar siguiendo a ese jugador. Si no hay sitio, lo vuelve a intentar a los `RETRY_TIME` s.
+2. `Following`: mira al jugador y mantiene la distancia: a más de `KEEP_FAR` (20 m) se acerca, a menos de `KEEP_NEAR` (12 m) retrocede, siempre a `WALK_SPEED` (1.1 m/s, más lento que andar), así que el jugador puede alcanzarla. A `VANISH_DISTANCE` (4 m) o al amanecer → `Smoke`; si el jugador se aleja a `LOSE_DISTANCE` (90 m, conduciendo) o muere → `Away` sin humo.
+3. `Smoke`: el cuerpo encoge en `SHRINK_TIME` dentro de una bocanada de humo oscuro (`getSmoke`, `burst` y luego cada vez menos humo) que dura `CLOUD_TIME` (12 s). Después, `Away` durante `AWAY_MIN..AWAY_MAX` (15–45 s).
+
+**Dónde aparece** (`findShadeSpot`, en el servidor): elige un jugador vivo al azar y busca sitios a 16–50 m de él que no estén a menos de 6 m de otra sombra: detrás de un objeto colisionable del mapa de 1.2 m de alto o más y de radio 0.25–8 m (al otro lado, mirando desde el jugador) y detrás de dunas o colinas (40 puntos al azar a los que el terreno tapa la vista desde los ojos). Entre ellos prefiere los que el jugador no tiene delante (fuera de 55° de donde mira); si no hay ninguno escondido, aparece a su espalda, a 33 m.
+
+**El humo y el grano** (en cada cliente, solo para su jugador): en `VehicleStage::afterUpdate`, si el jugador (a 1 m del suelo) está a menos de `CLOUD_RADIUS` (2.6 m) del centro de una nube (`hasCloud()`), `hazeTime` = `HAZE_TIME` (60 s); `smokeHaze()` = `HAZE_AMOUNT` (1/3 del máximo de `FilmGrain`: motas al 10 % de opacidad) y se apaga en los últimos `HAZE_FADE` (10 s). `client.cpp` dibuja el grano con el mayor de `alienPresence()` y `smokeHaze()`. Sin sonido.
+
+Red: `writeNetState` = estado, forma y segundos en él; la réplica enseña la forma, encoge y echa el humo (la primera bocanada al ver el cambio a `Smoke`); la posición, el giro y el tamaño van con todo objeto dinámico.
 
 ## Bob y su nave
 

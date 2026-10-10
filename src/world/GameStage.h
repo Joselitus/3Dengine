@@ -254,6 +254,9 @@ public:
   // How much the player feels Bob near (0..1): the main loop covers the screen with that much film
   // grain (nothing by default)
   virtual float alienPresence() const { return 0.0f; }
+  // This client's player walked into the smoke of a shade: the same grain, fainter, for a while
+  // (0..1, as alienPresence; nothing by default)
+  virtual float smokeHaze() const { return 0.0f; }
   // The abduction is over (he is in the ship): Bob's hiss stops, though the grain stays
   virtual void endAlienHiss() {}
   // The main loop tells the map where the camera is and what it sees, every frame
