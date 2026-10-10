@@ -5,8 +5,11 @@
 //   ../test/map_editor [--map N|NAME] [--time H] [--list]
 // Keys: right button + mouse looks around, W A S D fly, Q / E (or C / Space) down / up, Shift faster, wheel (with
 // the right button) changes the speed; 1 select, 2 prop, 3 creature, 4 raise, 5 lower, 6 smooth,
-// 7 flatten, 8 paint; wheel turns the thing being placed or selected (Shift: its size) or changes the
+// 7 flatten, 8 paint, 9 road; wheel turns the thing being placed or selected (Shift: its size) or changes the
 // brush radius; Delete removes the selected one; Ctrl+S saves; Ctrl+Z undoes; Esc quits.
+// Roads (9): a road is a spline through control points. Click on the ground adds a point at the end
+// of the road being drawn (or starts one), clicking a point selects and drags it, Shift+click on the
+// road puts a new point there, Delete takes the selected point away.
 #include <GL/glew.h>
 #include <algorithm>
 #include <cmath>
@@ -47,9 +50,11 @@ const float PICK_RANGE = 1500.0f;
 const float STANDING_RANGE = 3.0f;        // an object this close to the ground stands on it
 const vec4 SELECT_COLOR(1.0f, 0.6f, 0.15f, 1.0f), HOVER_COLOR(0.5f, 0.8f, 1.0f, 0.9f);
 
-enum class Tool { Select, Prop, Creature, Raise, Lower, Smooth, Flatten, Paint };
+enum class Tool { Select, Prop, Creature, Raise, Lower, Smooth, Flatten, Paint, Road };
+const int TOOL_COUNT = 9;
 const char *TOOL_NAMES[] = {"1  Seleccionar / mover", "2  Colocar objeto", "3  Colocar criatura", "4  Elevar terreno",
-                            "5  Bajar terreno",       "6  Suavizar",       "7  Aplanar",          "8  Pintar suelo"};
+                            "5  Bajar terreno",       "6  Suavizar",       "7  Aplanar",          "8  Pintar suelo",
+                            "9  Carreteras / caminos"};
 const char *TOOL_HELP[] = {
     "Clic: elegir; arrastrar: mover; rueda: girar (Mayus: tamano); Supr: borrar",
     "Clic: poner el objeto elegido; rueda: girar (Mayus: tamano)",
@@ -58,7 +63,9 @@ const char *TOOL_HELP[] = {
     "Mantener clic: bajar; rueda: radio del pincel",
     "Mantener clic: suavizar; rueda: radio del pincel",
     "Mantener clic: llevar el terreno a la altura donde empiezas; rueda: radio",
-    "Mantener clic: pintar el tipo de suelo elegido; rueda: radio"};
+    "Mantener clic: pintar el tipo de suelo elegido; rueda: radio",
+    "Clic: anadir punto (o elegir/arrastrar uno); Mayus+clic en la curva: punto nuevo; Supr: quitar punto"};
+const float POINT_PICK = 14.0f; // pixels: how near the cursor must be to a control point
 
 float scrollSum = 0.0f;
 void onScroll(GLFWwindow *, double, double dy) { scrollSum += (float)dy; }
@@ -268,6 +275,9 @@ int main(int argc, char **argv) {
   bool randomize = true;
   int propIndex = 0, entityIndex = 0;
   FloorMaterial paintMaterial = FloorMaterial::Grass;
+  int roadType = Road::Asphalt, roadSelected = -1, pointSelected = -1, pointHovered = -1, roadHovered = -1;
+  float roadWidth = 8.0f;
+  bool pointDragging = false;
   string propCategory = "Desierto";
   EditorPanel *toolPanel = nullptr, *catalogPanel = nullptr;
   bool rebuildCatalog = true, openMapList = false;
@@ -309,18 +319,108 @@ int main(int argc, char **argv) {
     printf("%s\n", status.c_str());
   };
 
+  // --- Roads: undo is a copy of the list of roads and what is selected in it
+  auto pushRoadUndo = [&]() {
+    vector<Road> before = edits.roads;
+    int roadBefore = roadSelected, pointBefore = pointSelected;
+    undoStack.push_back([&, before, roadBefore, pointBefore]() {
+      edits.roads = before;
+      roadSelected = roadBefore;
+      pointSelected = pointBefore;
+      edits.rebuildRoads(*stage);
+    });
+    if (undoStack.size() > 200)
+      undoStack.erase(undoStack.begin());
+  };
+  // Takes the selected control point away (the road with it if it was the last)
+  auto removeRoadPoint = [&]() {
+    if (roadSelected < 0 || roadSelected >= (int)edits.roads.size() || pointSelected < 0 ||
+        pointSelected >= (int)edits.roads[roadSelected].points.size()) {
+      status = "Elige un punto de una carretera";
+      return;
+    }
+    pushRoadUndo();
+    Road &road = edits.roads[roadSelected];
+    road.points.erase(road.points.begin() + pointSelected);
+    pointSelected = -1;
+    if (road.points.empty()) {
+      edits.roads.erase(edits.roads.begin() + roadSelected);
+      roadSelected = -1;
+    }
+    edits.rebuildRoads(*stage);
+    modified = true;
+    status = "Punto borrado";
+  };
+
   // The catalog panel changes with the tool (the objects, the creatures, the kinds of ground)
   auto buildCatalog = [&]() {
     if (catalogPanel)
       ui.close(catalogPanel);
     catalogPanel = nullptr;
-    if (tool != Tool::Prop && tool != Tool::Creature && tool != Tool::Paint)
+    if (tool != Tool::Prop && tool != Tool::Creature && tool != Tool::Paint && tool != Tool::Road)
       return;
     catalogPanel = new EditorPanel(tool == Tool::Prop       ? "Objetos"
                                    : tool == Tool::Creature ? "Criaturas"
+                                   : tool == Tool::Road     ? "Carreteras"
                                                             : "Tipo de suelo",
                                    CATALOG_WIDTH);
-    if (tool == Tool::Prop) {
+    if (tool == Tool::Road) {
+      const char *kinds[] = {"Asfalto", "Camino de tierra"};
+      for (int k = 0; k < 2; k++) {
+        int type = k;
+        string name = kinds[k];
+        catalogPanel->add(new UIButton([&, type, name]() { return (roadType == type ? "> " : "  ") + name; },
+                                       [&, type]() {
+                                         roadType = type;
+                                         roadWidth = type == Road::Dirt ? 5.0f : 8.0f;
+                                         if (roadSelected >= 0 && roadSelected < (int)edits.roads.size()) {
+                                           pushRoadUndo();
+                                           edits.roads[roadSelected].type = type;
+                                           edits.roads[roadSelected].width = roadWidth;
+                                           edits.rebuildRoads(*stage);
+                                           modified = true;
+                                         }
+                                       }));
+      }
+      catalogPanel->add(new UISlider("Ancho", 2.0f, 16.0f, 0.5f, [&]() { return roadWidth; },
+                                     [&](float v) {
+                                       roadWidth = v;
+                                       if (roadSelected >= 0 && roadSelected < (int)edits.roads.size() &&
+                                           edits.roads[roadSelected].width != v) {
+                                         edits.roads[roadSelected].width = v;
+                                         edits.rebuildRoads(*stage);
+                                         modified = true;
+                                       }
+                                     },
+                                     " m"));
+      catalogPanel->add(new UIButton("Carretera nueva (cortar aqui)", [&]() {
+        roadSelected = pointSelected = -1;
+        status = "Haz clic en el suelo para empezar otra carretera";
+      }));
+      catalogPanel->add(new UIButton([&]() {
+        bool closed = roadSelected >= 0 && roadSelected < (int)edits.roads.size() && edits.roads[roadSelected].closed;
+        return string(closed ? "Circuito cerrado: si" : "Circuito cerrado: no");
+      }, [&]() {
+        if (roadSelected < 0 || roadSelected >= (int)edits.roads.size())
+          return;
+        pushRoadUndo();
+        edits.roads[roadSelected].closed = !edits.roads[roadSelected].closed;
+        edits.rebuildRoads(*stage);
+        modified = true;
+      }));
+      catalogPanel->add(new UIButton("Borrar punto elegido  (Supr)", [&]() { removeRoadPoint(); }));
+      catalogPanel->add(new UIButton("Borrar carretera entera", [&]() {
+        if (roadSelected < 0 || roadSelected >= (int)edits.roads.size())
+          return;
+        pushRoadUndo();
+        edits.roads.erase(edits.roads.begin() + roadSelected);
+        roadSelected = pointSelected = -1;
+        edits.rebuildRoads(*stage);
+        modified = true;
+        status = "Carretera borrada";
+      }));
+      catalogPanel->add(new UILabel("Los puntos son naranjas; la carretera sigue el terreno.", UITheme::MUTED));
+    } else if (tool == Tool::Prop) {
       vector<string> categories;
       for (const PropType &t : propTypes())
         if (find(categories.begin(), categories.end(), t.category) == categories.end())
@@ -358,7 +458,7 @@ int main(int argc, char **argv) {
       if (!any)
         catalogPanel->add(new UILabel("Este mapa no admite criaturas nuevas.", UITheme::MUTED));
     } else {
-      const char *names[] = {"Arena", "Asfalto", "Hierba / tierra"};
+      const char *names[] = {"Arena", "Asfalto", "Hierba", "Tierra"};
       for (int m = 0; m < (int)FloorMaterial::Count; m++) {
         int material = m;
         string name = names[m];
@@ -373,7 +473,7 @@ int main(int argc, char **argv) {
   {
     toolPanel = new EditorPanel("Editor de mapas", TOOL_PANEL_WIDTH);
     toolPanel->add(new UILabel([&]() { return maps[mapIndex].name + (modified ? "  *" : ""); }, UITheme::ACCENT));
-    for (int t = 0; t < 8; t++) {
+    for (int t = 0; t < TOOL_COUNT; t++) {
       int index = t;
       toolPanel->add(new UIButton([&, index]() { return string((int)tool == index ? "> " : "  ") + TOOL_NAMES[index]; },
                                   [&, index]() {
@@ -616,6 +716,7 @@ int main(int argc, char **argv) {
     }
     shared_ptr<Stroke> done = stroke;
     stroke.reset();
+    edits.rebuildRoads(*stage); // (the roads lie on the new ground)
     pushUndo([&, done]() {
       for (const auto &h : done->heights)
         stage->setTerrainHeight((int)(h.first % grid.nx), (int)(h.first / grid.nx), h.second);
@@ -687,7 +788,7 @@ int main(int argc, char **argv) {
     // --- Keys
     bool ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
     bool shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
-    for (int t = 0; t < 8; t++)
+    for (int t = 0; t < TOOL_COUNT; t++)
       if (pressed(GLFW_KEY_1 + t) && !ctrl) {
         tool = (Tool)t;
         rebuildCatalog = true;
@@ -700,12 +801,17 @@ int main(int argc, char **argv) {
       } else {
         undoStack.back()();
         undoStack.pop_back();
+        edits.rebuildRoads(*stage); // (terrain or roads: the roads follow the ground as it is)
         modified = true;
         status = "Deshecho";
       }
     }
-    if (pressed(GLFW_KEY_DELETE) || pressed(GLFW_KEY_BACKSPACE))
-      removeSelected();
+    if (pressed(GLFW_KEY_DELETE) || pressed(GLFW_KEY_BACKSPACE)) {
+      if (tool == Tool::Road)
+        removeRoadPoint();
+      else
+        removeSelected();
+    }
     if (pressed(GLFW_KEY_ESCAPE)) {
       if (modified && !quitArmed) {
         quitArmed = true;
@@ -876,6 +982,117 @@ int main(int argc, char **argv) {
       }
     }
 
+    // Roads: points of their splines on the screen, which one the cursor is on, and what a click does
+    auto toScreen = [&](const vec3 &p, vec2 &pixel) {
+      vec4 c = camera.getViewProjection() * vec4(p, 1.0f);
+      if (c.w <= 0.01f)
+        return false;
+      int w, h;
+      glfwGetWindowSize(window, &w, &h);
+      pixel = vec2((c.x / c.w * 0.5f + 0.5f) * w, (0.5f - c.y / c.w * 0.5f) * h);
+      return true;
+    };
+    auto pointAt = [&](const vec2 &p) {
+      float h = 0.0f;
+      stage->floorAt(p.x, p.y, h);
+      return vec3(p.x, h, p.y);
+    };
+    pointHovered = roadHovered = -1;
+    if (tool == Tool::Road && free) {
+      float best = POINT_PICK;
+      for (size_t r = 0; r < edits.roads.size(); r++)
+        for (size_t i = 0; i < edits.roads[r].points.size(); i++) {
+          vec2 pixel;
+          if (!toScreen(pointAt(edits.roads[r].points[i]) + vec3(0.0f, 0.5f, 0.0f), pixel))
+            continue;
+          float d = length(pixel - vec2((float)mx, (float)my));
+          if (d < best) {
+            best = d;
+            roadHovered = (int)r;
+            pointHovered = (int)i;
+          }
+        }
+    }
+    if (tool == Tool::Road) {
+      if (leftPressed && free) {
+        if (pointHovered >= 0) {
+          pushRoadUndo();
+          roadSelected = roadHovered;
+          pointSelected = pointHovered;
+          pointDragging = true;
+          roadType = edits.roads[roadSelected].type;
+          roadWidth = edits.roads[roadSelected].width;
+        } else if (hasHit && shift && roadSelected >= 0 && roadSelected < (int)edits.roads.size()) {
+          // A point on the curve of the selected road, between the two control points it is between
+          Road &road = edits.roads[roadSelected];
+          vector<RoadSample> samples = sampleRoad(road, 1.0f);
+          size_t nearest = 0;
+          float nearestDistance = 1e30f;
+          for (size_t k = 0; k < samples.size(); k++) {
+            float d = length(samples[k].position - vec2(hit.x, hit.z));
+            if (d < nearestDistance) {
+              nearestDistance = d;
+              nearest = k;
+            }
+          }
+          if (samples.size() >= 2 && nearestDistance < std::max(road.width, 4.0f)) {
+            // (a control point is on the curve: the sample nearest to it says how far along it is)
+            int insertAt = 0;
+            for (size_t i = 0; i < road.points.size(); i++) {
+              size_t at = 0;
+              float d = 1e30f;
+              for (size_t k = 0; k < samples.size(); k++) {
+                float e = length(samples[k].position - road.points[i]);
+                if (e < d) {
+                  d = e;
+                  at = k;
+                }
+              }
+              if (at <= nearest)
+                insertAt = (int)i + 1;
+            }
+            pushRoadUndo();
+            road.points.insert(road.points.begin() + insertAt, samples[nearest].position);
+            pointSelected = insertAt;
+            pointDragging = true;
+            edits.rebuildRoads(*stage);
+            modified = true;
+          }
+        } else if (hasHit) {
+          pushRoadUndo();
+          vec2 at(hit.x, hit.z);
+          if (roadSelected < 0 || roadSelected >= (int)edits.roads.size() || edits.roads[roadSelected].closed) {
+            Road road;
+            road.type = roadType;
+            road.width = roadWidth;
+            edits.roads.push_back(road);
+            roadSelected = (int)edits.roads.size() - 1;
+          }
+          Road &road = edits.roads[roadSelected];
+          road.points.push_back(at);
+          pointSelected = (int)road.points.size() - 1;
+          edits.rebuildRoads(*stage);
+          modified = true;
+          status = road.points.size() < 2 ? "Anade otro punto para ver la carretera" : "Punto anadido";
+        }
+      }
+      if (pointDragging) {
+        if (!left || roadSelected < 0 || roadSelected >= (int)edits.roads.size() ||
+            pointSelected >= (int)edits.roads[roadSelected].points.size()) {
+          pointDragging = false;
+        } else if (hasHit) {
+          vec2 &p = edits.roads[roadSelected].points[pointSelected];
+          if (p.x != hit.x || p.y != hit.z) {
+            p = vec2(hit.x, hit.z);
+            edits.rebuildRoads(*stage);
+            modified = true;
+          }
+        }
+      }
+    } else {
+      pointDragging = false;
+    }
+
     // Terrain brushes
     if (terrainTool && !stage->terrainEditable() && leftPressed && free)
       status = "Este mapa no tiene terreno editable (rejilla regular)";
@@ -996,6 +1213,25 @@ int main(int argc, char **argv) {
         float heading = randomize ? 0.0f : placeYaw;
         lines.line(hit + vec3(0, 0.3f, 0), hit + vec3(std::sin(heading), 0.3f, std::cos(heading)) * 2.5f,
                    vec4(0.4f, 1.0f, 0.4f, 1.0f));
+      }
+    }
+    if (tool == Tool::Road) {
+      for (size_t r = 0; r < edits.roads.size(); r++) {
+        const Road &road = edits.roads[r];
+        bool active = (int)r == roadSelected;
+        vector<RoadSample> samples = sampleRoad(road, 2.0f);
+        for (size_t k = 0; k + 1 < samples.size(); k++)
+          lines.line(pointAt(samples[k].position) + vec3(0.0f, 0.3f, 0.0f),
+                     pointAt(samples[k + 1].position) + vec3(0.0f, 0.3f, 0.0f),
+                     active ? vec4(1.0f, 0.9f, 0.3f, 1.0f) : vec4(0.7f, 0.9f, 1.0f, 0.7f));
+        for (size_t i = 0; i < road.points.size(); i++) {
+          vec3 p = pointAt(road.points[i]);
+          bool picked = active && (int)i == pointSelected;
+          bool over = (int)r == roadHovered && (int)i == pointHovered;
+          float size = picked || over ? 0.7f : 0.5f;
+          lines.box(p - vec3(size, 0.0f, size), p + vec3(size, 2.0f * size, size),
+                    picked ? vec4(1.0f, 0.5f, 0.1f, 1.0f) : over ? vec4(1.0f, 1.0f, 1.0f, 1.0f) : vec4(1.0f, 0.65f, 0.2f, 0.85f));
+        }
       }
     }
     if (hovered.object && hovered.object != selected.object)

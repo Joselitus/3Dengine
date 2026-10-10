@@ -3,6 +3,7 @@
 #include "ForestStage.h"
 #include "MapEdits.h"
 #include "PineForestStage.h"
+#include "PlayerHouseStage.h"
 #include "Route66Stage.h"
 #include "SceneStage.h"
 #include "TestStage.h"
@@ -37,6 +38,10 @@ const std::vector<MapEntry> &mapList() {
       {"Bosque de pinos",
        [](const MapContext &c) {
          return std::unique_ptr<GameStage>(new PineForestStage(c.floorMode, c.sound));
+       }},
+      {"player_house",
+       [](const MapContext &c) {
+         return std::unique_ptr<GameStage>(new PlayerHouseStage(c.floorMode, c.sound));
        }},
   };
   // Each map, with the map editor's changes over it

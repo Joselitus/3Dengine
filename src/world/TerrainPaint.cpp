@@ -17,9 +17,9 @@ constexpr float TerrainPaint::LIFT;
 
 namespace {
 // The texture of each material, and how many metres one repeat of it covers
-const char *TEXTURES[] = {"../assets/desert/sand.jpg", "../assets/route66/r66_road.jpg",
-                          "../assets/forest/forest_floor.jpg"};
-const float TILE[] = {6.0f, 4.0f, 4.0f};
+const char *TEXTURES[] = {"../assets/desert/sand_realistic.jpg", "../assets/route66/r66_road.jpg",
+                          "../assets/forest/forest_floor.jpg", "../assets/desert/dirt.jpg"};
+const float TILE[] = {6.0f, 4.0f, 4.0f, 4.0f};
 
 unsigned int textureOf(int material) {
   static map<int, unsigned int> loaded;

@@ -6,7 +6,8 @@ DIRS = $(shell find . -type d)
 # headers by name too)
 TOOL_DIR = ../tools/creature_testing
 EDITOR_DIR = ../tools/map_editor
-CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR) -I$(EDITOR_DIR)
+CLOUD_DIR = ../tools/cloud_debugger
+CXXFLAGS = -std=c++11 -g -Wall -pthread $(addprefix -I,$(DIRS)) -I$(TOOL_DIR) -I$(EDITOR_DIR) -I$(CLOUD_DIR)
 LIBS = `pkg-config --static --libs glfw3` -lvulkan -lGLEW -lGL -lassimp -ldl -lpthread -lm
 
 # macOS (MacPorts in /opt/local): no libGL/Vulkan, OpenGL is a framework
@@ -30,8 +31,10 @@ TOOL_SRCS = $(wildcard $(TOOL_DIR)/*.cpp)
 TOOL_OBJS = $(TOOL_SRCS:%.cpp=%.o)
 EDITOR_SRCS = $(wildcard $(EDITOR_DIR)/*.cpp)
 EDITOR_OBJS = $(EDITOR_SRCS:%.cpp=%.o)
+CLOUD_SRCS = $(wildcard $(CLOUD_DIR)/*.cpp)
+CLOUD_OBJS = $(CLOUD_SRCS:%.cpp=%.o)
 
-all: server client creature_testing map_editor
+all: server client creature_testing map_editor cloud_debugger
 
 # The binaries go to ../test/; they can be run from any directory
 server: server.o $(SHARED_OBJS)
@@ -50,6 +53,10 @@ map_editor: $(EDITOR_OBJS) $(SHARED_OBJS)
 	mkdir -p ../test
 	$(CC) -o ../test/$@ $^ $(LIBS) -g
 
+cloud_debugger: $(CLOUD_OBJS) $(SHARED_OBJS)
+	mkdir -p ../test
+	$(CC) -o ../test/$@ $^ $(LIBS) -g
+
 %.o: %.cpp
 	$(CC) $(CXXFLAGS) $< -c -o $@ -MMD -MP
 
@@ -62,7 +69,7 @@ third_party/%.o: third_party/%.cpp
 clean:
 	find . -name '*.o' -delete
 	find . -name '*.d' -delete
-	find $(TOOL_DIR) $(EDITOR_DIR) -name '*.o' -delete -o -name '*.d' -delete
-	rm -f ../test/server ../test/client ../test/test ../test/creature_testing ../test/map_editor
+	find $(TOOL_DIR) $(EDITOR_DIR) $(CLOUD_DIR) -name '*.o' -delete -o -name '*.d' -delete
+	rm -f ../test/server ../test/client ../test/test ../test/creature_testing ../test/map_editor ../test/cloud_debugger
 
-.PHONY: all clean server client creature_testing map_editor
+.PHONY: all clean server client creature_testing map_editor cloud_debugger

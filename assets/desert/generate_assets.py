@@ -13,7 +13,7 @@ TERRAIN_SIZE = 160.0   # dunes.obj covers [-80, 80] on x and z
 TERRAIN_RES = 192      # quads per side
 LOOP_TERRAIN_SIZE = 180.0  # dunes_loop.obj (the day desert) covers [-90, 90]
 LOOP_TERRAIN_RES = 180     # quads per side: 1 m each
-SAND_TILE = 5.0        # world units covered by one sand.jpg tile
+SAND_TILE = 2.0        # world units covered by one sand.jpg tile
 ROAD_WIDTH = 8.0       # wide enough for the RV (2.4 m) with room to spare
 ROAD_TILE = 8.0        # world units along the road covered by one road.jpg tile
 ROAD_LIFT = 0.07       # the road floats this far above the dunes (no z-fighting)
@@ -46,18 +46,60 @@ def save_jpg(arr, name):
         os.path.join(OUT, name), quality=92)
 
 
+def fbm(n, rng, first=1.0, last=2.4, octaves=5):
+    """Tileable fractal noise: several band-limited layers with falling weight, so there is detail
+    at every scale and no single feature size to recognise when the tile repeats."""
+    out = np.zeros((n, n))
+    for i in range(octaves):
+        p = first + (last - first) * i / max(1, octaves - 1)
+        out += periodic_noise(n, p, rng) * 0.55 ** i
+    return (out - out.min()) / (out.max() - out.min())
+
+
+def worley(n, cells, rng):
+    """Tileable Worley noise: F1, F2 (distance to the nearest and second-nearest feature point, in
+    cell units) and the id of the nearest cell. Points wrap around, so the tile is seamless."""
+    pts = rng.random((cells, cells, 2))
+    ids = rng.random((cells, cells))
+    gy, gx = np.mgrid[0:n, 0:n] * (cells / n)
+    cy, cx = np.floor(gy).astype(int), np.floor(gx).astype(int)
+    f1 = np.full((n, n), 9.0)
+    f2 = np.full((n, n), 9.0)
+    cell = np.zeros((n, n))
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            iy, ix = cy + dy, cx + dx
+            p = pts[iy % cells, ix % cells]
+            d = np.hypot(iy + p[..., 0] - gy, ix + p[..., 1] - gx)
+            closer = d < f1
+            f2 = np.where(closer, f1, np.minimum(f2, d))
+            cell = np.where(closer, ids[iy % cells, ix % cells], cell)
+            f1 = np.where(closer, d, f1)
+    return f1, f2, cell
+
+
 def make_sand(rng, n=1024):
-    large = periodic_noise(n, 1.6, rng)
-    fine = periodic_noise(n, 0.4, rng)
-    # Wind ripples: sine bands warped by the large noise (integer frequency
-    # keeps the texture tileable)
+    """Wind-blown sand. What made the old one look repeated was a single big blotch size and
+    parallel, regular ripples. Now: fractal tone at several scales, a diagonal ripple field bent
+    by a strong warp and faded in and out by a patch mask (no two stretches alike), a slight
+    warm/cool drift, and sparse dark and bright mineral grains."""
     y = np.arange(n)[:, None] / n
     x = np.arange(n)[None, :] / n
-    ripple = 0.5 + 0.5 * np.sin(2 * np.pi * (10 * y + 10 * x * 0.0 + 2.0 * (large - 0.5)))
-    t = 0.55 * large + 0.25 * ripple + 0.20 * fine
-    col = lerp_color(t, (196, 154, 98), (238, 208, 150))
-    grain = (periodic_noise(n, 0.0, rng) - 0.5) * 22
-    save_jpg(col + grain[..., None], "sand.jpg")
+    tone = fbm(n, rng, 0.8, 2.2, 6)
+    warp = fbm(n, rng, 1.4, 2.4, 4)
+    patch = fbm(n, rng, 1.6, 2.4, 3)
+    # integer frequencies (9, 5): the ripple tiles but runs at a slant, not along an axis
+    ripple = 0.5 + 0.5 * np.sin(2 * np.pi * (9 * x + 5 * y + 1.1 * (warp - 0.5)))
+    ripple = ripple * np.clip((patch - 0.25) * 2.5, 0.15, 1)
+    micro = fbm(n, rng, 0.2, 1.0, 3)
+    t = 0.30 * tone + 0.40 * ripple + 0.30 * micro
+    col = lerp_color(t, (190, 146, 92), (236, 205, 148))
+    drift = fbm(n, rng, 2.0, 2.6, 2) - 0.5          # warm / cool patches
+    col = col + drift[..., None] * np.array([16, 4, -14])
+    grain = (periodic_noise(n, 0.0, rng) - 0.5) * 18
+    dark = (rng.random((n, n)) > 0.992) * 40.0       # mineral specks
+    bright = (rng.random((n, n)) > 0.993) * 38.0     # quartz
+    save_jpg(col + (grain - dark + bright)[..., None], "sand.jpg")
 
 
 def make_cactus(rng, n=256):
@@ -79,13 +121,28 @@ def make_cactus(rng, n=256):
 
 
 def make_rock(rng, n=512):
-    big = periodic_noise(n, 1.8, rng)
-    fine = periodic_noise(n, 0.8, rng)
+    """Weathered sandstone: Worley cells are the fractured blocks (each with its own tone), dark
+    cracks run where F2 - F1 is small, strata are bent by a strong warp (slanted, integer
+    frequencies so it tiles), and ridged fractal noise gives the pitted, eroded surface."""
     y = np.arange(n)[:, None] / n
-    strata = 0.5 + 0.5 * np.sin(2 * np.pi * (6 * y + 1.5 * (big - 0.5)))
-    t = 0.45 * big + 0.30 * strata + 0.25 * fine
-    col = lerp_color(t, (96, 78, 66), (176, 150, 124))
-    save_jpg(col, "rock.jpg")
+    x = np.arange(n)[None, :] / n
+    f1, f2, cell = worley(n, 7, rng)
+    f1b, f2b, _ = worley(n, 19, rng)
+    warp = fbm(n, rng, 1.4, 2.4, 4)
+    bands = 0.5 + 0.5 * np.sin(2 * np.pi * (3 * x + 8 * y + 4.0 * (warp - 0.5)))
+    thin = 0.5 + 0.5 * np.sin(2 * np.pi * (2 * x + 29 * y + 7.0 * (warp - 0.5)))
+    ridged = 1 - np.abs(2 * fbm(n, rng, 0.9, 2.0, 5) - 1)
+    pits = fbm(n, rng, 0.3, 1.2, 3)
+    # cracks are broken up: they only show where a noise mask lets them (no paving look)
+    broken = smoothstep(0.45, 0.65, fbm(n, rng, 1.2, 2.2, 4))
+    crack = (1 - smoothstep(0.0, 0.035, f2 - f1)) * broken
+    crack_small = (1 - smoothstep(0.0, 0.03, f2b - f1b)) * smoothstep(0.6, 0.8, pits)
+    t = (0.32 * ridged + 0.26 * bands + 0.10 * thin + 0.17 * pits + 0.10 * (cell - 0.5) + 0.22)
+    col = lerp_color(t, (92, 70, 58), (190, 158, 124))
+    tint = fbm(n, rng, 2.0, 2.6, 2) - 0.5
+    col = col + tint[..., None] * np.array([14, 2, -12])
+    col *= (1 - 0.55 * crack - 0.3 * crack_small)[..., None]
+    save_jpg(col + (periodic_noise(n, 0.0, rng) - 0.5)[..., None] * 14, "rock.jpg")
 
 
 def make_road_texture(rng, n=512):
@@ -160,7 +217,7 @@ class Mesh:
 
 
 def write_mtl():
-    mats = {"sand": ("sand.jpg", (1, 1, 1), 5),
+    mats = {"sand": ("sand_realistic.jpg", (1, 1, 1), 5),
             "cactus": ("cactus.jpg", (1, 1, 1), 20),
             "rock": ("rock.jpg", (1, 1, 1), 10),
             "road": ("road.jpg", (1, 1, 1), 5)}
@@ -432,9 +489,14 @@ def make_rock_mesh(name, seed, size, squash):
 
 if __name__ == "__main__":
     rng = np.random.default_rng(7)
-    make_sand(rng)
+    make_sand(np.random.default_rng(11))
+    # (the cactus and road keep the noise they always had: skip what sand and rock used to draw)
+    for size in (1024, 1024, 1024):
+        rng.standard_normal((size, size))
     make_cactus(rng)
-    make_rock(rng)
+    make_rock(np.random.default_rng(12))
+    for size in (512, 512):
+        rng.standard_normal((size, size))
     make_road_texture(rng)
     write_mtl()
     # the dunes alone (the night desert), and the day desert's: a road winding

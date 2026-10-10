@@ -28,6 +28,7 @@
 #include "CreditsOverlay.h"
 #include "DeathOverlay.h"
 #include "CrosshairOverlay.h"
+#include "CloudRenderer.h"
 #include "FilmGrain.h"
 #include "StruggleOverlay.h"
 #include "EspeakSynthesizer.h"
@@ -265,6 +266,8 @@ int main(int argc, char **argv) {
   ui.addOverlay(&netOverlay);
   // Bob is near: the picture gets grainy (see GameStage::alienPresence)
   FilmGrain grain;
+  // The clouds of the map (boxes: see CloudRenderer)
+  CloudRenderer cloudRenderer;
   // Abducted: a scream (not too loud) while he rises, and a rip as he goes into the ship
   const float SCREAM_VOLUME = 1.2f, RIP_VOLUME = 1.0f;
   auto screamClip = std::make_shared<AudioClip>(), ripClip = std::make_shared<AudioClip>();
@@ -861,6 +864,8 @@ int main(int argc, char **argv) {
       glFinish(); // wait for the GPU, to time it
     double tGpu = glfwGetTime() - tRender - tSubmit;
     const Environment &env = stage->getEnvironment();
+    cloudRenderer.draw(stage->getClouds(), camera.getPosition(), camera.getViewProjection(),
+                       env.lightColor, env.sunDir.y, (float)now); // over the world, under the particles
     particles.setLighting(env.lightColor, env.lightDir, lights);
     particles.draw(stage->getEmitters(), camera); // over the world
     {

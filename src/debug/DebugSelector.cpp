@@ -32,6 +32,7 @@ const char *materialName(FloorMaterial material) {
   case FloorMaterial::Sand: return "arena";
   case FloorMaterial::Asphalt: return "asfalto";
   case FloorMaterial::Grass: return "hierba";
+  case FloorMaterial::Dirt: return "tierra";
   case FloorMaterial::Count: break;
   }
   return "?";

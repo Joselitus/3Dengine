@@ -8,6 +8,7 @@
 
 #include <glm/glm.hpp>
 
+#include "CloudRenderer.h"
 #include "EntityContext.h"
 #include "Interactable.h"
 #include "MirrorView.h"
@@ -97,6 +98,7 @@ protected:
   std::shared_ptr<GameObject> sky; // drawn around the camera, behind all
   float farPlane = 300.0f;     // how far the camera sees (a map with far scenery raises it)
   std::vector<Interactable *> interactables; // owned by the stage
+  std::vector<CloudBox> clouds; // boxes of cloud in the sky (the client draws them: CloudRenderer)
   glm::vec3 viewer = glm::vec3(0.0f); // where the camera is (things may look at it)
   glm::mat4 viewProjection = glm::mat4(1.0f); // and what it sees (world -> clip space)
   unsigned seenControlSerial = 0; // see takePlayerChange
@@ -265,6 +267,7 @@ public:
     viewProjection = projection;
   }
   const Environment &getEnvironment() const { return environment; }
+  const std::vector<CloudBox> &getClouds() const { return clouds; }
 
   // True once after the local player's controls were handed to another character (a vehicle...):
   // then the controller has to be attached to getPlayer() again
