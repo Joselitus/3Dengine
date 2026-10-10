@@ -12,9 +12,11 @@
 #include "Flatwoods.h"
 #include "FollaCulos.h"
 #include "Gnome.h"
+#include "LampStalker.h"
 #include "GameStage.h"
 #include "PassengerView.h"
 #include "RV.h"
+#include "SaucerConsole.h"
 #include "Shade.h"
 #include "SoundEngine.h"
 #include "SpeechSynthesizer.h"
@@ -55,6 +57,7 @@ protected:
   std::shared_ptr<FollaCulos> creature; // the last night creature made (null if the map has none)
   std::vector<std::shared_ptr<FollaCulos>> creatures; // all of them (each lights its eyes)
   AlienVisit alien;                     // Bob and his ship, if the map has them (createAlienVisit)
+  std::unique_ptr<SaucerConsole> saucerConsole; // (in the ship: to read while flying it, still)
   // The creatures can't reach a player who drives the RV or flies the ship, or who is on foot in a
   // SafeSpace (inside the RV): they behave as when he drives (this is their "in a vehicle" query)
   bool playerSheltered(const Player &p) const {
@@ -67,6 +70,10 @@ protected:
   int flatwoodsVictim = -1; // the player it goes for (the nearest one in the RV)
   bool playerInRV(const Player &p) const {
     return p.inVehicle || (rvInside && rvInside->contains(p.walker->getPosition()));
+  }
+  // In a safe place that is not the RV (a house): the shades follow him to the RV, not there
+  bool inShelterBesidesRV(const Player &p) const {
+    return !p.inSaucer && !playerInRV(p) && isSheltered(p.walker->getPosition());
   }
   static constexpr float POSSESSED_SPEED = 1.3f; // m/s, a possessed body's pace out of the RV
   static constexpr float POSSESSED_FLEE = 30.0f; // m it runs from the RV before it wanders
@@ -88,18 +95,38 @@ protected:
   // times, and then it runs at the nearest one with a knife
   void createGnome(float x, float z, float yaw);
   std::vector<std::shared_ptr<Gnome>> gnomes;
-  std::vector<std::string> entityKinds() const override { return {"folla_culos", "gnome"}; }
+  // The living lamp post at (x, z), its arm towards `yaw` (see LampStalker): it hides among the map's
+  // lamp posts (lampPosts) and runs at whoever passes in front of it on foot
+  void createLampStalker(float x, float z, float yaw);
+  std::vector<std::shared_ptr<LampStalker>> lampStalkers;
+  // The lamps glow from dusk to dawn
+  bool lampsLit() const;
+  std::vector<std::string> entityKinds() const override { return {"folla_culos", "gnome", "lamp_stalker"}; }
   bool spawnEntity(const std::string &kind, const glm::vec3 &where, float yaw, EntityContext &context) override;
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
+  // Each night the ship lands somewhere new round the RV, LAND_NEAR..LAND_FAR from it (failing that,
+  // nearer or further, and in the end the map's own spot): on flat ground (LAND_FLAT), inside the
+  // floor, LAND_CLEAR from anything (canLandAt: what else the map asks), its ramp towards the RV
+  static constexpr float LAND_NEAR = 30.0f, LAND_FAR = 60.0f, LAND_CLEAR = 6.5f, LAND_FLAT = 0.6f;
+  glm::vec3 alienLanding = glm::vec3(0.0f); // (the map's own spot)
+  float alienRampYaw = 0.0f;
+  std::mt19937 landingRandom{std::random_device()()};
+  bool chooseLanding(glm::vec3 &spot, float &yaw);
+  // The enemies keep away from the campfires (see Campfire): apply drives out whoever fleesFire
+  static constexpr float FIRE_FLEE_SPEED = 6.0f; // m/s at the edge (three times that at the middle)
+  bool fleesFire(const DynamicGameObject &object) const;
+  void keepFromFire(DynamicGameObject &object, double dt);
+  virtual bool canLandAt(const glm::vec3 &spot) const { return true; }
   // The Flatwoods monster, wired to the RV and the players (createRV calls it)
   void createFlatwoods();
   // The shades (only the forest maps make them, after createRV): night monsters of darkness that
-  // follow a player at a distance and turn into smoke if he gets near (see Shade)
+  // follow a player at a distance and turn into smoke if he gets near; now and then one is fake: it
+  // screams and runs at whoever touches it (see Shade)
   static constexpr int SHADES = 6;
   std::vector<std::shared_ptr<Shade>> shades;
-  void createShades();
+  void createShades(SoundEngine &sound);
   // A place for a shade to come to near some living player, hidden from him: behind something of
   // the map (a rock, a tree, a cactus...) or a dune or hill, and if possible out of his sight
   bool findShadeSpot(glm::vec3 &where, int &target);
@@ -109,6 +136,8 @@ protected:
   static constexpr float HAZE_TIME = 60.0f;   // s, after walking into the smoke (it fades in the last HAZE_FADE)
   static constexpr float HAZE_FADE = 10.0f;
   static constexpr float HAZE_AMOUNT = 1.0f / 3.0f; // of FilmGrain's strongest: specks at 10 % opacity
+  // The night creature lets go of him (it died, or it killed him): back on his feet's physics
+  void releaseCarried(Player &p);
   void startPossession(Player &p);
   void endPossession(Player &p);
   void updatePossession(Player &p, double dt);
@@ -143,6 +172,12 @@ protected:
   void onPlayerGone(Player &p) override;
   bool canInteract(const Player &p) const override {
     return !p.dead && !p.inVehicle && !p.inSaucer && !p.seated;
+  }
+  // Flying the ship, only its console can be used (and only while the ship is still)
+  bool interactionsEnabled() const override {
+    if (local && local->inSaucer && !local->dead)
+      return saucerConsole && saucerConsole->isInteractionAvailable();
+    return GameStage::interactionsEnabled();
   }
   // Paralysed by Bob's ray or held by Bob: no moving or looking
   bool isImmobilized(const Player &p) const override;

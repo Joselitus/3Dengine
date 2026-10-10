@@ -42,6 +42,8 @@ private:
   void addSign(size_t index, float side, const std::vector<std::string> &pages);
   // `box`: a solid, invisible box on the ground at (x, z), turned `yaw`
   void addWall(float x, float z, float yaw, const glm::vec3 &halfExtents);
+  // Bob's ship lands between the walls, by the road
+  bool canLandAt(const glm::vec3 &spot) const override;
 
 public:
   ForestStage(FloorMode mode, SoundEngine &sound);

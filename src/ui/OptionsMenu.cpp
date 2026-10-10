@@ -4,6 +4,7 @@
 #include "CameraMenu.h"
 #include "ControlsMenu.h"
 #include "PauseMenu.h"
+#include "Settings.h"
 #include "UIButton.h"
 #include "UILabel.h"
 #include "UIManager.h"
@@ -24,6 +25,17 @@ OptionsMenu::OptionsMenu(const MenuContext &context)
     this->context.ui.open(new AudioMenu(this->context));
     requestClose();
   }));
+  // The window: it changes at once and is remembered ("video.window")
+  if (context.isFullscreen && context.setFullscreen) {
+    bool full = context.isFullscreen();
+    add(new UIButton(full ? "Pantalla: completa" : "Pantalla: ventana", [this, full]() {
+      this->context.setFullscreen(!full);
+      this->context.settings.setString("video.window", full ? "maximized" : "fullscreen");
+      this->context.settings.save();
+      this->context.ui.open(new OptionsMenu(this->context)); // (with the button saying the new one)
+      requestClose();
+    }));
+  }
   add(new UIButton("Volver", [this]() { back(); }));
 }
 

@@ -29,6 +29,9 @@ public:
   static std::shared_ptr<CompoundShape> makeHull();
   // The ground it stands on, in its frame (x and z: the block, the porch and the steps; one metre more)
   static void footprint(glm::vec3 &low, glm::vec3 &high);
+  // The room inside (its frame, centre and half size), from its floor to its ceiling and out to the
+  // doorway: a safe place (GameStage::propPlaced makes it a SafeSpace)
+  static void interior(glm::vec3 &centre, glm::vec3 &halfSize);
 
   // 0 shut, DOOR_OPEN_ANGLE open
   void setDoorAngle(float angle);

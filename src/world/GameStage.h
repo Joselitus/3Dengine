@@ -8,9 +8,11 @@
 
 #include <glm/glm.hpp>
 
+#include "Campfire.h"
 #include "CloudRenderer.h"
 #include "EntityContext.h"
 #include "Interactable.h"
+#include "LampPost.h"
 #include "MirrorView.h"
 #include "SpotLight.h"
 #include "PlayableCharacter.h"
@@ -60,8 +62,14 @@ struct Player {
   float cameraDistance = 0.0f, cameraHeight = 1.6f, cameraYaw = 0.0f;
   unsigned controlSerial = 0;
   bool dead = false;
-  bool abducted = false; // the way he died: Bob took him
-  glm::vec3 abductPoint = glm::vec3(0.0f);
+  // Bob is taking him: he rises in the ship's beam from abductFrom to abductPoint (ABDUCT_TIME), alive
+  // (the night creature can still snatch him), and dies when he gets there (still `abducted`: the way he died)
+  bool abducted = false;
+  glm::vec3 abductPoint = glm::vec3(0.0f), abductFrom = glm::vec3(0.0f);
+  float abductTime = 0.0f;
+  // The night creature has him in its mouth and runs off with him (it kills him further on)
+  bool carried = false;
+  int carrier = -1; // (the server) which creature: its index in VehicleStage::creatures
   double timeDead = 0.0; // seconds since he died
   // On a map with vehicles (VehicleStage)
   bool inVehicle = false; // he drives the RV
@@ -182,10 +190,22 @@ public:
     return false;
   }
   // A prop of the catalog (PropCatalog) that the map or its edits put down: if it is a house, its door
-  // (a HouseDoor: E opens it, the server says how it is) is added and made usable
+  // (a HouseDoor: E opens it, the server says how it is) is added and made usable; a lamp post or a
+  // campfire is kept (lampPosts, campfires)
   void propPlaced(const std::shared_ptr<GameObject> &prop);
+  // The lamp posts of the map (scenery: propPlaced keeps them), among which the living one hides
+  std::vector<std::shared_ptr<LampPost>> lampPosts;
+  // A lamp post of the catalog on the floor at (x, z), its arm towards `yaw` (0 = +z)
+  void placeLampPost(float x, float z, float yaw);
   // A house of the catalog on the floor at (x, z), its porch towards `yaw` (0 = +x... see House), with its door
   void placeHouse(float x, float z, float yaw);
+  // The campfires of the map (propPlaced keeps them, adds their smoke and the safe place round them):
+  // the enemies keep away from them
+  std::vector<std::shared_ptr<Campfire>> campfires;
+  // A campfire of the catalog on the floor at (x, z), turned `yaw`
+  void placeCampfire(float x, float z, float yaw);
+  // Within FEAR_RADIUS of a campfire
+  bool nearFire(const glm::vec3 &point) const;
   virtual bool spawnReplica(unsigned char kind, int netId, const glm::vec3 &where, float arg) { return false; }
   Player *findPlayer(int id);
   const std::vector<std::unique_ptr<Player>> &getPlayers() const { return players; }
@@ -201,7 +221,11 @@ public:
   // The player is taken (Bob caught him): the same end as dying, but his client shows it
   // differently: he rises in the beam of light towards `into` (the ship's hatch) while the
   // screen goes white, then black
+  // Bob takes him: he floats up into the ship (see Player::abducted) and dies there
   void abductPlayer(Player &p, const glm::vec3 &into);
+  static constexpr float ABDUCT_TIME = 6.0f; // s, up the beam (the client's RISE_TIME)
+  // (the server) the abducted player rises; true when he has got there (and died)
+  bool updateAbduction(Player &p, double dt);
   // The server: moves time on (the clock, the objects) and the players' own timers
   void tick(double dt);
   // The server: what a client's controls say now, for his player to obey (his character gets it

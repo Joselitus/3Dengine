@@ -82,6 +82,7 @@ void Bob::disembark() {
   if (behavior != Behavior::Inside || !ship)
     return;
   tookPlayer = false;
+  failed = false;
   position = ship->rampTop();
   lastPosition = position;
   velocity = vec3(0.0f);
@@ -114,6 +115,7 @@ void Bob::takeDamage(float amount, const vec3 &direction, const Stage &stage) {
 // He falls over on his back, gets up after a while and leaves the player alone for a bit
 void Bob::knockDown() {
   leaveAlone = LEAVE_ALONE + FALLEN_TIME;
+  failed = true; // (once up, back to the ship: he will shoot at him from it)
   setCollidable(false);
   velocity = vec3(0.0f);
   enter(Behavior::Fallen);
@@ -140,7 +142,20 @@ void Bob::walkTo(const vec3 &point, float speed, double dt) {
   vec3 to = point - position;
   to.y = 0.0f;
   float d = length(to);
-  vec3 want = d > 0.05f ? to / d * speed * std::min(1.0f, d / 0.6f) : vec3(0.0f);
+  float pace = speed * std::min(1.0f, d / 0.6f);
+  vec3 way = d > 0.05f ? to / d : vec3(0.0f);
+  // something in the way (the RV, a tree): he goes round it, sideways for a moment
+  stuck = pace > 0.8f && length(vec2(velocity.x, velocity.z)) < 0.3f * pace ? stuck + (float)dt : 0.0f;
+  if (stuck > 0.6f && detour <= 0.0f) {
+    detour = DETOUR_TIME;
+    detourSide = -detourSide;
+    stuck = 0.0f;
+  }
+  if (detour > 0.0f) {
+    detour -= (float)dt;
+    way = normalize(way * 0.3f + vec3(-way.z, 0.0f, way.x) * detourSide);
+  }
+  vec3 want = way * pace;
   steerTowards(vec3(want.x, velocity.y, want.z), 8.0f);
   acceleration.y = 0.0f;
   if (d > 0.1f)
@@ -169,6 +184,8 @@ void Bob::update(double dt) {
     return;
   }
   bool night = isNight ? isNight() : true;
+  if (!night)
+    failed = false; // (the night is over: he forgets the one who broke free)
   // Whom he goes for: the nearest player alive (the one he fires at or holds, till he is done)
   Victim victim;
   bool someone = findVictim && findVictim(position, behavior == Behavior::Firing || behavior == Behavior::Grabbing ? victimId : -1, victim);
@@ -181,7 +198,7 @@ void Bob::update(double dt) {
   vec3 target = someone ? victim.position : position;
   victimHead = target + vec3(0.0f, HEAD_HEIGHT, 0.0f);
   float distance = length(vec2(target.x - position.x, target.z - position.z));
-  bool goHome = !night || tookPlayer;
+  bool goHome = !night || tookPlayer || failed;
   rayCooldown = std::max(0.0f, rayCooldown - dtf);
   leaveAlone = std::max(0.0f, leaveAlone - dtf);
   bool rays = false; // his ray shines this frame
@@ -297,7 +314,7 @@ void Bob::update(double dt) {
     if (along >= 1.0f) {
       setVisible(false);
       enter(Behavior::Inside);
-      ship->boarded(); // the ship closes and goes
+      ship->boarded(failed && !tookPlayer && night); // the ship closes and goes (or hunts him)
     }
     break;
   }

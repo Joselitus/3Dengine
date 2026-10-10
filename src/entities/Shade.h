@@ -8,6 +8,7 @@
 
 #include "DynamicGameObject.h"
 #include "ParticleEmitter.h"
+#include "SoundEngine.h"
 
 // A shade: a night monster made of darkness (assets/shades, generate_shades.py), in one of VARIANTS
 // shapes (wolf, stag, big cat, crawler, tall one, hunched one, goat man, crow man), black or nearly.
@@ -19,11 +20,17 @@
 // on his screen for a while (see VehicleStage::smokeHaze). At dawn it turns into smoke too.
 // After it has gone it comes again, somewhere else and in another shape, AWAY_MIN..AWAY_MAX later.
 //
+// Now and then (FAKE_CHANCE of the times one comes) it is a fake one: it looks and follows like the others, but it does not melt as he
+// comes; if he gets to touch it (TOUCH_DISTANCE) it screams (shade_scream.wav, from it: setSounds),
+// shoves him away (the map's shove callback) and, after a moment (STARTLE), runs at him screaming
+// (Chasing, CHASE_SPEED: slower than he runs, faster than he walks). If it catches him (CATCH_DISTANCE)
+// he dies (the map's kill callback); if it has not within CHASE_TIME, it melts into smoke.
+//
 // It goes through anything (it is not solid) and floats on the floor. The server moves it; the
 // clients get its state (shape, what it does, for how long) and make the smoke themselves.
 class Shade : public DynamicGameObject {
 public:
-  enum class State { Away, Following, Smoke };
+  enum class State { Away, Following, Smoke, Chasing };
 
   static constexpr int VARIANTS = 8;
   static constexpr float WALK_SPEED = 1.1f;       // m/s, coming nearer or backing off (a walking penguin: 4)
@@ -36,6 +43,13 @@ public:
   static constexpr float CLOUD_RADIUS = 2.6f;     // m, round the place it was (walking in: the grain)
   static constexpr float AWAY_MIN = 15.0f, AWAY_MAX = 45.0f; // s gone, before it comes again
   static constexpr float RETRY_TIME = 3.0f;       // s, when there was no hidden place to come to
+  // The fake one: how near he must come to touch it, how hard it shoves him (m/s), how long it stands
+  // screaming before it runs, how fast it runs (m/s: a penguin walks at 4, runs at 7), for how long,
+  // and how near is caught
+  static constexpr float FAKE_CHANCE = 0.01f;     // of the times one comes, it is fake
+  static constexpr float TOUCH_DISTANCE = 1.4f, SHOVE_SPEED = 9.0f, STARTLE = 0.6f;
+  static constexpr float CHASE_SPEED = 6.0f, CHASE_TIME = 5.0f, CATCH_DISTANCE = 1.0f;
+  static constexpr float SCREAM_VOLUME = 1.4f;
 
   // Where to come: a hidden place near some player, and that player's id (false: nowhere now)
   typedef std::function<bool(glm::vec3 &where, int &target)> SpotQuery;
@@ -52,6 +66,13 @@ private:
   float phase = 0.0f;     // (its slow swaying)
   std::mt19937 random;
   std::shared_ptr<ParticleEmitter> smoke;
+  bool fake = false;
+  std::function<void(int, const glm::vec3 &)> shove; // (the player, which way and how hard)
+  std::function<void(int)> kill;
+  SoundEngine *soundEngine = nullptr;
+  std::shared_ptr<AudioClip> screamClip;
+  std::unique_ptr<Sound> scream;
+  void updateScream();
 
   std::function<bool()> isNight;
   SpotQuery spot;
@@ -73,6 +94,13 @@ public:
   void setSpotQuery(SpotQuery q) { spot = q; }
   void setTargetQuery(TargetQuery q) { where = q; }
   void setFloorQuery(std::function<bool(float, float, float &)> floor) { floorHeight = floor; }
+  // This time it is the fake one (see the class comment); what it does to the player who touches it
+  // and whom it catches
+  bool isFake() const { return fake; }
+  void setShoveCallback(std::function<void(int, const glm::vec3 &)> s) { shove = s; }
+  void setKillCallback(std::function<void(int)> k) { kill = k; }
+  // Its scream (assets/shades/shade_scream.wav), played on `engine`; without this it is silent
+  void setSounds(SoundEngine &engine);
   // Waits this long before coming the first night (the map sets them apart)
   void setFirstDelay(float seconds) { awayFor = seconds; }
 

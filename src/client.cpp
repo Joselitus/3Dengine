@@ -54,7 +54,11 @@
 using namespace std;
 using namespace glm;
 
-bool FULLSCREEN = true; // pass --windowed to disable
+// How the window starts: full screen, or (the setting "video.window = maximized", see OptionsMenu)
+// a window filling the screen; --windowed: a small window (WIDTH x HEIGHT), for tests
+bool FULLSCREEN = true;
+bool MAXIMIZED = false;
+const char *WINDOW_KEY = "video.window"; // "fullscreen" or "maximized"
 #define HEIGHT 600
 #define WIDTH 700
 
@@ -101,8 +105,10 @@ GLFWwindow *initializeGLFW(const char *windowname) {
     window = glfwCreateWindow(window_width, window_height, windowname,
                               glfwGetPrimaryMonitor(), NULL);
 
-  } else
+  } else {
+    glfwWindowHint(GLFW_MAXIMIZED, MAXIMIZED ? GLFW_TRUE : GLFW_FALSE);
     window = glfwCreateWindow(WIDTH, HEIGHT, windowname, NULL, NULL);
+  }
 
   if (window == NULL) {
     fprintf(stderr,
@@ -131,6 +137,19 @@ GLFWwindow *initializeGLFW(const char *windowname) {
   return window;
 }
 
+// Full screen (the screen's own video mode, as at the start) or a window filling it (maximized)
+static void setWindowMode(GLFWwindow *window, bool fullscreen) {
+  GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+  const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+  if (fullscreen) {
+    glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+  } else {
+    glfwSetWindowMonitor(window, NULL, 40, 40, WIDTH, HEIGHT, GLFW_DONT_CARE);
+    glfwMaximizeWindow(window);
+  }
+  glfwSwapInterval(1);
+}
+
 
 // The game's client: the window. It asks where the server is, connects, makes the same map as the
 // server and shows it: the objects of the world are copies that move as the server says (see
@@ -143,9 +162,10 @@ int main(int argc, char **argv) {
   bool profile = false;      // --profile: print where the time of each frame goes
   std::string connectTo;     // --connect ADDRESS: connect at once, without asking
   std::string playerName;    // --name NAME
+  bool windowedArg = false;
   for (int i = 1; i < argc; i++)
     if (std::string(argv[i]) == "--windowed")
-      FULLSCREEN = false;
+      windowedArg = true;
     else if (std::string(argv[i]) == "--ray")
       floorMode = FloorMode::DownwardRay;
     else if (std::string(argv[i]) == "--connect" && i + 1 < argc)
@@ -162,6 +182,14 @@ int main(int argc, char **argv) {
     fprintf(stderr, "Could not find src/, using the current directory\n");
   setNetRole(NetRole::Client);
 
+  // The player's options from previous sessions (the window, FOV, sensitivity...)
+  Settings settings;
+  settings.load();
+  if (windowedArg)
+    FULLSCREEN = false;
+  else if (settings.getString(WINDOW_KEY, "fullscreen") == "maximized")
+    FULLSCREEN = false, MAXIMIZED = true;
+
   // Creation of window and it's context
   GLFWwindow *window;
   if (!(window = initializeGLFW(WINDOWNAME)))
@@ -176,9 +204,6 @@ int main(int argc, char **argv) {
   // Creation of camera
   Camera camera(window, &shader);
   camera.reposition(0.0, 0.0, 3.0);
-  // The player's options from previous sessions (FOV, sensitivity...)
-  Settings settings;
-  settings.load();
   CameraMenu::applySettings(settings, camera);
 
   // Which key does what, read by everything that handles input; the player
@@ -441,6 +466,8 @@ int main(int argc, char **argv) {
   // key ends the game)
   bool disconnectRequested = false; // (done at the start of the next frame, not inside the menu's button)
   MenuContext menus = {ui, camera, controls, settings, sound, quit, [&]() { disconnectRequested = true; }};
+  menus.isFullscreen = [window]() { return glfwGetWindowMonitor(window) != NULL; };
+  menus.setFullscreen = [window](bool fullscreen) { setWindowMode(window, fullscreen); };
   ui.bindKey(GLFW_KEY_ESCAPE, [&]() {
     if (stage)
       ui.open(new PauseMenu(menus));
@@ -583,6 +610,7 @@ int main(int argc, char **argv) {
   // The player's controls in the last input sent (the number the server will answer with)
   unsigned lastInputSeq = 0;
   double reconnectAt = 0.0; // after /reset, when to connect again
+  float zoomAmount = 0.0f;  // 0 = no zoom .. 1 = all the way in (the zoom key)
 
   // Main loop
   double lastTime = glfwGetTime();
@@ -681,6 +709,14 @@ int main(int argc, char **argv) {
     possessionOverlay.setAmount(stage->playerPossessed() ? 0.3f + 0.08f * (float)std::sin(now * 2.0) : 0.0f);
     crosshair.setShown(stage->playerAiming() && !stage->isPlayerDead());
     controller.setLookEnabled(!selector.capturesMouse());
+    // Zoom: while its key is held (playing, no panel open) the view narrows to ZOOM_FACTOR of the fov
+    {
+      const float ZOOM_FACTOR = 0.3f, ZOOM_RATE = 6.0f; // (and how fast it goes in and out, 1/s)
+      bool held = !ui.hasPanels() && glfwGetKey(window, controls.key(Action::Zoom)) == GLFW_PRESS;
+      zoomAmount = glm::clamp(zoomAmount + (held ? 1.0f : -1.0f) * ZOOM_RATE * (float)dt, 0.0f, 1.0f);
+      float k = zoomAmount * zoomAmount * (3.0f - 2.0f * zoomAmount);
+      camera.setZoom(glm::mix(1.0f, ZOOM_FACTOR, k));
+    }
     controller.update();
     // Controlled by the Flatwoods monster: the view turns slowly to where his body walks, level
     float possessedYaw;
@@ -718,7 +754,7 @@ int main(int argc, char **argv) {
     ambience.setVolume(stage->getAmbienceVolume());
     stage->getPlayer()->followCamera();
     // The server brought him back from the dead
-    if (deathTime >= 0.0 && !stage->isPlayerDead()) {
+    if (deathTime >= 0.0 && !stage->isPlayerDead() && !stage->isPlayerAbducted()) {
       deathTime = -1.0;
       credits.stop();
       scream.reset();
@@ -729,9 +765,10 @@ int main(int argc, char **argv) {
     // The player is dead: the camera falls over backwards like an inverted pendulum (the eyes at the
     // top of a rod standing on his feet, tipping over: slow at first, then faster and faster) and
     // ends lying on the ground looking up at the sky, with a little roll; the screen goes red
-    if (stage->isPlayerDead() && stage->isPlayerAbducted()) {
+    if (stage->isPlayerAbducted()) {
       // Abducted (Bob caught him): he floats up in the ship's beam towards its hatch, turning
-      // slowly and looking up into the light; the screen goes white, then black
+      // slowly and looking up into the light; the screen goes white, then black (he is alive until he
+      // gets there, at RISE_TIME: GameStage::ABDUCT_TIME; the night creature may snatch him first)
       const float RISE_TIME = 6.0f, WHITE_FROM = 2.5f, BLACK_FROM = 5.5f, BLACK_TIME = 1.5f, CREDITS_PAUSE = 1.5f;
       if (deathTime < 0.0) {
         deathTime = 0.0;

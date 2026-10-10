@@ -50,6 +50,28 @@ Shade::Shade(const vector<shared_ptr<Model>> &shapes, unsigned seed)
   smoke = make_shared<ParticleEmitter>(puff, 500 + seed);
 }
 
+void Shade::setSounds(SoundEngine &engine) {
+  soundEngine = &engine;
+  screamClip = make_shared<AudioClip>();
+  if (!screamClip->loadWavFile("../assets/shades/shade_scream.wav"))
+    screamClip.reset();
+}
+
+// It screams as it starts chasing (on the server, and on each client from its state); the scream plays
+// to its end (it melts into smoke meanwhile), and is cut only when it is gone
+void Shade::updateScream() {
+  if (state == State::Away || state == State::Following) {
+    scream.reset();
+    return;
+  }
+  if (state == State::Chasing && !scream && soundEngine && screamClip && (scream = soundEngine->play(screamClip, false, position))) {
+    scream->setVolume(SCREAM_VOLUME);
+    scream->setDistances(6.0f, 120.0f);
+  }
+  if (scream)
+    scream->setPosition(position + vec3(0.0f, 1.2f, 0.0f));
+}
+
 void Shade::enter(State next) {
   state = next;
   stateTime = 0.0f;
@@ -63,6 +85,7 @@ void Shade::appear() {
     return;
   }
   variant = std::uniform_int_distribution<int>(0, VARIANTS - 1)(random);
+  fake = std::uniform_real_distribution<float>(0.0f, 1.0f)(random) < FAKE_CHANCE; // (now and then, a fake one)
   target = who;
   position = at;
   velocity = vec3(0.0f);
@@ -91,7 +114,7 @@ void Shade::show() {
   if (state == State::Smoke)
     size = std::max(0.0f, 1.0f - stateTime / SHRINK_TIME);
   setScale(size);
-  setVisible(state == State::Following || (state == State::Smoke && size > 0.0f));
+  setVisible(state == State::Following || state == State::Chasing || (state == State::Smoke && size > 0.0f));
 }
 
 // The smoke goes on coming out (less and less) for a while after the first puff
@@ -109,9 +132,10 @@ void Shade::update(double dt) {
   GameObject::update(dt);
   float dtf = (float)dt;
   stateTime += dtf;
-  if (replica) { // (the server moves it; here it shows, and smokes)
+  if (replica) { // (the server moves it; here it shows, smokes and screams)
     show();
     updateSmoke(dt);
+    updateScream();
     return;
   }
   bool night = isNight ? isNight() : true;
@@ -133,7 +157,14 @@ void Shade::update(double dt) {
     }
     vec2 to(player.x - position.x, player.z - position.z);
     float distance = length(to);
-    if (distance <= VANISH_DISTANCE) {
+    if (fake && distance <= TOUCH_DISTANCE) { // he touched it: it screams, shoves him and runs at him
+      if (shove && distance > 0.01f)
+        shove(target, vec3(to.x / distance, 0.0f, to.y / distance) * SHOVE_SPEED);
+      yaw = std::atan2(to.x, to.y);
+      enter(State::Chasing);
+      break;
+    }
+    if (!fake && distance <= VANISH_DISTANCE) {
       dissolve();
       break;
     }
@@ -160,6 +191,32 @@ void Shade::update(double dt) {
     if (stateTime >= CLOUD_TIME)
       goAway();
     break;
+  case State::Chasing: {
+    vec3 player;
+    if (stateTime >= CHASE_TIME || !night || !where || !where(target, player)) {
+      dissolve(); // (it did not get him, or he got away into a safe place)
+      break;
+    }
+    vec2 to(player.x - position.x, player.z - position.z);
+    float distance = length(to);
+    yaw += clamp(angleTo(yaw, std::atan2(to.x, to.y)), -4.0f * TURN_RATE * dtf, 4.0f * TURN_RATE * dtf);
+    if (stateTime < STARTLE) // (it stands screaming for a moment)
+      break;
+    if (distance <= CATCH_DISTANCE) {
+      if (kill)
+        kill(target);
+      dissolve();
+      break;
+    }
+    float step = std::min(CHASE_SPEED * dtf, distance);
+    position.x += to.x / distance * step;
+    position.z += to.y / distance * step;
+    float ground = position.y;
+    if (floorHeight)
+      floorHeight(position.x, position.z, ground);
+    position.y = ground;
+    break;
+  }
   }
   velocity = vec3(0.0f);
   phase += SWAY_RATE * dtf;
@@ -168,6 +225,7 @@ void Shade::update(double dt) {
              rotate(mat4(1.0f), 0.5f * SWAY * std::sin(0.7f * phase), vec3(1.0f, 0.0f, 0.0f));
   show();
   updateSmoke(dt);
+  updateScream();
 }
 
 // u8 state, u8 variant, f32 seconds in that state
@@ -180,7 +238,7 @@ void Shade::writeNetState(NetWriter &out) const {
 void Shade::readNetState(NetReader &in) {
   uint8_t s = in.u8(), v = in.u8();
   float time = in.f32();
-  if (!in.isOk() || s > (uint8_t)State::Smoke || v >= VARIANTS)
+  if (!in.isOk() || s > (uint8_t)State::Chasing || v >= VARIANTS)
     return;
   State next = (State)s;
   if (next == State::Smoke && state != State::Smoke) { // (it melts: the first puff, here too)
@@ -194,7 +252,7 @@ void Shade::readNetState(NetReader &in) {
 
 void Shade::describe(vector<string> &lines) const {
   DynamicGameObject::describe(lines);
-  const char *states[] = {"no esta", "te sigue", "humo"};
+  const char *states[] = {"no esta", "te sigue", "humo", "te persigue gritando"};
   const char *shapes[] = {"lobo", "ciervo", "felino", "reptante", "alto", "jorobado", "hombre cabra", "hombre cuervo"};
-  lines.push_back(string("Sombra (") + shapes[variant] + "): " + states[(int)state]);
+  lines.push_back(string(fake ? "Sombra falsa (" : "Sombra (") + shapes[variant] + "): " + states[(int)state]);
 }

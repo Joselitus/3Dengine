@@ -41,6 +41,7 @@ private:
   float fov = DEFAULT_FOV;          // vertical field of view, degrees
   float aspectOverride = 0.0f;      // > 0: this aspect, not the window's (a camera that draws to a texture)
   float sensitivity = SENSIVILITY;  // radians per pixel of mouse movement
+  float zoom = 1.0f;                // the fov (and the mouse's turn) is multiplied by this (setZoom)
 
   glm::mat4 projection;
   glm::mat4 view;
@@ -71,6 +72,12 @@ public:
   // How far the camera sees (metres, default 300); the projection is rebuilt at once
   void setFarPlane(float distance) { farPlane = distance; setFov(fov); }
   float getFov() const { return fov; }
+  // Zoom: the view narrows to `factor` of the fov (1 = none), and the mouse turns it that much less,
+  // without changing the fov the camera menu sets (getFov)
+  void setZoom(float factor) {
+    zoom = factor;
+    setFov(fov);
+  }
   // A fixed aspect ratio (width / height) instead of the window's, for a camera drawing into a
   // texture of its own (0 = the window's again)
   void setAspect(float aspect) { aspectOverride = aspect; setFov(fov); }
@@ -78,6 +85,8 @@ public:
   // the Controller reads it when it turns the camera.
   void setSensitivity(float radiansPerPixel) { sensitivity = radiansPerPixel; }
   float getSensitivity() const { return sensitivity; }
+  // What the mouse turns it by now: the sensitivity, less while zoomed in (the Controller)
+  float getTurnRate() const { return sensitivity * zoom; }
   void reposition(float x, float y, float z);
   void update();
   // Attach the camera to a game object; follow() then keeps it orbiting the

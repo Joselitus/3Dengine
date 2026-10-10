@@ -144,6 +144,12 @@ void Saucer::enter(Phase next) {
   phaseTime = 0.0f;
   switch (next) {
   case Phase::Arriving: {
+    vec3 spot;
+    float yaw;
+    if (landingQuery && landingQuery(spot, yaw)) { // (somewhere new each night)
+      landing = spot;
+      landingYaw = yaw;
+    }
     // from far away over the trees, towards a point above where it lands
     float a = std::uniform_real_distribution<float>(0.0f, 2.0f * PI)(random);
     from = landing + vec3(std::cos(a) * FAR_AWAY, HIGH_UP, std::sin(a) * FAR_AWAY);
@@ -176,22 +182,30 @@ void Saucer::enter(Phase next) {
     to = position + vec3(0.0f, HOVER_HEIGHT, 0.0f);
     break;
   case Phase::Leaving: {
+    huntAfter = false; // (whatever happened tonight is forgotten)
     float a = std::uniform_real_distribution<float>(0.0f, 2.0f * PI)(random);
     from = position;
     to = position + vec3(std::cos(a) * FAR_AWAY * 1.5f, HIGH_UP * 2.0f, std::sin(a) * FAR_AWAY * 1.5f);
     break;
   }
   case Phase::Away:
+    huntAfter = false;
     setVisible(false);
     setCollidable(false);
     taking = false;
+    break;
+  case Phase::Hunting:
+    huntAfter = false;
+    huntShotIn = HUNT_FIRST_SHOT;
+    huntAngle = std::uniform_real_distribution<float>(0.0f, 2.0f * PI)(random);
     break;
   default:
     break;
   }
 }
 
-void Saucer::boarded() {
+void Saucer::boarded(bool hunt) {
+  huntAfter = hunt;
   if (phase == Phase::Landed)
     enter(Phase::Closing);
 }
@@ -328,9 +342,14 @@ void Saucer::update(double dt) {
     legsOut = std::min(legsOut, 1.0f - clamp(phaseTime / (ASCEND_TIME * 0.6f), 0.0f, 1.0f));
     spin += SPIN_RATE * dtf * t;
     if (phaseTime >= ASCEND_TIME)
-      enter(Phase::Leaving);
+      enter(huntAfter && night ? Phase::Hunting : Phase::Leaving);
     break;
   }
+  case Phase::Hunting: // (it moves, aims and fires in contactFloor: see hunt)
+    spin += SPIN_RATE * 0.5f * dtf;
+    if (!night)
+      enter(Phase::Leaving);
+    break;
   case Phase::Leaving: {
     float t = phaseTime / LEAVE_TIME;
     position = mix(from, to, t * t); // faster and faster
@@ -340,7 +359,7 @@ void Saucer::update(double dt) {
     break;
   }
   }
-  if (phase != Phase::Piloted)
+  if (phase != Phase::Piloted && phase != Phase::Hunting)
     velocity = vec3(0.0f);
   updateGun(dt);
   place(); // (its turn, legs, ramp, beam and gun, as they are now)
@@ -352,10 +371,10 @@ void Saucer::update(double dt) {
 // as soon as it goes up); the gun turns to where the camera looks
 void Saucer::updateGun(double dt) {
   float dtf = (float)dt;
-  bool out = gunWanted && phase == Phase::Piloted;
+  bool out = (gunWanted && phase == Phase::Piloted) || phase == Phase::Hunting;
   gunOut = approach(gunOut, out ? 1.0f : 0.0f, dtf / GUN_TIME);
   bool aim = out && gunOut >= 1.0f;
-  if (aim != aiming && camera) {
+  if (aim != aiming && camera && phase == Phase::Piloted) {
     if (aim)
       camera->attachTo(this, 0.0f, GUN_PIVOT_Y);
     else
@@ -364,7 +383,8 @@ void Saucer::updateGun(double dt) {
   aiming = aim;
   // the barrel turns about the pivot, to look where the pilot looks (in the ship's frame)
   if (aiming) {
-    vec3 f = transpose(mat3(rotation)) * (camera ? camera->getForward() : aimForward);
+    vec3 f = transpose(mat3(rotation)) *
+             (phase == Phase::Hunting ? huntAim : camera ? camera->getForward() : aimForward);
     setBarrel(std::atan2(f.x, f.z), std::asin(clamp(-f.y, -1.0f, 1.0f)));
   }
   shotCooldown = std::max(0.0f, shotCooldown - dtf);
@@ -470,6 +490,7 @@ void Saucer::updateSounds(double dt) {
   switch (phase) {
   case Phase::Arriving:
   case Phase::Leaving:
+  case Phase::Hunting:
     wanted = 1.0f;
     break;
   case Phase::Ascending:
@@ -540,9 +561,45 @@ void Saucer::fly(const Stage &stage, double dt) {
   stage.keepInsideFloor(position, velocity, RADIUS);
 }
 
+// Hunting: round the player, high up, the gun at him; a shot now and then while he is out in the open
+void Saucer::hunt(const Stage &stage, double dt) {
+  float dtf = (float)dt;
+  vec3 target;
+  bool exposed = false;
+  if (!huntTarget || !huntTarget(target, exposed)) {
+    enter(Phase::Leaving); // (nobody left)
+    return;
+  }
+  huntAngle += HUNT_TURN * dtf;
+  vec3 goal = target + vec3(std::cos(huntAngle), 0.0f, std::sin(huntAngle)) * HUNT_RADIUS;
+  float ground;
+  if (!stage.floorAt(goal.x, goal.z, ground))
+    ground = target.y;
+  goal.y = ground + HUNT_HEIGHT;
+  vec3 want = goal - position;
+  if (length(want) > HUNT_SPEED)
+    want = normalize(want) * HUNT_SPEED;
+  velocity += (want - velocity) * std::min(1.0f, RESPONSE * dtf);
+  position += velocity * dtf;
+  stage.keepInsideFloor(position, velocity, RADIUS);
+  vec3 chest = target + vec3(0.0f, 1.0f, 0.0f);
+  huntAim = normalize(chest - muzzle());
+  huntShotIn -= dtf;
+  if (exposed && aiming && huntShotIn <= 0.0f) {
+    huntShotIn = HUNT_SHOT_EVERY;
+    // (not quite where he is: a point somewhere round him)
+    std::uniform_real_distribution<float> off(-1.0f, 1.0f);
+    vec3 miss(off(random), off(random) * 0.5f, off(random));
+    vec3 at = chest + (length(miss) > 1.0f ? normalize(miss) : miss) * HUNT_MISS;
+    fire(stage, muzzle(), at - muzzle());
+  }
+}
+
 bool Saucer::contactFloor(const Stage &stage, double dt) {
   if (phase == Phase::Piloted)
     fly(stage, dt);
+  else if (phase == Phase::Hunting)
+    hunt(stage, dt);
   return true; // (on its own, it flies where its phase takes it)
 }
 
@@ -686,7 +743,7 @@ void Saucer::readNetState(NetReader &in) {
   unsigned landed = in.u32(), fired = in.u32();
   vec3 from = in.vec3();
   vec3 hit = in.vec3();
-  if (!in.isOk() || p > (uint8_t)Phase::Leaving)
+  if (!in.isOk() || p > (uint8_t)Phase::Hunting)
     return;
   if ((Phase)p != phase) {
     phase = (Phase)p;

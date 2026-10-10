@@ -30,7 +30,7 @@
 //   Notice    string text    something to show the player
 namespace Net {
 
-constexpr uint32_t PROTOCOL_VERSION = 5;
+constexpr uint32_t PROTOCOL_VERSION = 6;
 constexpr int DEFAULT_PORT = 7777;
 constexpr int MAX_PLAYERS = 16;
 
@@ -95,6 +95,7 @@ enum PlayerFlag : uint8_t {
   PLAYER_IN_SAUCER = 8,
   PLAYER_POSSESSED = 16, // the Flatwoods monster holds him
   PLAYER_SEATED = 32,    // he sits in the RV's passenger seat
+  PLAYER_CARRIED = 64,   // the night creature has him in its mouth
 };
 
 } // namespace Net

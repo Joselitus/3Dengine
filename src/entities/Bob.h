@@ -24,7 +24,8 @@ class Saucer;
 //   callback); then he goes on chasing.
 //   Chase --(he reaches him: CATCH_DISTANCE)--> Grabbing (paralysed or not): he holds him for
 //   GRAB_TIME, and the player can hammer the leave-vehicle key (struggle) to get free: if he does,
-//   Bob falls over (Fallen: on his back, then he gets up) and leaves him alone for a while; if not,
+//   Bob falls over (Fallen: on his back, then he gets up) and goes back to his ship, which goes up
+//   and hunts the player, shooting at him from the air (Saucer::boarded(true): Hunting); if not,
 //   he takes him (the stage's callback: he is abducted, the end).
 //   At dawn (or once he has the player), any --> Returning (to the foot of the ramp; he waits
 //   there until it is down) --> Boarding (up the ramp) --> Inside (the ship closes and goes:
@@ -102,6 +103,9 @@ private:
   float fall = 0.0f;         // 0 = standing .. 1 = on his back
   glm::vec3 lastPosition = glm::vec3(0.0f);
   bool tookPlayer = false;
+  bool failed = false;
+  float stuck = 0.0f, detour = 0.0f, detourSide = 1.0f; // (walkTo) going round what he walked into
+  static constexpr float DETOUR_TIME = 1.2f;       // the player broke free: he goes back to the ship and hunts him from it
   bool hissSilenced = false; // (see silenceHiss)
   float rayCooldown = 0.0f;
   bool rayHit = false;       // (Firing) the paralysis has been given

@@ -11,6 +11,7 @@
 #include "MaterialMap.h"
 #include "PoissonDisk.h"
 #include "RV.h"
+#include "Saucer.h"
 #include "SoundEngine.h"
 #include "Walker.h"
 
@@ -20,6 +21,7 @@ namespace {
 const float GROUND_Y = 0.0f;           // where there is no floor
 const float HALF_SIZE = 100.0f;        // the floor is 200 x 200 m (generate_forest.py, SIZE)
 const float TREE_MARGIN = 6.0f;        // no trees this close to the edge
+const float CROWN_REACH = 4.4f;        // m, the widest a pine's crown is at scale 1 (pine_N.obj, 4 m up)
 const float MORNING = 10.0f;           // it starts in the morning: long, slanting shadows
 // The overhead canopy (buildCanopy): how much light a patch of leaves stops in one plane (three
 // planes overlap: where they all have leaves it is darkest), how wide its crowns are (m), and
@@ -83,7 +85,7 @@ PineForestStage::PineForestStage(FloorMode mode, SoundEngine &sound) : VehicleSt
   createGnome(8.0f, 9.0f, std::atan2(3.0f - 8.0f, 4.0f - 9.0f));
 
   // The shades come out of the trees at night (see Shade)
-  createShades();
+  createShades(sound);
 
   // The day as in the desert (VehicleStage), from the morning, with no dunes on the sky
   startDay();
@@ -119,8 +121,18 @@ void PineForestStage::plantTrees() {
     tree->setYaw(r1 * 6.2831853f * 7.0f);
     tree->setScale(scale);
     add(tree);
+    pines.push_back(vec3(spots[i].x, spots[i].y, CROWN_REACH * scale));
   }
   buildCanopy();
+}
+
+bool PineForestStage::canLandAt(const vec3 &spot) const {
+  for (const vec3 &p : pines) {
+    float reach = p.z + Saucer::RADIUS + 0.5f;
+    if ((p.x - spot.x) * (p.x - spot.x) + (p.y - spot.z) * (p.y - spot.z) < reach * reach)
+      return false;
+  }
+  return true;
 }
 
 // The canopy covers the whole map: the crowns of trees far taller than the pines, high above

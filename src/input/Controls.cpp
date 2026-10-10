@@ -19,7 +19,8 @@ Controls::Controls() {
   bind(Action::Engine, GLFW_KEY_R);
   bind(Action::Handbrake, GLFW_KEY_SPACE);
   bind(Action::ShipLegs, GLFW_KEY_Q);
-  bind(Action::Quit, GLFW_KEY_X);
+  bind(Action::Zoom, GLFW_KEY_X);
+  bind(Action::Quit, GLFW_KEY_K); // (X was quitting until it became the zoom)
   bind(Action::Maps, GLFW_KEY_Z);
   bind(Action::PopTire, GLFW_KEY_P);
   bind(Action::DebugSelect, GLFW_KEY_1);
@@ -41,6 +42,7 @@ const char *Controls::describe(Action action) {
   case Action::Engine: return "Motor del vehiculo (conduciendo)";
   case Action::Handbrake: return "Freno de mano / subir (nave)";
   case Action::ShipLegs: return "Patas de la nave (volando)";
+  case Action::Zoom: return "Zoom (mantener)";
   case Action::Quit: return "Salir (en el menu de pausa)";
   case Action::Maps: return "Selector de mapas (debug)";
   case Action::DebugSelect: return "Modo seleccion de objetos (debug)";
@@ -66,6 +68,7 @@ const char *Controls::id(Action action) {
   case Action::Engine: return "engine";
   case Action::Handbrake: return "handbrake";
   case Action::ShipLegs: return "ship_legs";
+  case Action::Zoom: return "zoom";
   case Action::Quit: return "quit";
   case Action::Maps: return "maps";
   case Action::DebugSelect: return "debug_select";
@@ -138,7 +141,8 @@ const char *Controls::group(Action action) {
   case Action::VehicleCamera:
   case Action::Engine:
   case Action::Handbrake:
-  case Action::ShipLegs: return "Acciones";
+  case Action::ShipLegs:
+  case Action::Zoom: return "Acciones";
   case Action::Quit:
   case Action::Maps:
   case Action::DebugSelect:
