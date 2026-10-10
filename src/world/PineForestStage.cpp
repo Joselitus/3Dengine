@@ -82,6 +82,9 @@ PineForestStage::PineForestStage(FloorMode mode, SoundEngine &sound) : VehicleSt
   // A garden gnome in the clearing, facing the start (see Gnome)
   createGnome(8.0f, 9.0f, std::atan2(3.0f - 8.0f, 4.0f - 9.0f));
 
+  // The shades come out of the trees at night (see Shade)
+  createShades();
+
   // The day as in the desert (VehicleStage), from the morning, with no dunes on the sky
   startDay();
   environment.skyDunes = false;

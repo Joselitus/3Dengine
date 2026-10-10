@@ -449,7 +449,6 @@ void VehicleStage::createRV(SoundEngine &sound, float x, float z, float heading)
   addDynamic(passenger);
   rv->setSitAction([this]() { sitDown(); });
   createFlatwoods();
-  createShades();
   // The dust its wheels throw up on sand (the stage moves and removes it)
   for (const auto &emitter : rv->getDust())
     addEmitter(emitter);

@@ -259,5 +259,7 @@ ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : VehicleStage(mode
   const PathPoint &landing = path[(size_t)START_Z_INDEX + 70];
   createAlienVisit(sound, vec3(landing.x, groundAt(landing.x, landing.z), landing.z),
                    std::atan2(start.x - landing.x, start.z - landing.z));
+  // The shades come out of the trees at night (see Shade)
+  createShades();
   valid = true;
 }

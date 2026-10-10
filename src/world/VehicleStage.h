@@ -93,7 +93,7 @@ protected:
   void createAlienVisit(SoundEngine &sound, const glm::vec3 &landing, float rampYaw);
   // The Flatwoods monster, wired to the RV and the players (createRV calls it)
   void createFlatwoods();
-  // The shades (createRV makes them, in every map with the RV): night monsters of darkness that
+  // The shades (only the forest maps make them, after createRV): night monsters of darkness that
   // follow a player at a distance and turn into smoke if he gets near (see Shade)
   static constexpr int SHADES = 6;
   std::vector<std::shared_ptr<Shade>> shades;
