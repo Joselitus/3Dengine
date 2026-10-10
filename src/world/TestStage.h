@@ -149,7 +149,7 @@ private:
 public:
   // Map editing: more mosquitoes and more Pingus than the map brings
   std::vector<std::string> entityKinds() const override {
-    return {"folla_culos", "mosquito", "pingu"};
+    return {"folla_culos", "mosquito", "pingu", "gnome"};
   }
   bool spawnEntity(const std::string &kind, const vec3 &where, float yaw, EntityContext &context) override {
     if (kind == "mosquito") {
@@ -361,6 +361,9 @@ public:
     vec3 landing(-18.0f, 0.0f, 18.0f);
     landing.y = groundAt(landing.x, landing.z);
     createAlienVisit(sound, landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
+
+    // A garden gnome a few steps from the start, facing it (see Gnome: do not look at it too much)
+    createGnome(-8.0f, 8.0f, std::atan2(3.0f + 8.0f, 4.0f - 8.0f));
   }
 };
 

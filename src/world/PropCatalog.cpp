@@ -95,6 +95,7 @@ const vector<EntityType> &entityTypes() {
       {"folla_culos", "FollaCulos (criatura nocturna)"},
       {"mosquito", "Mosquito gigante"},
       {"pingu", "Pingu (NPC)"},
+      {"gnome", "Gnomo de jardin (cuchillo)"},
   };
   return types;
 }

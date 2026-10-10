@@ -10,6 +10,7 @@
 #include "AlienVisit.h"
 #include "Flatwoods.h"
 #include "FollaCulos.h"
+#include "Gnome.h"
 #include "GameStage.h"
 #include "PassengerView.h"
 #include "RV.h"
@@ -79,7 +80,11 @@ protected:
   // A night creature at (x, z) (a map may have several: see `creatures`), wired to the players, the RV and the clock. The
   // map may still add prey (setPreyQuery)
   void createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x, float z);
-  std::vector<std::string> entityKinds() const override { return {"folla_culos"}; }
+  // A garden gnome at (x, z) facing `yaw` (see Gnome): it stands still until players look at it five
+  // times, and then it runs at the nearest one with a knife
+  void createGnome(float x, float z, float yaw);
+  std::vector<std::shared_ptr<Gnome>> gnomes;
+  std::vector<std::string> entityKinds() const override { return {"folla_culos", "gnome"}; }
   bool spawnEntity(const std::string &kind, const glm::vec3 &where, float yaw, EntityContext &context) override;
   // Bob comes at night in his ship, which lands on `landing` with its ramp towards `rampYaw`
   // (see AlienVisit): he takes the player if he catches him on foot

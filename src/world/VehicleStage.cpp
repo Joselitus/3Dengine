@@ -481,11 +481,81 @@ void VehicleStage::createWalker(float x, float z, float yaw) {
 }
 
 bool VehicleStage::spawnEntity(const std::string &kind, const vec3 &where, float yaw, EntityContext &context) {
+  if (kind == "gnome") {
+    createGnome(where.x, where.z, yaw);
+    return true;
+  }
   if (kind != "folla_culos" || !rv)
     return false;
   createCreature(context.sound, context.speech, where.x, where.z);
   creature->setYaw(yaw);
   return true;
+}
+
+void VehicleStage::createGnome(float x, float z, float yaw) {
+  const std::string dir = "../assets/gnome/";
+  std::vector<std::shared_ptr<Model>> faces;
+  for (int i = 0; i < Gnome::FACES; i++)
+    faces.push_back(loadModel(dir + "gnome_face_" + std::to_string(i) + ".obj"));
+  auto gnome = std::make_shared<Gnome>(loadModel(dir + "gnome_body.obj"), faces,
+                                  loadModel(dir + "gnome_eyes_white.obj"), loadModel(dir + "gnome_arm_r.obj"),
+                                  loadModel(dir + "gnome_knife.obj"), loadModel(dir + "gnome_leg_l.obj"),
+                                  loadModel(dir + "gnome_leg_r.obj"));
+  gnome->setPosition(x, groundAt(x, z), z);
+  gnome->setYaw(yaw);
+  gnome->teleport(gnome->getPosition());
+  // Whoever is out in the open and alive can look at him (eyes at 1.6 m, looking where the
+  // player's camera does) and be run at; those in a vehicle, in a safe place or sitting cannot
+  auto outside = [this](const Player &p) { return !p.dead && !p.seated && !playerSheltered(p); };
+  gnome->setViewersQuery([this, outside](std::vector<Gnome::Viewer> &list) {
+    for (auto &p : players) {
+      if (!outside(*p))
+        continue;
+      float cp = std::cos(p->lookPitch);
+      Gnome::Viewer v;
+      v.eye = p->getPosition() + vec3(0.0f, 1.6f, 0.0f);
+      v.direction = vec3(cp * std::sin(p->lookYaw), -std::sin(p->lookPitch), -cp * std::cos(p->lookYaw));
+      list.push_back(v);
+    }
+  });
+  // (the ground hides him: dunes and hills are in the way, trees and rocks are not counted)
+  gnome->setClearViewQuery([this](const vec3 &from, const vec3 &to) {
+    float length = glm::length(to - from);
+    int steps = std::max(1, (int)(length / 1.0f));
+    for (int i = 1; i < steps; i++) {
+      vec3 at = mix(from, to, (float)i / (float)steps);
+      float ground = 0.0f;
+      if (floorAt(at.x, at.z, ground) && ground > at.y)
+        return false;
+    }
+    return true;
+  });
+  gnome->setVictimQuery([this, outside](const vec3 &from, Gnome::Victim &victim) {
+    Player *best = nullptr;
+    float bestDistance = 0.0f;
+    for (auto &p : players) {
+      if (!outside(*p))
+        continue;
+      float d = length(p->getPosition() - from);
+      if (!best || d < bestDistance) {
+        best = p.get();
+        bestDistance = d;
+      }
+    }
+    if (!best)
+      return false;
+    victim.id = best->id;
+    victim.position = best->getPosition();
+    return true;
+  });
+  gnome->setCaughtCallback([this](int id) {
+    if (netRole() == NetRole::Client)
+      return; // (the server says who dies)
+    if (Player *p = findPlayer(id))
+      killPlayer(*p);
+  });
+  addDynamic(gnome);
+  gnomes.push_back(gnome);
 }
 
 void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech, float x,

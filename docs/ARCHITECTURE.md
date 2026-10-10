@@ -653,6 +653,16 @@ No hay sombras de verdad en el motor (no hay shadow mapping). El Bosque de pinos
 - **Solo en espejos:** `setVisible` solo si `mirrorView` y está en `Waiting`/`Coming`. `main` llama a `GameStage::setMirrorView(true/false)` alrededor del `stage->render` del espejo; `VehicleStage::rearMirror` pinta los espejos también a pie dentro del RV.
 - **Posesión** (`VehicleStage`: `possessed`, `startPossession`/`endPossession`/`updatePossession`, llamado desde `apply` del walker): `playerImmobilized` (sin controles). Si conduce, suelta los mandos y espera a que el RV baje de 2 m/s para levantarse (`getOutOfRV`, lo mismo que Mayús); luego el walker anda a `POSSESSED_SPEED` 1.3 m/s por tres puntos en el marco del RV (dentro junto a la puerta, abriéndola con `toggleDoor` si está cerrada; justo fuera; 5 m fuera) y se queda quieto; si un tramo dura >12 s, salta al punto. `possessedLook` da el rumbo para que `main` gire la cámara hacia allí. `StruggleOverlay::setPossessed` muestra «Algo controla tu cuerpo. ¡Pulsa Mayús izq. para liberarte!» y un `DeathOverlay` tiñe de rojo oscuro. `leaveVehicle` (Mayús) → `endPossession`, que siempre suelta al monstruo (también si el jugador muere o amanece).
 
+## El gnomo de jardín
+
+`entities/Gnome` (modelos en `assets/gnome/`, generados por `generate_gnome.py`: cuerpo, brazo derecho, cuchillo, dos piernas, cinco caras y los ojos blancos de la última). Es un `DynamicGameObject` que nace quieto y **no tiene animación en reposo** (las transformaciones de las piezas son la identidad). Lógica solo en el servidor (`update` sin `replica`):
+
+1. `isLookedAt()`: para cada `Viewer` (ojos y dirección de cada jugador vivo, a pie y fuera de sitios seguros: `VehicleStage::createGnome`), dentro de `LOOK_RANGE`, de `LOOK_CONE` grados del centro de la vista, de frente a la cara del gnomo y sin terreno en medio (`setClearViewQuery`, muestrea `floorAt` cada metro).
+2. Cara 0–3: mirarlo `LOOK_HOLD` s marca una mirada pendiente; la cara avanza cuando nadie lo mira durante `AWAY_DELAY`. Cara 4 (`LAST_FACE`): mirarlo `FINAL_HOLD` s lo arma.
+3. Armado: cuchillo visible, brazo alzado, y si hay un jugador (`setVictimQuery`: el más cercano a pie) a ≤ `CHASE_RANGE` corre a `CHASE_SPEED` y lo mata a `KILL_DISTANCE` (`setCaughtCallback` → `killPlayer`). Sin víctima se queda quieto.
+
+Red: `writeNetState` manda cara, armado y muerto; la réplica solo enseña la cara/cuchillo y balancea piernas y brazo según lo que se mueve. Para otro mapa: `createGnome(x, z, yaw)` en el constructor (comprueba antes que el sitio se ve desde donde se va a mirar: un montículo lo esconde).
+
 ## Bob y su nave
 
 En los dos bosques y en el desierto de día (`TestStage`), solo de noche. `AlienVisit::create(stage, aterrizaje, rumbo de la rampa, noche, jugador, en vehículo, muerto, secuestrar, paralizar, paralizado, entrar)` crea y conecta los dos objetos (`entities/`); `VehicleStage::createAlienVisit` lo hace para los mapas de vehículo (los dos bosques y `TestStage` heredan de ella; en el desierto aterriza en (−18, 18), un trozo de arena casi llano —0.23 m de desnivel en 5 m— a 25 m del inicio, 15 m de la carretera y ≥9 m de cactus y rocas, con la rampa hacia el inicio) y registra la nave como `Interactable`.
