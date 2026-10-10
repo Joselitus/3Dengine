@@ -48,6 +48,20 @@ void ConnectMenu::submit() {
 bool ConnectMenu::onChar(unsigned int codepoint) { return focus->add(codepoint); }
 
 bool ConnectMenu::onKey(int key) {
+  GLFWwindow *window = glfwGetCurrentContext();
+  bool ctrl = window && (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                         glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS);
+  if (ctrl && key == GLFW_KEY_C) {
+    glfwSetClipboardString(window, focus->getText().c_str());
+    return true;
+  }
+  if (ctrl && key == GLFW_KEY_V) {
+    const char *clip = glfwGetClipboardString(window);
+    for (; clip && *clip; clip++)
+      if (*clip != '\n' && *clip != '\r')
+        focus->add((unsigned char)*clip);
+    return true;
+  }
   switch (key) {
   case GLFW_KEY_ENTER:
   case GLFW_KEY_KP_ENTER:
