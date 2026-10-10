@@ -362,6 +362,11 @@ public:
     landing.y = groundAt(landing.x, landing.z);
     createAlienVisit(sound, landing, std::atan2(3.0f - landing.x, 4.0f - landing.z));
 
+    // A house (see House) on the flattest sand there is 50 m from the start (the ground varied 0.8 m
+    // under it: placeHouse levels it), 13 m from the road and 6 m from the nearest cactus or rock, its
+    // porch towards the start
+    placeHouse(9.0f, 57.0f, std::atan2(-(4.0f - 57.0f), 3.0f - 9.0f));
+
     // A garden gnome a few steps from the start, facing it (see Gnome: do not look at it too much)
     createGnome(-8.0f, 8.0f, std::atan2(3.0f + 8.0f, 4.0f - 8.0f));
   }

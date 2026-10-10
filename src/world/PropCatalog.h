@@ -22,6 +22,9 @@ struct PropType {
   std::string model;    // under assets/
   std::string lod1, lod2; // simpler models for the distance (trees); empty: none
   float radius = 0.0f, height = 0.0f; // the solid part (a capsule); 0: not solid
+  // An object of its own class (a building: its collision shape made of boxes, its door...) made from
+  // `model`; null: a plain GameObject
+  std::shared_ptr<GameObject> (*make)(Stage &stage, std::shared_ptr<Model> model) = nullptr;
   float sway = 0.0f;                  // wind (trees)
   float cullRadius = 0.0f;            // how far its parts reach, for not drawing it (0: the default)
   float scale = 1.0f;                 // size to start with

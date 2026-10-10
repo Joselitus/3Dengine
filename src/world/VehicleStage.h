@@ -68,7 +68,9 @@ protected:
   bool playerInRV(const Player &p) const {
     return p.inVehicle || (rvInside && rvInside->contains(p.walker->getPosition()));
   }
-  static constexpr float POSSESSED_SPEED = 1.3f; // m/s, a possessed body's pace
+  static constexpr float POSSESSED_SPEED = 1.3f; // m/s, a possessed body's pace out of the RV
+  static constexpr float POSSESSED_FLEE = 30.0f; // m it runs from the RV before it wanders
+  std::mt19937 possessRandom{std::random_device()()};
   float groundFallback = 0.0f;          // ground height where there is no floor
 
   explicit VehicleStage(FloorMode mode) : GameStage(mode) {}

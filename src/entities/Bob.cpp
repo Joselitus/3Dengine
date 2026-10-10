@@ -227,14 +227,10 @@ void Bob::update(double dt) {
       enter(Behavior::Returning);
     } else if (dead || inVehicle || distance > LOSE_RANGE) {
       enter(Behavior::Prowl);
-    } else if (distance < CATCH_DISTANCE) {
-      if (paralysed) {
-        take(); // he can't move: there is no struggle
-      } else {
-        struggle = 0.0f;
-        velocity = vec3(0.0f);
-        enter(Behavior::Grabbing);
-      }
+    } else if (distance < CATCH_DISTANCE) { // (paralysed or not, he can always struggle)
+      struggle = 0.0f;
+      velocity = vec3(0.0f);
+      enter(Behavior::Grabbing);
     } else if (!paralysed && rayCooldown <= 0.0f && distance > RAY_MIN && distance < RAY_MAX &&
                uniform(0.0f, 1.0f) < 1.0f - std::pow(1.0f - RAY_CHANCE, dtf)) {
       rayHit = false;

@@ -79,8 +79,9 @@ void VehicleStage::leaveVehicle(Player &p) {
     setControl(p, p.walker, 0.0f, EYE_HEIGHT, std::atan2(away.x, -away.z)); // (looking away from it)
     return;
   }
-  if (p.possessed) { // (the Flatwoods monster holds him: he breaks free, and it goes)
-    endPossession(p);
+  if (p.possessed) { // (the Flatwoods monster holds him: he fights to break free, see updatePossession)
+    if (flatwoods)
+      flatwoods->struggleOnce();
     return;
   }
   if (p.seated) {
@@ -306,6 +307,8 @@ float VehicleStage::playerParalysis() const {
 }
 
 float VehicleStage::struggleProgress() const {
+  if (local && local->possessed && flatwoods)
+    return flatwoods->getStruggle();
   return alien.bob && local ? alien.bob->struggleProgress(local->id) : -1.0f;
 }
 
@@ -728,6 +731,7 @@ void VehicleStage::startPossession(Player &p) {
   p.possessed = true;
   p.possessStep = 0;
   p.possessStepTime = 0.0f;
+  p.possessStuck = 0.0f;
   p.possessYaw = rv->headingYaw();
   p.savedWalkSpeed = p.walker->getMaxSpeed();
   p.walker->setRunning(false);
@@ -739,16 +743,25 @@ void VehicleStage::endPossession(Player &p) {
   p.possessed = false;
   p.walker->control(vec2(0.0f), 0.0f, 0.0f);
   p.walker->setMaxSpeed(p.savedWalkSpeed);
+  p.walker->setRunning(false);
   if (p.id == flatwoodsVictim)
     flatwoods->release(); // (it lets go, whatever ended it: it comes again from a new side)
 }
 
 // The monster walks his body out: if he drives, the RV is let go and, once it is (nearly) still, he
-// stands up; then to the doorway (opening the door), out through it, and some steps away
+// stands up; then to the doorway (opening the door) and out through it; then it runs off, away from
+// the RV, POSSESSED_FLEE metres (or until something stops it), and from there it wanders on and on
+// (never stopping, turning now and then and when it is blocked, never back to the RV or off the
+// floor) until he breaks free: hammering the leave key
+// (Flatwoods::getStruggle reaches 1)
 void VehicleStage::updatePossession(Player &p, double dt) {
   if (!p.possessed)
     return;
   if (p.dead || !flatwoods->isHolding()) { // (it is gone: dawn...)
+    endPossession(p);
+    return;
+  }
+  if (flatwoods->getStruggle() >= 1.0f) { // (he fought it off: it lets go and goes)
     endPossession(p);
     return;
   }
@@ -760,32 +773,67 @@ void VehicleStage::updatePossession(Player &p, double dt) {
       return;
     getOutOfRV(p);
   }
-  p.walker->setMaxSpeed(POSSESSED_SPEED);
-  // the way out, in the RV's frame: inside by the doorway, just outside it, and away from it
-  vec3 centre, halfSize;
-  RV::interiorBox(centre, halfSize);
-  const float W = halfSize.x, DOOR_Z = -0.35f;
-  const vec3 way[3] = {vec3(W - 0.5f, 0.0f, DOOR_Z), vec3(W + 1.2f, 0.0f, DOOR_Z), vec3(W + 5.0f, 0.0f, DOOR_Z)};
-  const float REACHED[3] = {0.3f, 0.4f, 0.5f};
   p.possessStepTime += (float)dt;
-  if (p.possessStep >= 3) {
-    p.walker->control(vec2(0.0f), 0.0f, p.possessYaw); // (it just stands there)
-    return;
-  }
-  mat3 body = mat3(rv->getPose().rotation);
-  vec3 goal = rv->getPosition() + body * way[p.possessStep];
   vec3 at = p.walker->getPosition();
-  vec2 to(goal.x - at.x, goal.z - at.z);
-  if (p.possessStep == 0 && length(to) < 1.5f && !rv->isDoorOpen())
-    rv->toggleDoor(); // (it opens the door on its way)
-  if (length(to) < REACHED[p.possessStep] || p.possessStepTime > 12.0f) {
-    if (p.possessStepTime > 12.0f) // (stuck: it gets there anyway)
-      p.walker->setPosition(goal.x, p.possessStep == 0 ? at.y : groundAt(goal.x, goal.z), goal.z);
-    p.possessStep++;
-    p.possessStepTime = 0.0f;
+  if (p.possessStep < 2) {
+    // the way out, in the RV's frame: inside by the doorway, then just outside it (slowly)
+    p.walker->setMaxSpeed(POSSESSED_SPEED);
+    vec3 centre, halfSize;
+    RV::interiorBox(centre, halfSize);
+    const float W = halfSize.x, DOOR_Z = -0.35f;
+    const vec3 way[2] = {vec3(W - 0.5f, 0.0f, DOOR_Z), vec3(W + 1.2f, 0.0f, DOOR_Z)};
+    const float REACHED[2] = {0.3f, 0.4f};
+    vec3 goal = rv->getPosition() + mat3(rv->getPose().rotation) * way[p.possessStep];
+    vec2 to(goal.x - at.x, goal.z - at.z);
+    if (p.possessStep == 0 && length(to) < 1.5f && !rv->isDoorOpen())
+      rv->toggleDoor(); // (it opens the door on its way)
+    if (length(to) < REACHED[p.possessStep] || p.possessStepTime > 12.0f) {
+      if (p.possessStepTime > 12.0f) // (stuck: it gets there anyway)
+        p.walker->setPosition(goal.x, p.possessStep == 0 ? at.y : groundAt(goal.x, goal.z), goal.z);
+      p.possessStep++;
+      p.possessStepTime = 0.0f;
+      return;
+    }
+    p.possessYaw = std::atan2(to.x, -to.y);
+    p.walker->control(vec2(0.0f, -1.0f), 0.0f, p.possessYaw);
     return;
   }
-  p.possessYaw = std::atan2(to.x, -to.y);
+  vec2 fromRV(at.x - rv->getPosition().x, at.z - rv->getPosition().z);
+  float distance = length(fromRV);
+  vec2 away = distance > 0.01f ? fromRV / distance : vec2(1.0f, 0.0f);
+  float awayYaw = std::atan2(away.x, -away.y);
+  // (something in the way, a tree or a wall: it hardly moves)
+  vec3 v = p.walker->getVelocity();
+  p.possessStuck = length(vec2(v.x, v.z)) < 1.0f ? p.possessStuck + (float)dt : 0.0f;
+  if (p.possessStep == 2) { // running off, straight away from the RV (or wandering, if it can't)
+    p.walker->setMaxSpeed(p.savedWalkSpeed);
+    p.walker->setRunning(true);
+    p.possessYaw = awayYaw;
+    if (distance > POSSESSED_FLEE || p.possessStuck > 1.0f) {
+      p.possessStep = 3;
+      p.possessStepTime = 0.0f;
+      p.walker->setRunning(false);
+      p.possessStuck = 0.0f;
+    }
+  } else { // wandering: a new way every few seconds, never back to the RV nor off the floor
+    p.walker->setMaxSpeed(p.savedWalkSpeed);
+    if (p.possessStepTime > p.possessTurnIn) {
+      p.possessStepTime = 0.0f;
+      p.possessTurnIn = std::uniform_real_distribution<float>(2.0f, 6.0f)(possessRandom);
+      p.possessYaw += std::uniform_real_distribution<float>(-1.2f, 1.2f)(possessRandom);
+    }
+    float ahead = 0.0f;
+    vec2 dir(std::sin(p.possessYaw), -std::cos(p.possessYaw));
+    bool floorAhead = floorAt(at.x + dir.x * 6.0f, at.z + dir.y * 6.0f, ahead);
+    if (!floorAhead || (distance < POSSESSED_FLEE * 0.6f && dot(dir, away) < 0.0f)) {
+      p.possessYaw = floorAhead ? awayYaw : p.possessYaw + 3.14159265f; // (turn round)
+      p.possessStepTime = 0.0f;
+    } else if (p.possessStuck > 0.8f) { // (blocked: it goes off some other way)
+      p.possessYaw += std::uniform_real_distribution<float>(1.6f, 4.7f)(possessRandom);
+      p.possessStuck = 0.0f;
+      p.possessStepTime = 0.0f;
+    }
+  }
   p.walker->control(vec2(0.0f, -1.0f), 0.0f, p.possessYaw);
 }
 

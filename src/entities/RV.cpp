@@ -110,11 +110,13 @@ static const float START_FAIL_CHANCE = 0.4f;
 // far it opens (radians, outwards) and how fast it swings (rad/s); the point to be near to use it
 static const vec3 DOOR_HINGE(1.22f, 0.58f, 0.12f), DOOR_POINT(1.2f, 0.3f, -0.35f);
 static const float DOOR_OPEN_ANGLE = 1.75f; // (100 degrees, outwards)
-// The door as a swinging panel: its width (m, hinge to free edge), how fast the use key pushes it open
-// and shut (rad/s), the hinge's friction (1/s), how much it bounces off its stops, and the
-// speed below which it latches when it closes
-static const float DOOR_WIDTH = 0.94f, DOOR_KICK_OPEN = 3.0f, DOOR_KICK_SHUT = 3.5f;
+// The door as a swinging panel: its width (m, hinge to free edge), how fast the use key carries it open
+// and shut (rad/s), the hinge's friction (1/s), how much it bounces off its stops, the
+// speed below which it latches when it closes, and the push (m/s^2 across the panel) it takes to
+// pull it off its open stop (a catch holds it there: a tilt or a gentle start does not shut it)
+static const float DOOR_WIDTH = 0.94f, DOOR_HAND_SPEED = 2.5f;
 static const float DOOR_DAMPING = 1.5f, DOOR_BOUNCE_OPEN = 0.25f, DOOR_BOUNCE_SHUT = 0.3f, DOOR_LATCH_SPEED = 2.0f;
+static const float DOOR_CATCH = 3.0f;
 // Where the driver stands on the floor inside (behind the wheel at x = 0.45, z = 2.28)
 // (on the floor behind the pilot's seat, which stands at SEAT_ORIGIN: its cushion and backrest take
 // z 1.16 to 1.94, its back leaning to z 0.95)
@@ -1042,13 +1044,15 @@ void RV::setDoorModel(std::shared_ptr<Model> door) {
   updateDoor(0.0);
 }
 
+// A hand carries it all the way: open to its stop if it is shut or closing, else shut until it latches
+// (a push alone used to leave it ajar: the hinge's friction or a tilt stopped it half way)
 void RV::toggleDoor() {
   if (doorLatched) {
     doorLatched = false;
     doorAngle = 0.02f;
-    doorSpin = DOOR_KICK_OPEN;
+    doorHand = 1;
   } else {
-    doorSpin = -DOOR_KICK_SHUT;
+    doorHand = doorHand > 0 || doorAngle >= DOOR_OPEN_ANGLE - 0.05f ? -1 : 1;
   }
 }
 
@@ -1079,10 +1083,25 @@ void RV::updateDoor(double dt) {
     vec3 r = R * (middle - vec3(0.0f, 0.4f, 0.0f));
     vec3 a = doorAccel + glm::cross(doorAlpha, r) + glm::cross(w, glm::cross(w, r));
     vec3 f = glm::transpose(R) * (vec3(0.0f, -9.81f, 0.0f) - a);
-    float accel = 1.5f / DOOR_WIDTH * (std::cos(doorAngle) * f.x + std::sin(doorAngle) * f.z);
-    doorSpin += accel * dtf;
+    float push = std::cos(doorAngle) * f.x + std::sin(doorAngle) * f.z;
+    if (doorHand != 0) // (the hand carries it at its own pace, whatever pushes it)
+      doorSpin = doorHand * DOOR_HAND_SPEED;
+    else if (doorAngle >= DOOR_OPEN_ANGLE - 0.01f && push > -DOOR_CATCH) // (held open by the catch)
+      doorSpin = std::max(doorSpin, 0.0f);
+    else
+      doorSpin += 1.5f / DOOR_WIDTH * push * dtf;
     doorSpin *= std::exp(-DOOR_DAMPING * dtf);
     doorAngle += doorSpin * dtf;
+    if (doorHand > 0 && doorAngle >= DOOR_OPEN_ANGLE) { // the hand lets go at the stop
+      doorHand = 0;
+      doorSpin = 0.0f;
+    }
+    if (doorHand < 0 && doorAngle <= 0.0f) { // and pushes it home
+      doorHand = 0;
+      doorSpin = 0.0f;
+      doorAngle = 0.0f;
+      doorLatched = true;
+    }
     if (doorAngle > DOOR_OPEN_ANGLE) { // against the open stop
       doorAngle = DOOR_OPEN_ANGLE;
       doorSpin = doorSpin > 0.0f ? -doorSpin * DOOR_BOUNCE_OPEN : doorSpin;

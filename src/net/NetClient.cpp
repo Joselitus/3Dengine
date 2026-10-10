@@ -417,6 +417,10 @@ void NetClient::apply(double dt) {
     me->walker->setReplica(!predicted);
     wasPredicted = predicted;
     if (predicted) {
+      // (the poses below skip him while he is ours, so whether he is solid comes from here: else the
+      // "not solid" of his body lying dead stayed on after he came back, and he walked through things)
+      if (const ObjectRecord *r = recordOf(const_cast<Snapshot &>(newest), me->walker->getNetId()))
+        me->walker->setCollidable(r->flags & OBJ_COLLIDABLE);
       float k = (float)std::min(1.0, dt * 10.0);
       me->walker->translate(correction * k);
       correction *= 1.0f - k;

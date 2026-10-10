@@ -1,6 +1,7 @@
 #ifndef FLATWOODS
 #define FLATWOODS
 
+#include <algorithm>
 #include <functional>
 #include <memory>
 #include <random>
@@ -20,7 +21,8 @@
 // after that, from a new side each time (at least MIN_TURN away from the last one).
 //
 // When it reaches him (CATCH_DISTANCE) it takes hold of him (the map's possess callback: his body
-// walks out of the RV) and is not there any more. When he breaks free (release), or when his
+// runs off, then wanders, out of his control) and is not there any more. He breaks free by
+// hammering the leave key (struggleOnce, getStruggle: as from Bob). When he breaks free (release), or when his
 // flashlight shines on it (the map's query), it vanishes, and after COME_BACK_TIME it comes again
 // from a new side. At dawn it goes, and the next night starts again from behind the RV.
 class Flatwoods : public DynamicGameObject {
@@ -40,6 +42,7 @@ public:
 private:
   State state = State::Away;
   float stateTime = 0.0f;
+  float struggle = 0.0f;       // (Holding) 0..1: at 1 the player is free
   bool cameTonight = false;    // it has come once this night (from behind)
   bool mirrorView = false;     // the mirrors are being drawn
   float side = 0.0f;           // the side it came from last (rad about +y, from the RV)
@@ -73,6 +76,15 @@ public:
 
   // The player broke free: it goes, and comes again from a new side
   void release();
+  // Holding him, the player hammers the leave key to break free (as from Bob): each press frees him
+  // STRUGGLE_PER_PRESS (of 1) and it wears off at STRUGGLE_DECAY per second; at 1 he is free (the map
+  // asks getStruggle and lets him go)
+  static constexpr float STRUGGLE_PER_PRESS = 0.11f, STRUGGLE_DECAY = 0.35f;
+  void struggleOnce() {
+    if (state == State::Holding)
+      struggle = std::min(1.0f, struggle + STRUGGLE_PER_PRESS);
+  }
+  float getStruggle() const { return state == State::Holding ? struggle : 0.0f; }
   // The main loop draws the mirrors (true) or the player's view (false): it shows only in mirrors
   void setMirrorView(bool inMirror);
   State getState() const { return state; }
@@ -80,11 +92,17 @@ public:
 
   void update(double dt) override;
   // Its state, for the clients: where it is goes with every object, and what it does is here
-  void writeNetState(NetWriter &out) const override { out.u8((uint8_t)state); }
+  void writeNetState(NetWriter &out) const override {
+    out.u8((uint8_t)state);
+    out.f32(struggle);
+  }
   void readNetState(NetReader &in) override {
     uint8_t s = in.u8();
-    if (in.isOk() && s <= (uint8_t)State::Holding)
+    float st = in.f32();
+    if (in.isOk() && s <= (uint8_t)State::Holding) {
       state = (State)s;
+      struggle = st;
+    }
   }
   bool contactFloor(const Stage &stage, double dt) override { return true; } // (it floats)
   float getHeading() const override { return yaw; }

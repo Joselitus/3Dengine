@@ -5,6 +5,8 @@
 #include <cstdio>
 
 #include "FollaCulos.h"
+#include "House.h"
+#include "PropCatalog.h"
 #include "NetRole.h"
 #include "Npc.h"
 
@@ -168,6 +170,43 @@ void GameStage::tick(double dt) {
   }
   onTick(dt);
   update(dt);
+}
+
+void GameStage::propPlaced(const shared_ptr<GameObject> &prop) {
+  shared_ptr<House> house = dynamic_pointer_cast<House>(prop);
+  if (!house)
+    return;
+  auto door = make_shared<HouseDoor>(loadModel("../assets/house/house_door.obj"), house);
+  addDynamic(door);
+  interactables.push_back(door.get());
+}
+
+void GameStage::placeHouse(float x, float z, float yaw) {
+  const PropType *type = findProp("house");
+  if (!type)
+    return;
+  // The ground under it is levelled (to its height at the middle) and blended into the land round it
+  // over BLEND metres, so that no dune comes up through its porch
+  if (terrainEditable()) {
+    const float BLEND = 4.0f;
+    vec3 low, high;
+    House::footprint(low, high);
+    float level = groundAt(x, z, 0.0f), c = std::cos(yaw), s = std::sin(yaw);
+    TerrainGrid g = terrainGrid();
+    for (int iz = 0; iz < g.nz; iz++)
+      for (int ix = 0; ix < g.nx; ix++) {
+        float wx = g.x0 + ix * g.dx - x, wz = g.z0 + iz * g.dz - z;
+        float lx = wx * c - wz * s, lz = wx * s + wz * c; // (in the house's frame: setYaw turns +x to (c, -s))
+        float out = std::max(std::max(low.x - lx, lx - high.x), std::max(low.z - lz, lz - high.z));
+        if (out >= BLEND)
+          continue;
+        float k = out <= 0.0f ? 1.0f : 1.0f - out / BLEND;
+        k = k * k * (3.0f - 2.0f * k);
+        setTerrainHeight(ix, iz, terrainHeight(ix, iz) + (level - terrainHeight(ix, iz)) * k);
+      }
+    commitTerrain();
+  }
+  propPlaced(makeProp(*this, *type, x, z, 0.0f, yaw, 1.0f));
 }
 
 void GameStage::useInteractable(Player &p, Interactable &target, const vec3 &at) {

@@ -36,6 +36,7 @@ Flatwoods::Flatwoods(shared_ptr<Model> body, shared_ptr<Model> eyes)
 void Flatwoods::enter(State next) {
   state = next;
   stateTime = 0.0f;
+  struggle = 0.0f;
 }
 
 // It comes into being APPEAR_DISTANCE from the RV: behind it, or on a new side
@@ -133,8 +134,9 @@ void Flatwoods::update(double dt) {
       yaw += clamp(angleTo(yaw, std::atan2(to.x, to.y)), -TURN_RATE * dtf, TURN_RATE * dtf);
     break;
   }
-  case State::Holding:
-    break; // (it is in him: the map walks his body out)
+  case State::Holding: // (it is in him: the map walks his body out; his struggle wears off)
+    struggle = std::max(0.0f, struggle - STRUGGLE_DECAY * (float)dt);
+    break;
   }
   velocity = vec3(0.0f);
   // a slow sway as it floats

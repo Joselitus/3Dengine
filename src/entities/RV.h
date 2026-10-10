@@ -20,11 +20,11 @@
 // The RV is HOLLOW: its collision shape (a CompoundShape, see hullShape in RV.cpp) is a floor, a roof
 // and walls with the doorway cut in the driver's side (+x), so the penguin can walk in (the sill and
 // the step under it are low enough to climb: Walker::getStepHeight) and around the cab. The door is a
-// model of its own that swings on its front edge (setDoorModel); E next to it gives it a push to open
-// or to shut (isDoorOpen, toggleDoor; shut, it is a wall too). The door is a real hinged panel: it
-// feels the vehicle's acceleration and spin (and gravity when the RV is tilted), so it swings open
-// when the RV brakes or turns hard, and slams shut when it accelerates; it bounces off its stops
-// and latches when it closes gently. To drive, the penguin stands by the steering
+// model of its own that swings on its front edge (setDoorModel); E next to it carries it open to its
+// stop or shut until it latches (isDoorOpen, toggleDoor; shut, it is a wall too). Left alone, the door
+// is a real hinged panel: it feels the vehicle's acceleration and spin (and gravity when the RV is
+// tilted), so braking or turning hard throws it about and accelerating slams it shut; a catch holds
+// it fully open against small pushes; it bounces off its stops and latches when it closes gently. To drive, the penguin stands by the steering
 // wheel inside and presses E there (steeringInteraction()): that is what the enter action does.
 //
 // The RV: W/S drive it and A/D steer its front wheels, so the camera can
@@ -135,6 +135,7 @@ private:
   bool doorLatched = true; // shut and clicked home: it stays so until somebody uses it
   float doorAngle = 0.0f;  // how far it is open now (radians, 0 = shut)
   float doorSpin = 0.0f;   // how fast it swings (rad/s, positive = opening)
+  int doorHand = 0;        // the use key carries it: 1 open, -1 shut, 0 it swings freely
   // The vehicle's own acceleration and spin (filtered), which the door feels (see updateDoor)
   glm::vec3 doorPrevVelocity = glm::vec3(0.0f), doorPrevSpin = glm::vec3(0.0f);
   glm::vec3 doorAccel = glm::vec3(0.0f), doorAlpha = glm::vec3(0.0f);

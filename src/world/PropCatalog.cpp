@@ -1,6 +1,7 @@
 #include "PropCatalog.h"
 
 #include "CollisionShape.h"
+#include "House.h"
 #include "Stage.h"
 
 using namespace std;
@@ -31,6 +32,12 @@ PropType tree(const char *name, const char *label, float trunk, float height, fl
   t.sway = 1.0f;
   t.cullRadius = crown + 2.0f;
   return t;
+}
+
+// The house (see House): hollow, with its door
+shared_ptr<GameObject> makeHouse(Stage &stage, shared_ptr<Model> model) {
+  shared_ptr<Model> door = stage.loadModel("../assets/house/house_door.obj");
+  return door ? make_shared<House>(model, door) : nullptr;
 }
 
 vector<PropType> makePropTypes() {
@@ -74,6 +81,10 @@ vector<PropType> makePropTypes() {
   mesa.cullRadius = 2800.0f;
   mesa.sink = 0.0f;
   v.push_back(mesa);
+  PropType house = prop("house", "Casa", "Edificios", "house/house.obj");
+  house.make = makeHouse;
+  house.cullRadius = 12.0f;
+  v.push_back(house);
   return v;
 }
 } // namespace
@@ -113,7 +124,11 @@ shared_ptr<GameObject> makeProp(Stage &stage, const PropType &type, float x, flo
   if (!model)
     return nullptr;
   shared_ptr<GameObject> object;
-  if (type.height > 0.0f)
+  if (type.make) {
+    object = type.make(stage, model);
+    if (!object)
+      return nullptr;
+  } else if (type.height > 0.0f)
     object = make_shared<GameObject>(model, make_shared<Capsule>(type.radius, type.height));
   else
     object = make_shared<GameObject>(model);

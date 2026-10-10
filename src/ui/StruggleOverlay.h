@@ -8,7 +8,7 @@
 
 // While Bob holds the player: a line telling him which key to hammer to get free, and a bar with
 // how near he is (the main loop sets `progress`, 0..1, or < 0 to hide it). While the Flatwoods
-// monster controls him (setPossessed), just the line: which key to press to break free. Registered
+// monster controls him (setPossessed), the same with its own line. Registered
 // with UIManager::addOverlay.
 class StruggleOverlay : public UIOverlay {
   float progress = -1.0f;

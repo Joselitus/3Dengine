@@ -208,6 +208,8 @@ void MapEdits::apply(GameStage &stage, EntityContext &context) {
   for (const Prop &p : props) {
     const PropType *type = findProp(p.type);
     propObjects.push_back(type ? makeProp(stage, *type, p.x, p.z, p.above, p.yaw, p.scale) : nullptr);
+    if (propObjects.back())
+      stage.propPlaced(propObjects.back()); // (a house's door)
     if (!type)
       fprintf(stderr, "MapEdits: no prop called '%s'\n", p.type.c_str());
   }

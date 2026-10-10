@@ -22,10 +22,10 @@ class Saucer;
 //   Chase --(now and then, with the player between RAY_MIN and RAY_MAX)--> Firing: he stops and
 //   shoots a yellow ray from his eyes that paralyses the player for PARALYSIS_TIME (the stage's
 //   callback); then he goes on chasing.
-//   Chase --(he reaches him: CATCH_DISTANCE)--> if the player is paralysed he takes him (the
-//   stage's callback: he is abducted, the end); if not, Grabbing: he holds him for GRAB_TIME, and
-//   the player can hammer the leave-vehicle key (struggle) to get free: if he does, Bob falls over
-//   (Fallen: on his back, then he gets up) and leaves him alone for a while; if not, he takes him.
+//   Chase --(he reaches him: CATCH_DISTANCE)--> Grabbing (paralysed or not): he holds him for
+//   GRAB_TIME, and the player can hammer the leave-vehicle key (struggle) to get free: if he does,
+//   Bob falls over (Fallen: on his back, then he gets up) and leaves him alone for a while; if not,
+//   he takes him (the stage's callback: he is abducted, the end).
 //   At dawn (or once he has the player), any --> Returning (to the foot of the ramp; he waits
 //   there until it is down) --> Boarding (up the ramp) --> Inside (the ship closes and goes:
 //   Saucer::boarded).

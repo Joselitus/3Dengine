@@ -1,0 +1,78 @@
+# Made by prepare_house.py
+
+newmtl Paredes
+Ka 0 0 0
+Kd 0.86 0.84 0.79
+Ks 0.05 0.05 0.05
+Ns 40
+d 1
+
+newmtl Zocalo
+Ka 0 0 0
+Kd 0.48 0.47 0.45
+Ks 0.02 0.02 0.02
+Ns 40
+d 1
+
+newmtl Suelo
+Ka 0 0 0
+Kd 0.5 0.38 0.27
+Ks 0.1 0.1 0.1
+Ns 40
+d 1
+
+newmtl hormigon
+Ka 0 0 0
+Kd 0.62 0.61 0.58
+Ks 0.02 0.02 0.02
+Ns 40
+d 1
+
+newmtl Escalera
+Ka 0 0 0
+Kd 0.55 0.54 0.51
+Ks 0.02 0.02 0.02
+Ns 40
+d 1
+
+newmtl Viga
+Ka 0 0 0
+Kd 0.33 0.24 0.17
+Ks 0.05 0.05 0.05
+Ns 40
+d 1
+
+newmtl Tejado
+Ka 0 0 0
+Kd 0.42 0.44 0.46
+Ks 0.25 0.25 0.25
+Ns 40
+d 1
+
+newmtl Puerta
+Ka 0 0 0
+Kd 0.45 0.3 0.18
+Ks 0.08 0.08 0.08
+Ns 40
+d 1
+
+newmtl Pomo
+Ka 0 0 0
+Kd 0.75 0.7 0.55
+Ks 0.6 0.6 0.6
+Ns 40
+d 1
+
+newmtl Cama
+Ka 0 0 0
+Kd 0.55 0.2 0.18
+Ks 0.03 0.03 0.03
+Ns 40
+d 1
+
+newmtl Aire
+Ka 0 0 0
+Kd 0.82 0.83 0.84
+Ks 0.3 0.3 0.3
+Ns 40
+d 1

@@ -68,10 +68,12 @@ struct Player {
   bool inSaucer = false;  // he flies Bob's ship
   float paralysis = 0.0f; // seconds left paralysed by Bob's ray
   // The Flatwoods monster holds him: his body walks out of the RV by itself (possessStep: to the
-  // doorway, out through it, away from it, then it stands) until he presses the leave key
+  // doorway, out through it, then it runs off and wanders on) until he hammers the leave key free
   bool possessed = false;
   int possessStep = 0;
   float possessStepTime = 0.0f;
+  float possessTurnIn = 3.0f; // (wandering) s until its body turns
+  float possessStuck = 0.0f;  // s its body has hardly moved (something in the way)
   float possessYaw = 0.0f; // where his body walks (his camera turns to it)
   float savedWalkSpeed = 0.0f;
   // What his controls say now (the server keeps the last from his client)
@@ -177,6 +179,11 @@ public:
   virtual bool spawnEntity(const std::string &kind, const glm::vec3 &where, float yaw, EntityContext &context) {
     return false;
   }
+  // A prop of the catalog (PropCatalog) that the map or its edits put down: if it is a house, its door
+  // (a HouseDoor: E opens it, the server says how it is) is added and made usable
+  void propPlaced(const std::shared_ptr<GameObject> &prop);
+  // A house of the catalog on the floor at (x, z), its porch towards `yaw` (0 = +x... see House), with its door
+  void placeHouse(float x, float z, float yaw);
   virtual bool spawnReplica(unsigned char kind, int netId, const glm::vec3 &where, float arg) { return false; }
   Player *findPlayer(int id);
   const std::vector<std::unique_ptr<Player>> &getPlayers() const { return players; }

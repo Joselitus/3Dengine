@@ -26,6 +26,7 @@ class RV;
 //   DETECT_RANGE)--> Stalk --(every few seconds)--> Dive --(it bit the player / it pulled up in
 //   front of the vehicle / it missed)--> Retreat --> Stalk;  Stalk --(the target gets further
 //   than LOSE_RANGE, the player is dead, or it is no longer dawn or dusk)--> Wander;
+//   at night (isNight), from any state but a dive or a bite --> Sleep --(dawn)--> Wander;
 //   from any state, (a collision flings it: the RV hits it) --> Dead.
 //
 //  - Wander: it roams the desert looking for water to lay its eggs in, flying slowly from one
@@ -54,6 +55,12 @@ class RV;
 //    up after TIRE_TIMEOUT.
 //  Priority: laying its eggs (an adult with blood that senses water: nothing interrupts it) >
 //  attacking the player (at dawn and dusk) > the tyres > the fuel > roaming.
+//  - Sleep: at night (from the end of dusk to dawn) it flies to the nearest water (setWaterSpots;
+//    without any, where it is), settles on its legs at the water's edge (SLEEP_RING from its middle),
+//    folds its wings and goes quiet (asleep) until dawn. It does nothing else at night: no
+//    hunting, fuel, tyres, laying or (the young) biting.
+//  So by day it roams (and lays its eggs, and goes for the fuel and the tyres), and it attacks
+//  at dawn and at dusk.
 //  - Dead: it falls, rolls onto its back and lies there with its legs curled up, silent (it stays
 //    in the stage as a GameObject). A blow that changes its velocity by more than
 //    DEATH_SPEED_CHANGE kills it (not its own flight stopped against something).
@@ -90,7 +97,7 @@ public:
                                     nullptr, nullptr, nullptr, nullptr};
   };
 
-  enum class Behavior { Wander, ToWater, Lay, Siphon, TireAttack, Feed, Bite, Stalk, Dive, Retreat, Dead };
+  enum class Behavior { Wander, ToWater, Lay, Siphon, TireAttack, Feed, Bite, Stalk, Dive, Retreat, Sleep, Dead };
 
   // Blood: it needs at least BLOOD_TO_LAY (of a full stomach) to lay its eggs (laying uses it up).
   // A young one only grows by drinking it: BLOOD_GROWTH_TIME seconds of biting make it full size.
@@ -159,6 +166,11 @@ public:
   static constexpr float WATER_ROAM_RADIUS = 55.0f;
   static constexpr float WANDER_HEIGHT_MIN = 3.5f, WANDER_HEIGHT_MAX = 7.0f;
   static constexpr float WATER_SENSE = 30.0f;
+  // Asleep: how far from the water's middle (m, random between these two) it settles
+  static constexpr float SLEEP_RING_MIN = 2.8f, SLEEP_RING_MAX = 4.5f;
+  // ...with its position this high over the ground (m): on its feet (they hang 1.7 m below it), lower
+  // than it ever flies (MIN_CLEARANCE)
+  static constexpr float SLEEP_HEIGHT = 1.72f;
   // Laying: how long (s), how high it hovers over the water (m), how many eggs (random between
   // these two) and how long until it lays in the same water again (s)
   static constexpr float LAY_TIME = 8.0f;
@@ -216,6 +228,8 @@ private:
   std::vector<float> waterCooldown; // seconds until it lays in each again
   int water = -1;                   // the one it goes to / lays in
   int eggs = 0;
+  glm::vec3 sleepSpot = glm::vec3(0.0f); // (Sleep) where it settles, on the ground
+  bool asleep = false;                   // (Sleep) it has settled there
   std::function<float()> hourQuery;
   RV *vehicle = nullptr;
   int tireTarget = 0;          // the wheel it goes for (TireAttack)
@@ -336,6 +350,9 @@ public:
   // The hour of the day (0-24, asked every frame): it attacks only at dawn and at dusk
   void setHourQuery(std::function<float()> hour) { hourQuery = hour; }
   bool isAttackTime() const;
+  // From the end of dusk to dawn: it sleeps by the water (always false without the hour query)
+  bool isNight() const;
+  bool isAsleep() const { return behavior == Behavior::Sleep && asleep; }
   int getEggs() const { return eggs; }
   // The vehicle whose fuel it sucks and whose tyres it bursts (the stage keeps it alive as long
   // as the mosquito); without it, neither

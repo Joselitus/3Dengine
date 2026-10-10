@@ -127,6 +127,23 @@ void Mosquito::enterBehavior(Behavior next) {
     diveWait = uniform(DIVE_WAIT_MIN, DIVE_WAIT_MAX);
   } else if (next == Behavior::Wander) {
     hasWaypoint = false;
+  } else if (next == Behavior::Sleep) {
+    // the nearest water (or here), at a place of its own round its edge
+    asleep = false;
+    vec3 at = position;
+    float best = 1e9f;
+    for (const vec3 &w : waterSpots) {
+      float d = length(vec2(w.x - position.x, w.z - position.z));
+      if (d < best) {
+        best = d;
+        at = w;
+      }
+    }
+    if (!waterSpots.empty()) {
+      float a = uniform(0.0f, 2.0f * PI), r = uniform(SLEEP_RING_MIN, SLEEP_RING_MAX);
+      at += vec3(std::cos(a) * r, 0.0f, std::sin(a) * r);
+    }
+    sleepSpot = vec3(at.x, groundAt(at.x, at.z), at.z);
   } else if (next == Behavior::Lay) {
     // its eggs drop one by one while it hovers over the water
     eggsToLay = std::uniform_int_distribution<int>(EGGS_MIN, EGGS_MAX)(random);
@@ -168,6 +185,13 @@ void Mosquito::releaseBiteSlot() {
   if (biteSlots && biteSlot >= 0 && biteSlots->owner[biteSlot] == this)
     biteSlots->owner[biteSlot] = nullptr;
   biteSlot = -1;
+}
+
+bool Mosquito::isNight() const {
+  if (!hourQuery)
+    return false;
+  float h = hourQuery();
+  return h >= DUSK_TO || h < DAWN_FROM;
 }
 
 bool Mosquito::isAttackTime() const {
@@ -294,11 +318,19 @@ void Mosquito::update(double dt) {
     updateBite(dt);
     return;
   }
+  // At night it goes to sleep by the water (after a dive: it finishes it, and the retreat), and at
+  // dawn it wakes up
+  bool night = isNight();
+  if (night && behavior != Behavior::Sleep && behavior != Behavior::Dive) {
+    enterBehavior(Behavior::Sleep);
+  } else if (!night && behavior == Behavior::Sleep) {
+    enterBehavior(Behavior::Wander);
+  }
   // Laying its eggs comes first: an adult with blood that senses water goes to it, whatever it
   // was doing (a dive or a go at a tyre, a couple of seconds, it finishes first), and nothing
   // stops it while it goes and lays
   bool laying = behavior == Behavior::ToWater || behavior == Behavior::Lay;
-  if (grown && blood >= BLOOD_TO_LAY && !laying && behavior != Behavior::Dive &&
+  if (!night && grown && blood >= BLOOD_TO_LAY && !laying && behavior != Behavior::Dive &&
       behavior != Behavior::TireAttack) {
     int found = senseWater();
     if (found >= 0) {
@@ -308,7 +340,7 @@ void Mosquito::update(double dt) {
     }
   }
   // the tyres: now and then, while the player drives near it
-  if (grown && !laying && vehicle && inVehicle &&
+  if (!night && grown && !laying && vehicle && inVehicle &&
       length(vehicle->getPosition() - position) < TIRE_SENSE) {
     if ((tireCheck -= dtf) <= 0.0f) {
       tireCheck = TIRE_CHECK_INTERVAL;
@@ -408,6 +440,7 @@ void Mosquito::update(double dt) {
     if (stateTime > RETREAT_TIME)
       enterBehavior(dead || !attack || !grown ? Behavior::Wander : Behavior::Stalk);
     break;
+  case Behavior::Sleep:
   case Behavior::Bite: // (see updateBite)
   case Behavior::Dead:
     break;
@@ -510,6 +543,25 @@ void Mosquito::update(double dt) {
     want = away * FLY_SPEED * 1.3f * std::max(scale, 0.5f) + vec3(0.0f, 4.0f * std::max(scale, 0.4f), 0.0f);
     break;
   }
+  case Behavior::Sleep: {
+    // over its place by the water, then down onto its legs; settled, it stays still
+    vec3 rest = sleepSpot + vec3(0.0f, SLEEP_HEIGHT * scale, 0.0f);
+    vec3 to = rest - position;
+    float across = length(vec2(to.x, to.z));
+    if (across > 1.0f) // (first along, high enough not to scrape the ground)
+      to.y = std::max(to.y, sleepSpot.y + WANDER_HEIGHT_MIN - position.y);
+    float d = length(to);
+    want = to / std::max(d, 0.001f) * FLY_SPEED * 0.8f * std::min(1.0f, d / 3.0f);
+    if (d < 0.3f)
+      asleep = true;
+    if (asleep) {
+      want = vec3(0.0f);
+      velocity = vec3(0.0f);
+      position = rest;
+    }
+    responsiveness = 3.0f;
+    break;
+  }
   case Behavior::Bite: // (see updateBite)
   case Behavior::Dead:
     break;
@@ -520,7 +572,7 @@ void Mosquito::update(double dt) {
 
   // never too low: its legs hang under it
   float floorY = groundAt(position.x, position.z) + MIN_CLEARANCE * scale;
-  if (position.y < floorY) {
+  if (position.y < floorY && !(behavior == Behavior::Sleep && length(vec2(position.x - sleepSpot.x, position.z - sleepSpot.z)) < 1.0f)) {
     position.y = floorY;
     if (velocity.y < 0.0f)
       velocity.y = 0.0f;
@@ -707,6 +759,8 @@ void Mosquito::updateAttitude(double dt) {
     wantPitch = 0.0f;
   else if (behavior == Behavior::Lay)
     wantPitch = LAY_PITCH;
+  else if (isAsleep())
+    wantPitch = 0.0f;
   else
     wantPitch += clamp(length(vec2(velocity.x, velocity.z)) * 0.03f, 0.0f, 0.3f);
   pitch = approach(pitch, wantPitch, 1.5f * dtf);
@@ -719,10 +773,10 @@ void Mosquito::updateAttitude(double dt) {
 }
 
 // Each wing goes up and down about its hinge and sweeps forward and back a quarter of a beat
-// later (a figure of eight); dead, they lie folded back along the body
+// later (a figure of eight); dead or asleep, they lie folded back along the body
 void Mosquito::updateWings(double dt) {
   float flap = 0.0f, sweep = radians(70.0f);
-  if (behavior != Behavior::Dead) {
+  if (behavior != Behavior::Dead && !isAsleep()) {
     float beat = WING_BEAT_HZ * (behavior == Behavior::Dive ? 1.3f : behavior == Behavior::Bite ? 0.4f : 1.0f);
     wingPhase = std::fmod(wingPhase + beat * (float)dt, 1.0f);
     float a = 2.0f * PI * wingPhase;
@@ -840,9 +894,9 @@ void Mosquito::curlPose(InsectLegs::Pose &pose) const {
   }
 }
 
-// The buzz follows it, higher and louder the faster it flies
+// The buzz follows it, higher and louder the faster it flies (none dead or asleep)
 void Mosquito::updateBuzz() {
-  if (behavior == Behavior::Dead) {
+  if (behavior == Behavior::Dead || isAsleep()) {
     buzzSound.reset();
     return;
   }
@@ -944,6 +998,7 @@ const char *Mosquito::behaviorName() const {
          : behavior == Behavior::Stalk ? "acecha (da vueltas al jugador)"
          : behavior == Behavior::Dive ? "se lanza en picado"
          : behavior == Behavior::Retreat ? "se aleja"
+         : behavior == Behavior::Sleep ? (asleep ? "duerme junto al agua" : "va a dormir al agua")
                                          : "muerto";
 }
 
@@ -1000,6 +1055,7 @@ void Mosquito::writeNetState(NetWriter &out) const {
   out.f32(biteHeight);
   out.boolean(sucking);
   out.boolean(exploded);
+  out.boolean(asleep);
 }
 
 void Mosquito::readNetState(NetReader &in) {
@@ -1008,7 +1064,7 @@ void Mosquito::readNetState(NetReader &in) {
   uint8_t tyre = in.u8();
   vec3 dir = in.vec3();
   float height = in.f32();
-  bool suck = in.boolean(), blown = in.boolean();
+  bool suck = in.boolean(), blown = in.boolean(), sleeping = in.boolean();
   if (!in.isOk() || b > (uint8_t)Behavior::Dead)
     return;
   if ((Behavior)b != behavior) {
@@ -1026,6 +1082,7 @@ void Mosquito::readNetState(NetReader &in) {
   biteDir = dir;
   biteHeight = height;
   sucking = suck;
+  asleep = sleeping;
   if (blown && !exploded)
     explode();
 }
