@@ -1,7 +1,9 @@
 #include "PropCatalog.h"
 
+#include "Campfire.h"
 #include "CollisionShape.h"
 #include "House.h"
+#include "LampPost.h"
 #include "Stage.h"
 
 using namespace std;
@@ -34,10 +36,23 @@ PropType tree(const char *name, const char *label, float trunk, float height, fl
   return t;
 }
 
+// A lamp post of the desert road (see LampPost: the living one hides among them)
+shared_ptr<GameObject> makeLampPost(Stage &stage, shared_ptr<Model> model) {
+  shared_ptr<Model> glass = stage.loadModel("../assets/lamppost/lamppost_glass.obj");
+  return glass ? make_shared<LampPost>(model, glass) : nullptr;
+}
+
 // The house (see House): hollow, with its door
 shared_ptr<GameObject> makeHouse(Stage &stage, shared_ptr<Model> model) {
   shared_ptr<Model> door = stage.loadModel("../assets/house/house_door.obj");
   return door ? make_shared<House>(model, door) : nullptr;
+}
+
+// A campfire (see Campfire): its embers and flames glow and flicker, and the enemies keep away
+shared_ptr<GameObject> makeCampfire(Stage &stage, shared_ptr<Model> model) {
+  shared_ptr<Model> embers = stage.loadModel("../assets/campfire/campfire_embers.obj");
+  shared_ptr<Model> flame = stage.loadModel("../assets/campfire/campfire_flame.obj");
+  return embers && flame ? make_shared<Campfire>(model, embers, flame) : nullptr;
 }
 
 vector<PropType> makePropTypes() {
@@ -81,10 +96,19 @@ vector<PropType> makePropTypes() {
   mesa.cullRadius = 2800.0f;
   mesa.sink = 0.0f;
   v.push_back(mesa);
+  PropType lamp = prop("lamppost", "Poste de luz", "Desierto", "lamppost/lamppost.obj");
+  lamp.make = makeLampPost;
+  lamp.sink = 0.0f;
+  v.push_back(lamp);
   PropType house = prop("house", "Casa", "Edificios", "house/house.obj");
   house.make = makeHouse;
   house.cullRadius = 12.0f;
   v.push_back(house);
+  PropType fire = prop("campfire", "Hoguera", "Acampada", "campfire/campfire.obj");
+  fire.make = makeCampfire;
+  fire.cullRadius = 3.0f;
+  fire.sink = 0.02f;
+  v.push_back(fire);
   return v;
 }
 } // namespace
@@ -107,6 +131,7 @@ const vector<EntityType> &entityTypes() {
       {"mosquito", "Mosquito gigante"},
       {"pingu", "Pingu (NPC)"},
       {"gnome", "Gnomo de jardin (cuchillo)"},
+      {"lamp_stalker", "Poste de luz vivo"},
   };
   return types;
 }

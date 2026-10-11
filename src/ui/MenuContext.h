@@ -22,6 +22,9 @@ struct MenuContext {
   // Leaves the server and goes back to the connect screen (the multiplayer client; null: no such
   // button in the pause menu)
   std::function<void()> disconnect;
+  // The window: full screen, or a window filling the screen (null: no such option, OptionsMenu)
+  std::function<bool()> isFullscreen;
+  std::function<void(bool)> setFullscreen;
 };
 
 #endif

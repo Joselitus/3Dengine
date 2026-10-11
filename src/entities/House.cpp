@@ -46,6 +46,13 @@ shared_ptr<CompoundShape> House::makeHull() {
   return hull;
 }
 
+void House::interior(vec3 &centre, vec3 &halfSize) {
+  // (the walls' inner faces, the floor a little below its top and the ceiling: see makeHull)
+  vec3 low = B(-5.04f, 3.35f - 1.0f, -19.36f), high = B(5.24f, 12.59f, 19.36f);
+  centre = (low + high) * 0.5f;
+  halfSize = (high - low) * 0.5f;
+}
+
 void House::footprint(vec3 &low, vec3 &high) {
   low = B(-5.11f, 0.0f, -19.39f) - vec3(1.0f, 0.0f, 1.0f);
   high = B(23.73f, 0.0f, 19.39f) + vec3(1.0f, 0.0f, 1.0f);

@@ -38,6 +38,7 @@ private:
   float vertical = 0.0f;               // only used when not under gravity
   float facing = 0.0f;                 // radians, around +y
   bool running = false;                // the run key is held
+  glm::vec3 shoved = glm::vec3(0.0f);  // a push it got (m/s), on top of its walking; it dies away
   // Where the player looks (his camera's angles), when this walker has no camera of its own: the
   // server's, and those of the other players on a client. The flashlight points there.
   bool hasLook = false;
@@ -90,6 +91,9 @@ public:
   bool isSitting() const { return sitting; }
   // Starts or ends its death: it falls over backwards and stays on the floor until it is revived
   void setDying(bool dead);
+  // Something pushes it (a velocity, m/s, along the ground): it is thrown that way, slowing down over
+  // half a second or so, whatever it does meanwhile
+  void shove(const glm::vec3 &push) { shoved = glm::vec3(push.x, 0.0f, push.z); }
   bool isDying() const { return dead; }
   // How far its fall has gone (0 upright .. pi/2 on its back): what the death camera follows
   float getFallAngle() const;

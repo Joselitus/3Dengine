@@ -23,6 +23,8 @@
 class PineForestStage : public VehicleStage {
 private:
   unsigned int canopyTexture = 0;
+  // Each pine: where (x, z) and how far its crown reaches (m), for where Bob's ship can land
+  std::vector<glm::vec3> pines;
 
   void plantTrees();
   // The canopy's mask (see the class comment)
@@ -38,6 +40,8 @@ public:
   static const int CANOPY_TEXELS = 1024;
 
   PineForestStage(FloorMode mode, SoundEngine &sound);
+  // Bob's ship lands only where its hull clears the pines' crowns (they start 4 m up)
+  bool canLandAt(const glm::vec3 &spot) const override;
   ~PineForestStage() override;
 };
 

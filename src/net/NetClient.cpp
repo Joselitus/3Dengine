@@ -299,6 +299,7 @@ void NetClient::readSnapshot(NetReader &in) {
       p->inSaucer = entry.second & PLAYER_IN_SAUCER;
       p->possessed = entry.second & PLAYER_POSSESSED;
       p->seated = entry.second & PLAYER_SEATED;
+      p->carried = entry.second & PLAYER_CARRIED;
     }
   if (Player *me = stage->getLocalPlayer()) {
     me->abductPoint = abductPoint;
@@ -326,7 +327,7 @@ void NetClient::reconcile(const Snapshot &snapshot) {
   Player *me = stage->getLocalPlayer();
   if (!me)
     return;
-  bool predicted = me->character == me->walker && !me->dead && !me->possessed;
+  bool predicted = me->character == me->walker && !me->dead && !me->possessed && !me->abducted && !me->carried;
   if (!predicted) {
     history.clear();
     correction = vec3(0.0f);
@@ -403,7 +404,7 @@ void NetClient::apply(double dt) {
     alpha = (float)clamp((renderTime - a.time) / (b.time - a.time), 0.0, 1.0);
 
   // The player's own penguin: his, while he walks (and the server's again when it is not)
-  bool predicted = me && me->character == me->walker && !me->dead && !me->possessed;
+  bool predicted = me && me->character == me->walker && !me->dead && !me->possessed && !me->abducted && !me->carried;
   if (me) {
     if (predicted && !wasPredicted) {
       // He is on foot again (got out, came back from the dead): where the server has him

@@ -286,12 +286,26 @@ void FollaCulos::update(double dt) {
     Behavior next = nextBehavior(distance);
     if (next != behavior)
       enterBehavior(next);
+    if (carrying) { // the player in its mouth: straight on with him, and far enough, he dies
+      wanted = carryWay * RUN_SPEED;
+      faceTowards(position + carryWay);
+      running = true;
+      if (length(vec2(position.x - carryFrom.x, position.z - carryFrom.z)) >= CARRY_DISTANCE) {
+        carrying = false;
+        if (carryEnd)
+          carryEnd();
+      }
+    } else
     switch (behavior) {
     case Behavior::Pursuit:
       // it goes for the target
-      if (playerCaught && distance <= PLAYER_CATCH_DISTANCE && !(playerInVehicle && playerInVehicle()) &&
-          !(playerDead && playerDead())) {
-        playerCaught(); // it has touched the player on foot: he dies, and it runs away
+      if (playerCaught && distance <= PLAYER_CATCH_DISTANCE && std::fabs(target.y - position.y) < CATCH_HEIGHT &&
+          !(playerInVehicle && playerInVehicle()) && !(playerDead && playerDead())) {
+        if (playerCaught()) { // it has touched the player on foot: it takes him away in its mouth
+          carrying = true;
+          carryFrom = position;
+          carryWay = distance > 1e-3f ? d / distance : vec3(std::sin(getHeading()), 0.0f, std::cos(getHeading()));
+        }
         retreating = true;
       } else if (distance > STOP_DISTANCE && distance > 1e-3f) {
         vec3 direction = d / distance;

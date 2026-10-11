@@ -69,6 +69,13 @@ void Walker::update(double dt) {
   maxSpeed = speed;
   PlayableCharacter::update(dt);
   maxSpeed = walkSpeed;
+  if (shoved != vec3(0.0f)) { // (thrown: the push wears off, SHOVE_DECAY)
+    const float SHOVE_DECAY = 4.0f;
+    position += shoved * (float)dt;
+    shoved *= std::exp(-SHOVE_DECAY * (float)dt);
+    if (length(shoved) < 0.2f)
+      shoved = vec3(0.0f);
+  }
 }
 
 void Walker::getFlashlight(std::vector<SpotLight> &lights) const {

@@ -26,9 +26,11 @@
 //
 //  - Pursuit: it runs in a straight line towards the playable character, the one the player is
 //    controlling at that moment (the stage gives it the way to ask for the character's position:
-//    setTarget), and stops when it reaches it (STOP_DISTANCE): if the player is on foot that is touching
-//    him: he dies (the stage's callback) and the creature runs away (RunAway until FLEE_DISTANCE; and
-//    it stays in RunAway while the player is dead).
+//    setTarget), and stops when it reaches it (STOP_DISTANCE): if the player is on foot (or being
+//    lifted by Bob's beam, within CATCH_HEIGHT) that is touching him: it takes him in its mouth (the
+//    stage's callback) and runs off with him, straight on, and when it is CARRY_DISTANCE from where
+//    it took him he dies (the stage's carry-end callback); then it runs away (RunAway until
+//    FLEE_DISTANCE; and it stays in RunAway while the player is dead).
 //  - Caution: the player is in the vehicle, which it does not dare to go near: it keeps to the
 //    edge of the imaginary circle of CAUTIONARY_RANGE metres around the player and never steps
 //    into it. It walks along the edge, going round the circle by its arc, to a random point of
@@ -66,7 +68,11 @@ private:
   std::function<bool()> isNight;
   std::function<glm::vec3()> lookTarget;
   std::function<bool()> playerInVehicle;
-  std::function<void()> playerCaught;    // it touched the player on foot
+  std::function<bool()> playerCaught;    // it touched the player on foot (true: it has him)
+  std::function<void()> carryEnd;        // it has carried him CARRY_DISTANCE away: he dies
+  bool carrying = false;                 // the player is in its mouth (see Pursuit)
+  glm::vec3 carryFrom = glm::vec3(0.0f); // where it took him
+  glm::vec3 carryWay = glm::vec3(0.0f, 0.0f, 1.0f); // where it runs with him
   std::function<bool()> playerDead;
   std::function<std::vector<Npc *>()> otherNpcs;
   Npc *prey = nullptr;                 // the NPC it is hunting
@@ -142,6 +148,9 @@ public:
   // It has touched the player on foot at this distance (m): their bodies stop each other a little
   // before STOP_DISTANCE (the creature pushes him along rather than closing in), so it is a bit more
   static constexpr float PLAYER_CATCH_DISTANCE = 1.8f;
+  // It carries the player off in its mouth (he can't move) and kills him this far (m) from where it
+  // took him; it reaches him if he is within this much (m) above or below it (Bob's beam lifts him)
+  static constexpr float CARRY_DISTANCE = 20.0f, CATCH_HEIGHT = 2.5f;
   // Its mouth in the model's bind pose (the middle of the mouth's mesh), and its head's joint
   static constexpr float MOUTH_BIND_Y = 2.072f, MOUTH_BIND_Z = 0.126f, HEAD_JOINT_Y = 2.05f, HEAD_JOINT_Z = 0.02f;
   // It stops when it is this close to the target
@@ -179,7 +188,15 @@ public:
   Behavior getBehavior() const { return behavior; }
   // What it does when it touches the player on foot (the stage kills him), and whether he is dead
   // already (then it only runs away); without them it only stops next to him
-  void setPlayerCaughtCallback(std::function<void()> caught) { playerCaught = caught; }
+  // It reached the player on foot: the stage puts him in its mouth (true) or not (false: it can't)
+  void setPlayerCaughtCallback(std::function<bool()> caught) { playerCaught = caught; }
+  // It has carried him far enough: the stage kills him (and he falls from its mouth)
+  void setCarryEndCallback(std::function<void()> end) { carryEnd = end; }
+  bool isCarrying() const { return carrying; }
+  // Where the carried player's head is held (world)
+  glm::vec3 carryPoint() const { return mouthPosition(); }
+  // The stage takes him from it (the creature died, the player is gone...)
+  void dropPlayer() { carrying = false; }
   void setPlayerDeadQuery(std::function<bool()> dead) { playerDead = dead; }
   // The other NPCs that can be its prey (asked every frame); without it, it hunts nobody
   void setPreyQuery(std::function<std::vector<Npc *>()> npcs) { otherNpcs = npcs; }

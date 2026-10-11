@@ -8,6 +8,7 @@
 
 #include "MaterialMap.h"
 #include "Readable.h"
+#include "Saucer.h"
 
 using namespace glm;
 using std::make_shared;
@@ -51,6 +52,14 @@ void ForestStage::addWall(float x, float z, float yaw, const vec3 &halfExtents) 
   wall->setYaw(yaw);
   wall->setVisible(false);
   add(wall);
+}
+
+bool ForestStage::canLandAt(const vec3 &spot) const {
+  const float REACH = WALL_OFFSET - Saucer::RADIUS - 1.5f; // (its hull clear of the walls)
+  for (const PathPoint &p : path)
+    if ((p.x - spot.x) * (p.x - spot.x) + (p.z - spot.z) * (p.z - spot.z) < REACH * REACH)
+      return true;
+  return false;
 }
 
 void ForestStage::buildWalls() {
@@ -260,6 +269,6 @@ ForestStage::ForestStage(FloorMode mode, SoundEngine &sound) : VehicleStage(mode
   createAlienVisit(sound, vec3(landing.x, groundAt(landing.x, landing.z), landing.z),
                    std::atan2(start.x - landing.x, start.z - landing.z));
   // The shades come out of the trees at night (see Shade)
-  createShades();
+  createShades(sound);
   valid = true;
 }

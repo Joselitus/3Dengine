@@ -317,10 +317,16 @@ public:
     // Use key. Same model as the player, standing on its feet.
     auto guide = addPingu(vec3(3.0f, 0.0f, 0.5f), vec3(3.0f, 0.0f, 4.0f), sound, speech);
 
+    // A campfire beside Pingu, between him and the sign, its logs to sit on away from the RV: the
+    // enemies keep away from it (see Campfire)
+    placeCampfire(4.8f, -3.2f, 3.1415927f);
+
     createCreature(sound, speech, 18.0f, 24.0f);
     // The other NPCs are its prey if they come near
     Npc *pingu = guide.get();
-    creature->setPreyQuery([pingu]() { return std::vector<Npc *>{pingu}; });
+    creature->setPreyQuery([this, pingu]() { // (not by the campfire: it fears it)
+      return nearFire(pingu->getPosition()) ? std::vector<Npc *>{} : std::vector<Npc *>{pingu};
+    });
 
     // A pool of water (for now a blue square, flat on a flat bit of sand): the mosquito lays its
     // eggs in it
@@ -366,6 +372,20 @@ public:
     // under it: placeHouse levels it), 13 m from the road and 6 m from the nearest cactus or rock, its
     // porch towards the start
     placeHouse(9.0f, 57.0f, std::atan2(-(4.0f - 57.0f), 3.0f - 9.0f));
+
+    // Lamp posts along the road, every 25 m round the loop, 6 m outside it, their arms over it (worked
+    // out from loop_point of generate_assets.py; each is 3.8 m or more from anything else). One of them
+    // is alive (see LampStalker): it runs at whoever passes in front of it on foot, and hides among
+    // the others from whoever is in the RV
+    const float LAMPS[10][3] = {{44.3f, 13.9f, -1.875f}, {24.4f, 34.1f, -2.52f}, {-3.6f, 41.7f, 3.055f},
+                                {-31.2f, 40.2f, 2.481f}, {-42.4f, 16.3f, 1.939f}, {-35.8f, -11.7f, 1.256f},
+                                {-24.6f, -37.8f, 0.578f}, {0.0f, -49.9f, 0.0f}, {22.7f, -35.1f, -0.573f},
+                                {41.1f, -12.9f, -1.267f}};
+    const int LIVING_LAMP = 8;
+    for (int i = 0; i < 10; i++)
+      if (i != LIVING_LAMP)
+        placeLampPost(LAMPS[i][0], LAMPS[i][1], LAMPS[i][2]);
+    createLampStalker(LAMPS[LIVING_LAMP][0], LAMPS[LIVING_LAMP][1], LAMPS[LIVING_LAMP][2]);
 
     // The sky is covered by one layer of cloud, a slab 6 km wide and 80 m thick 120 m up (see
     // CloudRenderer: the blobs come out hundreds of metres across, with CloudSettings::tiling)

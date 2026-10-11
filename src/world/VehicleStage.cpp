@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "FuelPump.h"
+#include "Mosquito.h"
 #include "SafeSpace.h"
 #include "SeatedPose.h"
 #include "NetRole.h"
@@ -11,6 +12,22 @@ using namespace glm;
 using std::make_shared;
 
 constexpr unsigned int VehicleStage::PENGUIN_ANIMATION;
+
+namespace {
+// The on-board console of Bob's ship (SaucerConsole): his log, "translated". Each page fits the
+// dialogue box (four lines of about 28 characters)
+const std::vector<std::string> SAUCER_LOG = {
+    "DIARIO DE A BORDO. Traducción automática del idioma de Bob. Fiabilidad: 61 %.",
+    "Noche 1. Planeta caliente, mucha arena. Especie dominante: pingüino. No sabemos por qué.",
+    "Noche 3. Un espécimen me miró a los ojos y huyó corriendo. Corre más que yo. Anotado.",
+    "Noche 5. Algo con dientes se comió a un pingüino delante de mí. No es nuestro. Evitarlo.",
+    "Noche 8. Los postes de luz de la carretera son 10. Ayer eran 9. Nadie a bordo sabe contar.",
+    "Noche 9. Un gnomo de jardín me ha amenazado. No pienso volver a ese claro.",
+    "Noche 12. Un pingüino se soltó de mis brazos. Humillante. Lo cazo desde la nave hasta el alba.",
+    "Al amanecer olvido. Es lo mejor. Mañana será otra noche y otro pingüino.",
+    "AVISO: si lees esto y no eres Bob, devuelve la nave. La rampa se baja sola. Gracias.",
+};
+} // namespace
 
 Player *VehicleStage::nearestAlive(const vec3 &from) {
   Player *best = nullptr;
@@ -187,7 +204,8 @@ void VehicleStage::respawn(Player &p) {
 }
 
 bool VehicleStage::isImmobilized(const Player &p) const {
-  return p.paralysis > 0.0f || p.possessed || (alien.bob && alien.bob->isHolding(p.id));
+  return p.paralysis > 0.0f || p.possessed || p.abducted || p.carried ||
+         (alien.bob && alien.bob->isHolding(p.id));
 }
 
 // The ship nobody flies: the engine stops, and once it stands on its legs it is Bob's again
@@ -214,6 +232,8 @@ void VehicleStage::onTick(double dt) {
 // wheel (a little above 9 o'clock, following it as it turns, but not further than he can reach) and a beer in the
 // other. Whoever sits at this computer is not drawn while he looks from his own eyes
 void VehicleStage::afterUpdate(double dt) {
+  if (saucerConsole)
+    saucerConsole->update(dt);
   // (a client) its player walks into the smoke of a shade: the grain comes, and stays a minute
   if (local) {
     hazeTime = std::max(0.0f, hazeTime - (float)dt);
@@ -247,11 +267,28 @@ void VehicleStage::afterUpdate(double dt) {
 }
 
 void VehicleStage::apply(DynamicGameObject &object, double dt) {
+  if (netRole() != NetRole::Client && !campfires.empty() && fleesFire(object))
+    keepFromFire(object, dt);
   for (auto &p : players) {
     if (&object != p->walker.get())
       continue;
     p->paralysis = std::max(0.0f, p->paralysis - (float)dt); // (it wears off)
     updatePossession(*p, dt);
+    if (p->abducted && !p->dead) { // (up Bob's beam: it moves him)
+      updateAbduction(*p, dt);
+      return;
+    }
+    if (p->carried && !p->dead) { // in the creature's mouth, dragged along (or dropped, if it died)
+      FollaCulos *c = p->carrier >= 0 && p->carrier < (int)creatures.size() ? creatures[p->carrier].get() : nullptr;
+      if (c && c->isCarrying() && !c->isDead() && !c->isCriticalCondition()) {
+        vec3 mouth = c->carryPoint();
+        float ground = groundAt(mouth.x, mouth.z);
+        object.setPosition(mouth.x, std::max(mouth.y - 1.5f, ground - 0.3f), mouth.z);
+        object.setVelocity(vec3(0.0f));
+        return;
+      }
+      releaseCarried(*p);
+    }
     if (p->inVehicle || p->inSaucer || p->seated) {
       vec3 seat = p->inSaucer ? alien.saucer->hatch() : p->seated ? rv->copilotSeatPosition() : rv->seatPosition();
       object.setPosition(seat.x, seat.y, seat.z);
@@ -265,6 +302,49 @@ void VehicleStage::apply(DynamicGameObject &object, double dt) {
     break;
   }
   collideWithFloor(object, dt);
+}
+
+// The enemies that are about (not dead, not lying stuck somewhere, not standing still as scenery)
+bool VehicleStage::fleesFire(const DynamicGameObject &object) const {
+  if (auto c = dynamic_cast<const FollaCulos *>(&object))
+    return !c->isDead() && !c->isCriticalCondition() && !c->isStuck() && !c->isRagdolling();
+  if (auto b = dynamic_cast<const Bob *>(&object)) {
+    Bob::Behavior k = b->getBehavior();
+    return k == Bob::Behavior::Prowl || k == Bob::Behavior::Chase || k == Bob::Behavior::Firing ||
+           k == Bob::Behavior::Grabbing || k == Bob::Behavior::Returning;
+  }
+  if (auto g = dynamic_cast<const Gnome *>(&object))
+    return g->isArmed() && !g->isDead();
+  if (auto l = dynamic_cast<const LampStalker *>(&object))
+    return l->getState() == LampStalker::State::Chase || l->getState() == LampStalker::State::Hide ||
+           l->getState() == LampStalker::State::Return;
+  if (auto m = dynamic_cast<const Mosquito *>(&object))
+    return !m->isDead();
+  if (auto s = dynamic_cast<const Shade *>(&object))
+    return s->getState() == Shade::State::Following || s->getState() == Shade::State::Chasing;
+  if (auto f = dynamic_cast<const Flatwoods *>(&object))
+    return f->getState() == Flatwoods::State::Coming || f->getState() == Flatwoods::State::Waiting;
+  return false;
+}
+
+// An enemy within a campfire's FEAR_RADIUS runs out of it (faster the deeper it is), and it can't
+// walk in: what it does towards the fire is taken away
+void VehicleStage::keepFromFire(DynamicGameObject &object, double dt) {
+  for (const auto &fire : campfires) {
+    vec3 at = object.getPosition(), c = fire->getPosition();
+    vec2 away(at.x - c.x, at.z - c.z);
+    float d = length(away);
+    if (d >= Campfire::FEAR_RADIUS)
+      continue;
+    vec2 out = d > 0.01f ? away / d : vec2(1.0f, 0.0f);
+    float depth = Campfire::FEAR_RADIUS - d;
+    float step = std::min(depth, FIRE_FLEE_SPEED * (1.0f + 2.0f * depth / Campfire::FEAR_RADIUS) * (float)dt);
+    object.setPosition(at.x + out.x * step, at.y, at.z + out.y * step);
+    vec3 v = object.getVelocity();
+    float in = -(v.x * out.x + v.z * out.y);
+    if (in > 0.0f)
+      object.setVelocity(v + vec3(out.x, 0.0f, out.y) * in);
+  }
 }
 
 void VehicleStage::toggleHeadlights(Player &p) {
@@ -359,6 +439,9 @@ void VehicleStage::refuel(Player &p) {
 
 void VehicleStage::getSpotLights(std::vector<SpotLight> &lights) const {
   GameStage::getSpotLights(lights); // (the players' flashlights, the local one first)
+  for (const auto &f : campfires)
+    if (length(f->getPosition() - viewer) < 120.0f)
+      f->getLight(lights); // (a campfire near enough to light anything)
   if (alien.saucer)
     alien.saucer->getLights(lights); // (Bob's ship: its beam)
   if (alien.bob)
@@ -403,6 +486,12 @@ void VehicleStage::onTimeChanged() {
   float sunShare = sunPower / (sunPower + length(NIGHT_LIGHT));
   environment.lightDir = normalize(mix(vec3(0.0f, 1.0f, 0.0f), sun, sunShare));
   setMusicVolume(ramp(-0.1f, 0.5f, h)); // gone shortly after sunset
+  // the lamp posts, the living ones too (they would give themselves away otherwise)
+  bool lit = lampsLit();
+  for (auto &lamp : lampPosts)
+    lamp->setLit(lit);
+  for (auto &stalker : lampStalkers)
+    stalker->setLit(lit);
 }
 
 void VehicleStage::startDay() {
@@ -501,11 +590,71 @@ bool VehicleStage::spawnEntity(const std::string &kind, const vec3 &where, float
     createGnome(where.x, where.z, yaw);
     return true;
   }
+  if (kind == "lamp_stalker") {
+    createLampStalker(where.x, where.z, yaw);
+    return true;
+  }
   if (kind != "folla_culos" || !rv)
     return false;
   createCreature(context.sound, context.speech, where.x, where.z);
   creature->setYaw(yaw);
   return true;
+}
+
+void VehicleStage::createLampStalker(float x, float z, float yaw) {
+  const std::string dir = "../assets/lamppost/";
+  auto stalker = std::make_shared<LampStalker>(loadModel(dir + "lamppost.obj"), loadModel(dir + "lamppost_glass.obj"),
+                                               loadModel(dir + "lamppost_foot.obj"));
+  stalker->setPosition(x, groundAt(x, z), z);
+  stalker->setYaw(yaw);
+  stalker->teleport(stalker->getPosition());
+  LampStalker *self = stalker.get();
+  // Whoever is alive; out in the open or not (in the RV it follows him, hiding)
+  stalker->setVictimsQuery([this]() {
+    std::vector<LampStalker::Victim> list;
+    for (auto &p : players)
+      if (!p->dead && !p->abducted && !p->carried)
+        list.push_back({p->id, p->getPosition(), p->seated || playerSheltered(*p)});
+    return list;
+  });
+  // In line with each lamp post, on either side, on the floor, and not where another post (or another
+  // living one) already stands
+  stalker->setSpotsQuery([this, self]() {
+    std::vector<LampStalker::Spot> list;
+    for (auto &lamp : lampPosts)
+      for (int side : {-1, 1}) {
+        vec3 at = lamp->lineSpot(side);
+        float ground = 0.0f;
+        if (!floorAt(at.x, at.z, ground))
+          continue;
+        bool taken = false;
+        for (auto &other : lampPosts)
+          taken = taken || length(vec2(other->getPosition().x - at.x, other->getPosition().z - at.z)) < 3.0f;
+        for (auto &other : lampStalkers)
+          if (other.get() != self)
+            taken = taken || length(vec2(other->getPosition().x - at.x, other->getPosition().z - at.z)) < 3.0f;
+        bool byFire = false;
+        for (auto &f : campfires)
+          byFire = byFire || length(vec2(f->getPosition().x - at.x, f->getPosition().z - at.z)) < Campfire::FEAR_RADIUS + 2.0f;
+        if (!taken && !byFire) // (nor by a fire: it fears it)
+          list.push_back({vec3(at.x, ground, at.z), lamp->getHeading()});
+      }
+    return list;
+  });
+  stalker->setKillCallback([this](int id) {
+    if (netRole() == NetRole::Client)
+      return; // (the server says who dies)
+    if (Player *p = findPlayer(id))
+      killPlayer(*p);
+  });
+  stalker->setLit(lampsLit());
+  addDynamic(stalker);
+  lampStalkers.push_back(stalker);
+}
+
+bool VehicleStage::lampsLit() const {
+  float hour = getTimeOfDay();
+  return hour >= 18.5f || hour < 6.0f;
 }
 
 void VehicleStage::createGnome(float x, float z, float yaw) {
@@ -522,7 +671,9 @@ void VehicleStage::createGnome(float x, float z, float yaw) {
   gnome->teleport(gnome->getPosition());
   // Whoever is out in the open and alive can look at him (eyes at 1.6 m, looking where the
   // player's camera does) and be run at; those in a vehicle, in a safe place or sitting cannot
-  auto outside = [this](const Player &p) { return !p.dead && !p.seated && !playerSheltered(p); };
+  auto outside = [this](const Player &p) {
+    return !p.dead && !p.seated && !p.abducted && !p.carried && !playerSheltered(p);
+  };
   gnome->setViewersQuery([this, outside](std::vector<Gnome::Viewer> &list) {
     for (auto &p : players) {
       if (!outside(*p))
@@ -601,12 +752,35 @@ void VehicleStage::createCreature(SoundEngine &sound, SpeechSynthesizer &speech,
     Player *p = nearestAlive(self->getPosition());
     return p ? p->getPosition() : self->getPosition();
   });
-  // Touching a player on foot kills him; then it runs away
-  creature->setPlayerCaughtCallback([this, self]() {
+  // Touching a player on foot (or one Bob's beam is lifting) it takes him in its mouth and runs off
+  // with him; some way off, he dies
+  int index = (int)creatures.size();
+  creature->setPlayerCaughtCallback([this, self, index]() {
     if (netRole() == NetRole::Client)
-      return; // (the server says who dies)
-    if (Player *p = nearestAlive(self->getPosition()))
-      killPlayer(*p);
+      return false; // (the server says who is caught)
+    Player *p = nearestAlive(self->getPosition());
+    if (!p || p->carried)
+      return false;
+    if (p->abducted) // (snatched from Bob's beam)
+      p->abducted = false;
+    if (netRole() == NetRole::Server)
+      printf("[game] the creature has %s\n", p->name.c_str());
+    p->carried = true;
+    p->carrier = index;
+    p->moveDir = vec2(0.0f);
+    p->walker->control(vec2(0.0f), 0.0f, 0.0f);
+    p->walker->setGravity(0.0f);
+    p->walker->setCollidable(false);
+    return true;
+  });
+  creature->setCarryEndCallback([this, index]() {
+    if (netRole() == NetRole::Client)
+      return;
+    for (auto &p : players)
+      if (p->carried && p->carrier == index) {
+        releaseCarried(*p);
+        killPlayer(*p);
+      }
   });
   creature->setPlayerDeadQuery([this, self]() { return nearestAlive(self->getPosition()) == nullptr; });
   // It is wary of the RV: when the player drives it, it keeps its distance (see FollaCulos)
@@ -630,7 +804,7 @@ void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, flo
         Player *chosen = nullptr;
         float bestDistance = 0.0f;
         for (auto &p : players) {
-          if (p->dead)
+          if (p->dead || p->carried || (p->abducted && p->id != keep))
             continue;
           float d = length(p->getPosition() - from);
           if (p->id == keep) {
@@ -659,6 +833,28 @@ void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, flo
           p->paralysis = std::max(p->paralysis, seconds);
       },
       [this]() { enterSaucer(); });
+  alienLanding = landing;
+  alienRampYaw = rampYaw;
+  alien.saucer->setLandingQuery([this](vec3 &spot, float &yaw) { return chooseLanding(spot, yaw); });
+  // Bob failed to take him: the ship hunts the nearest player alive and shoots while he is out in the open
+  alien.saucer->setHuntQuery([this](vec3 &target, bool &exposed) {
+    Player *best = nullptr;
+    float bestDistance = 0.0f;
+    for (auto &p : players) {
+      if (p->dead || p->abducted || p->carried)
+        continue;
+      float d = length(p->getPosition() - alien.saucer->getPosition());
+      if (!best || d < bestDistance) {
+        best = p.get();
+        bestDistance = d;
+      }
+    }
+    if (!best)
+      return false;
+    target = best->getPosition();
+    exposed = !best->seated && !playerSheltered(*best);
+    return true;
+  });
   alien.bob->setSounds(sound);
   alien.saucer->setSounds(sound);
   alien.bob->setViewer([this]() { return viewer; }, [this]() { return viewProjection; });
@@ -666,6 +862,75 @@ void VehicleStage::createAlienVisit(SoundEngine &sound, const vec3 &landing, flo
   alien.bob->setViewerState([this]() { return local && local->abducted; },
                             [this]() { return local && local->dead; });
   interactables.push_back(alien.saucer.get()); // (its ramp: get in)
+  // Its console: Bob's log, for whoever flies it (each client reads its own)
+  saucerConsole.reset(new SaucerConsole(alien.saucer, SAUCER_LOG));
+  saucerConsole->setAboardQuery([this]() { return local && local->inSaucer; });
+  interactables.push_back(saucerConsole.get());
+}
+
+bool VehicleStage::chooseLanding(vec3 &spot, float &yaw) {
+  vec3 centre = rv ? rv->getPosition() : alienLanding;
+  // What is in the way: everything solid, and the small things that are not (a puddle, a far tree),
+  // but not the floor or the road, the players, Bob or his ship
+  std::vector<std::pair<vec3, vec3>> things;
+  for (const auto &o : getObjects()) {
+    if (o == alien.saucer || o == alien.bob)
+      continue;
+    bool player = false;
+    for (const auto &p : players)
+      player = player || o == p->walker;
+    if (player)
+      continue;
+    vec3 low, high;
+    o->getShape().bounds(o->getPose(), low, high);
+    bool small = std::max(high.x - low.x, high.z - low.z) < 30.0f;
+    if (o->isCollidable() || (small && o->isVisible() && !dynamic_cast<DynamicGameObject *>(o.get())))
+      things.push_back({low, high});
+  }
+  auto fits = [&](const vec3 &at, float &ground) {
+    if (!canLandAt(at) || !floorAt(at.x, at.z, ground))
+      return false;
+    for (const auto &f : campfires) // (Bob fears the fire: not near a campfire)
+      if (length(vec2(f->getPosition().x - at.x, f->getPosition().z - at.z)) < Campfire::FEAR_RADIUS + Saucer::RADIUS + 3.0f)
+        return false;
+    // flat enough under it, and well inside the floor
+    float lowest = ground, highest = ground;
+    for (float r : {2.5f, 5.0f, 10.0f})
+      for (int k = 0; k < 8; k++) {
+        float a = (float)k * 0.785398f, h;
+        if (!floorAt(at.x + std::cos(a) * r, at.z + std::sin(a) * r, h))
+          return false;
+        if (r < 10.0f) {
+          lowest = std::min(lowest, h);
+          highest = std::max(highest, h);
+        }
+      }
+    if (highest - lowest > LAND_FLAT)
+      return false;
+    for (const auto &t : things) {
+      float dx = std::max(std::max(t.first.x - at.x, at.x - t.second.x), 0.0f);
+      float dz = std::max(std::max(t.first.z - at.z, at.z - t.second.z), 0.0f);
+      if (dx * dx + dz * dz < LAND_CLEAR * LAND_CLEAR)
+        return false;
+    }
+    return true;
+  };
+  std::uniform_real_distribution<float> angle(0.0f, 6.2831853f), unit(0.0f, 1.0f);
+  const float BANDS[2][3] = {{LAND_NEAR, LAND_FAR, 200}, {15.0f, 90.0f, 300}}; // (near, far, tries)
+  for (const auto &band : BANDS)
+    for (int i = 0; i < (int)band[2]; i++) {
+      float a = angle(landingRandom), d = band[0] + (band[1] - band[0]) * unit(landingRandom);
+      vec3 at = centre + vec3(std::cos(a) * d, 0.0f, std::sin(a) * d);
+      float ground;
+      if (fits(at, ground)) {
+        spot = vec3(at.x, ground, at.z);
+        yaw = std::atan2(centre.x - at.x, centre.z - at.z); // (its ramp towards the RV)
+        return true;
+      }
+    }
+  spot = alienLanding; // (nowhere: the map's own spot)
+  yaw = alienRampYaw;
+  return true;
 }
 
 void VehicleStage::createFlatwoods() {
@@ -727,6 +992,17 @@ void VehicleStage::createFlatwoods() {
       flatwoods->release(); // (nobody there any more)
   });
   addDynamic(flatwoods);
+}
+
+void VehicleStage::releaseCarried(Player &p) {
+  if (!p.carried)
+    return;
+  if (p.carrier >= 0 && p.carrier < (int)creatures.size())
+    creatures[p.carrier]->dropPlayer();
+  p.carried = false;
+  p.carrier = -1;
+  p.walker->setGravity(AVATAR_GRAVITY);
+  p.walker->setCollidable(true);
 }
 
 void VehicleStage::startPossession(Player &p) {
@@ -841,7 +1117,7 @@ void VehicleStage::updatePossession(Player &p, double dt) {
   p.walker->control(vec2(0.0f, -1.0f), 0.0f, p.possessYaw);
 }
 
-void VehicleStage::createShades() {
+void VehicleStage::createShades(SoundEngine &sound) {
   std::vector<std::shared_ptr<Model>> shapes;
   for (int i = 0; i < Shade::VARIANTS; i++)
     shapes.push_back(loadModel("../assets/shades/shade_" + std::to_string(i) + ".obj"));
@@ -855,13 +1131,24 @@ void VehicleStage::createShades() {
     shade->setSpotQuery([this](vec3 &where, int &target) { return findShadeSpot(where, target); });
     shade->setTargetQuery([this](int id, vec3 &where) {
       Player *p = findPlayer(id);
-      if (!p || p->dead || p->abducted)
+      if (!p || p->dead || p->abducted || inShelterBesidesRV(*p)) // (in the house: it leaves him be)
         return false;
       where = p->getPosition();
       return true;
     });
     shade->setFloorQuery([this](float x, float z, float &height) { return floorAt(x, z, height); });
     shade->setFirstDelay(2.0f + 7.0f * i); // (they come one after another)
+    shade->setShoveCallback([this](int id, const vec3 &push) {
+      if (Player *p = findPlayer(id))
+        if (!p->dead && p->character == p->walker)
+          p->walker->shove(push);
+    });
+    shade->setKillCallback([this](int id) {
+      Player *p = findPlayer(id);
+      if (p && !p->dead && !playerSheltered(*p))
+        killPlayer(*p);
+    });
+    shade->setSounds(sound);
     addDynamic(shade);
     addEmitter(shade->getSmoke());
     shades.push_back(shade);
@@ -873,7 +1160,7 @@ bool VehicleStage::findShadeSpot(vec3 &where, int &target) {
   const float APART = 6.0f;                      // m from another shade
   std::vector<Player *> alive;
   for (auto &p : players)
-    if (!p->dead && !p->abducted)
+    if (!p->dead && !p->abducted && !inShelterBesidesRV(*p))
       alive.push_back(p.get());
   if (alive.empty())
     return false;

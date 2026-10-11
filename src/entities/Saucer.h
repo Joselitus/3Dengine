@@ -18,9 +18,15 @@ class Camera;
 // night. On its own it follows a sequence (enum Phase), driven by the clock:
 //
 //   Away (not there) --(night falls)--> Arriving (it comes over the trees, spinning, from far
-//   and high) --> Descending (a beam of light under it; it slows to the ground and its legs come
+//   and high, to where it lands tonight: setLandingQuery) --> Descending (a beam of light under it; it slows to the ground and its legs come
 //   out) --> Landed (it stands and waits) --(Bob is back on board: boarded())--> Closing -->
 //   Ascending (straight up, legs in, the beam on) --> Leaving (off and away) --> Away.
+//   If Bob failed to take the player (boarded(true): the player broke free), after Ascending comes
+//   Hunting instead: Bob shoots at him from the ship. It hovers HUNT_HEIGHT over the ground, going
+//   round him HUNT_RADIUS away (the map's hunt query: the nearest player alive), its ray gun out
+//   and turned at him, and fires every HUNT_SHOT_EVERY seconds at him (not quite straight: up to
+//   HUNT_MISS metres off) while he is out in the open (not in the RV); at dawn, or with nobody
+//   left, Leaving.
 //
 // While it stands (Landed) its ramp comes down when Bob is near it (inside, coming out, going in,
 // or within RAMP_NEAR of its foot) and goes up again when he walks away. With the ramp down the
@@ -52,7 +58,7 @@ class Camera;
 // (saucer_shot.wav). The same key puts it away, and the camera goes back behind the ship.
 class Saucer : public PlayableCharacter, public Interactable {
 public:
-  enum class Phase { Away, Arriving, Descending, Landed, Piloted, Closing, Ascending, Leaving };
+  enum class Phase { Away, Arriving, Descending, Landed, Piloted, Closing, Ascending, Leaving, Hunting };
 
   // Its measures (generate_saucer.py): the legs' height, the ramp's hinge and length
   static constexpr float LEG_HEIGHT = 1.6f;
@@ -62,6 +68,10 @@ public:
   static constexpr float ARRIVE_TIME = 10.0f, DESCEND_TIME = 6.0f, RAMP_TIME = 2.0f;
   static constexpr float ASCEND_TIME = 4.0f, LEAVE_TIME = 7.0f;
   static constexpr float FAR_AWAY = 160.0f, HIGH_UP = 90.0f, HOVER_HEIGHT = 14.0f;
+  // Hunting: how high over the ground (m), how far round the player (m), how fast it goes about it
+  // (m/s, rad/s), how often it fires (s, the first one later), and how far off a shot can go (m)
+  static constexpr float HUNT_HEIGHT = 14.0f, HUNT_RADIUS = 13.0f, HUNT_SPEED = 9.0f, HUNT_TURN = 0.2f;
+  static constexpr float HUNT_SHOT_EVERY = 2.5f, HUNT_FIRST_SHOT = 2.0f, HUNT_MISS = 1.3f;
   static constexpr float SPIN_RATE = 1.6f; // rad/s, while it flies on its own
   // The ramp comes down while Bob is this near its foot (m)
   static constexpr float RAMP_NEAR = 7.0f;
@@ -100,6 +110,12 @@ private:
   bool bobOut = false;         // (Landed) Bob has been let out this visit
   bool visitedTonight = false; // (it comes once a night)
   bool taking = false;         // it is taking the player up its beam
+  bool huntAfter = false;      // (Closing, Ascending) Bob failed: it goes hunting, not away
+  float huntAngle = 0.0f;      // (Hunting) where it is round the player
+  float huntShotIn = 0.0f;     // (Hunting) seconds until it fires
+  glm::vec3 huntAim = glm::vec3(0.0f, -1.0f, 0.0f); // (Hunting) where the gun points (world)
+  std::function<bool(glm::vec3 &, bool &)> huntTarget;
+  void hunt(const class Stage &stage, double dt);
   // flying it
   bool engineOn = false;
   bool onGround = true;
@@ -108,6 +124,7 @@ private:
   Camera *camera = nullptr;
   std::shared_ptr<Bob> bob;
   std::function<bool()> isNight;
+  std::function<bool(glm::vec3 &, float &)> landingQuery;
   std::function<void()> enterAction;
   size_t hullPart = 0, lightsPart = 0, legsPart = 0, rampPart = 0, beamPart = 0;
   size_t gunMountPart = 0, gunPart = 0, shotPart = 0;
@@ -163,6 +180,9 @@ public:
   // 0 = +z)
   void setLanding(const glm::vec3 &spot, float yaw);
   void setNightQuery(std::function<bool()> night) { isNight = night; }
+  // Where it lands each night (asked as it comes: the spot on the ground and its ramp's turn); without
+  // it, or if it finds none, where setLanding put it
+  void setLandingQuery(std::function<bool(glm::vec3 &, float &)> q) { landingQuery = q; }
   // (the server) where the pilot looks, which the ray gun follows
   void setAim(const glm::vec3 &forward) { aimForward = forward; }
   void setBob(std::shared_ptr<Bob> alien) { bob = alien; }
@@ -180,8 +200,11 @@ public:
   // The top of the ramp (at its hinge, under the hull) and its foot, on the ground (world)
   glm::vec3 rampTop() const;
   glm::vec3 rampFoot() const;
-  // Bob is back inside: it closes and goes
-  void boarded();
+  // Bob is back inside: it closes and goes (`hunt`: he failed to take the player; it goes after him,
+  // see Hunting)
+  void boarded(bool hunt = false);
+  // Whom it hunts: the player's feet, and whether he is out in the open (false: nobody)
+  void setHuntQuery(std::function<bool(glm::vec3 &, bool &)> q) { huntTarget = q; }
   // It is taking the player: its beam stays on until it has gone
   void takePlayer() { taking = true; }
   // Where the player is taken to, and where he rides while he flies it: the middle of its

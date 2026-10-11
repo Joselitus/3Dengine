@@ -19,6 +19,7 @@ enum class Action {
   Engine,        // switch the engine of the vehicle being driven on/off (R)
   Handbrake,     // pull or release the handbrake of the vehicle being driven; up in the ship (Space)
   ShipLegs,      // flying Bob's ship: draw its landing legs in or put them out (Q)
+  Zoom,          // held: the view narrows (X)
   Quit,     // in the pause menu
   Maps,     // debug map selector
   DebugSelect, // debug: select objects and show their data (DebugSelector)
@@ -43,7 +44,7 @@ private:
   int keys[(int)Action::Count];
 
 public:
-  Controls(); // default keys (WASD, E, Left Shift, F, C, R, X, Z, 1, 2)
+  Controls(); // default keys (WASD, E, Left Shift, F, C, R, Q, X zoom, K, Z, 1, 2, 0, T, P)
 
   int key(Action action) const { return keys[(int)action]; }
   void bind(Action action, int key) { keys[(int)action] = key; }

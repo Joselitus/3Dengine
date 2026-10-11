@@ -7,6 +7,7 @@
 #include "FollaCulos.h"
 #include "House.h"
 #include "PropCatalog.h"
+#include "SafeSpace.h"
 #include "NetRole.h"
 #include "Npc.h"
 
@@ -100,6 +101,8 @@ void GameStage::killPlayer(Player &p) {
     return;
   p.dead = true;
   p.abducted = false;
+  p.carried = false;
+  p.carrier = -1;
   p.timeDead = 0.0;
   p.moveDir = vec2(0.0f);
   if (netRole() == NetRole::Server)
@@ -111,14 +114,37 @@ void GameStage::killPlayer(Player &p) {
 }
 
 void GameStage::abductPlayer(Player &p, const vec3 &into) {
-  if (p.dead)
+  if (p.dead || p.abducted || p.carried)
     return;
-  killPlayer(p);
   if (netRole() == NetRole::Server)
-    printf("[game] Bob has taken %s\n", p.name.c_str());
+    printf("[game] Bob is taking %s\n", p.name.c_str());
   p.abducted = true;
   p.abductPoint = into;
-  p.walker->setVisible(false); // (he is in the beam)
+  p.abductFrom = p.walker->getPosition();
+  p.abductTime = 0.0f;
+  p.moveDir = vec2(0.0f);
+  p.walker->control(vec2(0.0f), 0.0f, 0.0f);
+  p.walker->setGravity(0.0f);
+  p.walker->setCollidable(false); // (he floats up the beam)
+}
+
+bool GameStage::updateAbduction(Player &p, double dt) {
+  if (!p.abducted || p.dead)
+    return false;
+  p.abductTime += (float)dt;
+  // (as the client's camera: his eyes end 0.4 m under the hatch)
+  float t = std::min(p.abductTime / ABDUCT_TIME, 1.0f);
+  vec3 feet = mix(p.abductFrom, p.abductPoint - vec3(0.0f, 2.0f, 0.0f), t * t * (3.0f - 2.0f * t));
+  p.walker->setPosition(feet.x, feet.y, feet.z);
+  p.walker->setVelocity(vec3(0.0f));
+  if (p.abductTime < ABDUCT_TIME || netRole() == NetRole::Client)
+    return false;
+  if (netRole() == NetRole::Server)
+    printf("[game] Bob has taken %s\n", p.name.c_str());
+  killPlayer(p);
+  p.abducted = true; // (the way he died)
+  p.walker->setVisible(false); // (he is in the ship)
+  return true;
 }
 
 void GameStage::respawn(Player &p) {
@@ -126,6 +152,8 @@ void GameStage::respawn(Player &p) {
     printf("[game] %s starts again\n", p.name.c_str());
   p.dead = false;
   p.abducted = false;
+  p.carried = false;
+  p.carrier = -1;
   p.timeDead = 0.0;
   int index = 0;
   for (size_t i = 0; i < players.size(); i++)
@@ -173,12 +201,44 @@ void GameStage::tick(double dt) {
 }
 
 void GameStage::propPlaced(const shared_ptr<GameObject> &prop) {
+  if (auto lamp = dynamic_pointer_cast<LampPost>(prop)) {
+    lampPosts.push_back(lamp);
+    return;
+  }
+  if (auto fire = dynamic_pointer_cast<Campfire>(prop)) {
+    campfires.push_back(fire);
+    for (const auto &e : fire->getEmitters())
+      addEmitter(e);
+    addSafeSpace(Campfire::shelter(fire)); // (the enemies don't come near the fire)
+    return;
+  }
   shared_ptr<House> house = dynamic_pointer_cast<House>(prop);
   if (!house)
     return;
   auto door = make_shared<HouseDoor>(loadModel("../assets/house/house_door.obj"), house);
   addDynamic(door);
   interactables.push_back(door.get());
+  // Inside it nothing can get the player, as in the RV
+  vec3 centre, half;
+  House::interior(centre, half);
+  addSafeSpace(make_shared<SafeSpace>(house, centre, half));
+}
+
+void GameStage::placeLampPost(float x, float z, float yaw) {
+  if (const PropType *type = findProp("lamppost"))
+    propPlaced(makeProp(*this, *type, x, z, 0.0f, yaw, 1.0f));
+}
+
+void GameStage::placeCampfire(float x, float z, float yaw) {
+  if (const PropType *type = findProp("campfire"))
+    propPlaced(makeProp(*this, *type, x, z, 0.0f, yaw, 1.0f));
+}
+
+bool GameStage::nearFire(const vec3 &point) const {
+  for (const auto &f : campfires)
+    if (f->scares(point))
+      return true;
+  return false;
 }
 
 void GameStage::placeHouse(float x, float z, float yaw) {
