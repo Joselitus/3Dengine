@@ -80,8 +80,12 @@ void VehicleStage::leaveVehicle(Player &p) {
     return;
   }
   if (p.possessed) { // (the Flatwoods monster holds him: he fights to break free, see updatePossession)
-    if (flatwoods)
+    if (flatwoods) {
       flatwoods->struggleOnce();
+      // (checked here: by the next update it has already worn off a little, and would never reach 1)
+      if (flatwoods->getStruggle() >= 1.0f)
+        endPossession(p);
+    }
     return;
   }
   if (p.seated) {
