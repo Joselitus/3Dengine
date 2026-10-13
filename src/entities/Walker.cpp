@@ -43,7 +43,41 @@ void Walker::control(vec2 dir, float up, float cameraYaw) {
   vertical = up;
 }
 
+void Walker::updateHead(double dt) {
+  if (!aniModel)
+    return;
+  const float HALF = 3.14159265f, MAX_YAW = 1.3f, MAX_PITCH = 0.6f, FOLLOW_RATE = 12.0f;
+  float yaw = 0.0f, pitch = 0.0f;
+  if (!sitting && !dead && (camera || hasLook)) {
+    float lookingYaw = camera ? camera->getYaw() : lookYaw;
+    pitch = camera ? camera->getPitch() : lookPitch;
+    // the camera's heading 0 looks along -z, the model's 0 along +z; it turns to the left (+x) for
+    // a larger angle
+    yaw = std::fmod(HALF - lookingYaw - facing, 2.0f * HALF);
+    if (yaw > HALF)
+      yaw -= 2.0f * HALF;
+    else if (yaw < -HALF)
+      yaw += 2.0f * HALF;
+    // (past what a neck can do the body turns to follow, so the head is never asked for more and
+    // never swings round to the other side)
+    if (std::fabs(yaw) > MAX_YAW) {
+      float over = yaw - clamp(yaw, -MAX_YAW, MAX_YAW);
+      facing += over;
+      setYaw(facing);
+      yaw -= over;
+    }
+    // (the model turns to its left, +x, for a positive angle; the camera's angles go the other way)
+    yaw = -yaw;
+    pitch = -clamp(pitch, -MAX_PITCH, MAX_PITCH);
+  }
+  float k = 1.0f - std::exp(-FOLLOW_RATE * (float)dt);
+  headYaw += (yaw - headYaw) * k;
+  headPitch += (pitch - headPitch) * k;
+  aniModel->setHeadLook(headYaw, headPitch);
+}
+
 void Walker::update(double dt) {
+  updateHead(dt);
   if (heading != vec2(0.0f)) {
     facing = std::atan2(heading.x, heading.y);
     setYaw(facing);

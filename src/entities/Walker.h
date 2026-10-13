@@ -46,6 +46,7 @@ private:
   std::function<void()> damageCallback; // what happens when something shoots him (the stage kills him)
   std::shared_ptr<SeatedPose> seated; // sitting (see sit)
   bool sitting = false;
+  float headYaw = 0.0f, headPitch = 0.0f; // how far its head is turned now (see updateHead)
   std::shared_ptr<DeathPose> dying; // its fall, while it is dead (see setDying)
   bool dead = false;
   size_t heldPart = 0;
@@ -88,6 +89,8 @@ public:
   void sit(bool driver, const glm::vec3 &grip, double dt);
   // Gets up: it plays its own animation again, and stands upright facing where it faced
   void standUp();
+  // Turns the neck to where the player looks (his camera's angles), smoothly and within what a neck can do
+  void updateHead(double dt);
   bool isSitting() const { return sitting; }
   // Starts or ends its death: it falls over backwards and stays on the floor until it is revived
   void setDying(bool dead);

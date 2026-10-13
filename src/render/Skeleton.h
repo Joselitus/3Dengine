@@ -57,6 +57,12 @@ public:
   // vertex is weighted to it (then it is worked out from the nearest ancestor that is). False if
   // the file has no such bone.
   bool PoseGlobal(const std::string &name, glm::mat4 &matrix) const;
+  // For each entry of `bones`: the index in `chain` (a list of bone names, root first) of the deepest
+  // one it is or hangs from, -1 if none (what moves with it when a joint of the chain turns)
+  std::vector<int> ChainLevels(const std::vector<std::string> &chain) const;
+  // Where a bone's joint is in the bind pose, in the space the skinned vertices come out in
+  // (before the model is fitted). False if the file has no such bone.
+  bool BindPosition(const std::string &name, glm::vec3 &position) const;
   // A bone's matrix in the bind pose (false if the file has no such bone)
   bool BindGlobal(const std::string &name, glm::mat4 &matrix) const;
   // Some importers (Assimp 5.4 with the penguin's FBX) leave the file's unit scale on the mesh's node

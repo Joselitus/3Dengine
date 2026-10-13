@@ -26,6 +26,21 @@ uniform float swayAmp;
 // 1 = show the skinned model in its idle pose (see idle()), 0 = skinned as usual
 uniform int idlePose;
 
+// Head turn (see AnimatedModel::setHeadLook): about headPivot, yaw about y and pitch about x, in full
+// full above the pivot and fading in over HEAD_FADE below it, in the skinned model's own units
+uniform vec3 headPivot;
+uniform float headYaw;
+uniform float headPitch;
+const float HEAD_FADE = 50.0; // (the model is 100 times bigger than the mesh's units here)
+
+vec3 headTurn(vec3 v, float t)
+{
+    float cy = cos(headYaw * t), sy = sin(headYaw * t);
+    float cp = cos(headPitch * t), sp = sin(headPitch * t);
+    v = vec3(v.x, v.y * cp + v.z * sp, -v.y * sp + v.z * cp);
+    return vec3(v.x * cy + v.z * sy, v.y, -v.x * sy + v.z * cy);
+}
+
 // Used by meshes that have no bone weights
 uniform mat4 meshMat;
 
@@ -156,6 +171,11 @@ void main()
     else if (skinned != 0 && idlePose != 0)
         idle(local, inNormal);
     vec4 pos = BMatrix * vec4(local, 1.0);
+    if (skinned != 0 && (headYaw != 0.0 || headPitch != 0.0)) {
+        float t = smoothstep(headPivot.y - HEAD_FADE, headPivot.y, pos.y);
+        pos.xyz = headPivot + headTurn(pos.xyz - headPivot, t);
+        inNormal = headTurn(inNormal, t);
+    }
     vec3 fitted = skinned != 0 ? (pos.xyz - fitCenter) * fitScale : pos.xyz;
 
     // ---- Object transform (same convention as shader.vert) ----

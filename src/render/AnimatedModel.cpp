@@ -320,9 +320,28 @@ void AnimatedModel::useRealSize() {
   fitCenter = glm::vec3(0.0f);
 }
 
+// The head's mesh reaches below the neck bone's joint (measured on the model): the turn pivots lower
+static const float HEAD_BELOW_NECK = 56.0f;
+
+void AnimatedModel::setHeadLook(float yaw, float pitch) {
+  headYaw = yaw;
+  headPitch = pitch;
+  if (headTried)
+    return;
+  headTried = true;
+  // (the head's mesh is not weighted to the neck bones, so the vertex shader turns everything above
+  // the neck, by height, about the neck's joint: see headTurn in animatedshader.vert)
+  headReady = skeleton.BindPosition("neck_01", headPivot);
+  headPivot.y -= HEAD_BELOW_NECK;
+}
+
 void AnimatedModel::Draw(Shader *shader) {
   if (Gfx::headless)
     return;
+  bool turning = headReady && !externalPose && (headYaw != 0.0f || headPitch != 0.0f);
+  shader->setVector3("headPivot", headPivot.x, headPivot.y, headPivot.z);
+  shader->setFloat("headYaw", turning ? headYaw : 0.0f);
+  shader->setFloat("headPitch", turning ? headPitch : 0.0f);
   shader->setInt("skinned", 1);
   shader->setInt("idlePose", idle ? 1 : 0);
   shader->setVector3("fitCenter", fitCenter.x, fitCenter.y, fitCenter.z);

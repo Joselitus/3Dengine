@@ -1,5 +1,7 @@
 #include "Skeleton.h"
 
+#include <algorithm>
+
 #include <cmath>
 
 Skeleton::Skeleton()
@@ -92,6 +94,33 @@ bool Skeleton::PoseGlobal(const std::string &name, glm::mat4 &matrix) const {
     up = parent->second;
   }
   return false;
+}
+
+std::vector<int> Skeleton::ChainLevels(const std::vector<std::string> &chain) const {
+  std::vector<int> levels(bones.size(), -1);
+  for (size_t i = 0; i < bones.size(); i++) {
+    std::string name = bones[i].name;
+    for (;;) {
+      auto at = std::find(chain.begin(), chain.end(), name);
+      if (at != chain.end()) {
+        levels[i] = (int)(at - chain.begin());
+        break;
+      }
+      auto up = boneParents.find(name);
+      if (up == boneParents.end())
+        break;
+      name = up->second;
+    }
+  }
+  return levels;
+}
+
+bool Skeleton::BindPosition(const std::string &name, glm::vec3 &position) const {
+  auto it = bindGlobals.find(name);
+  if (it == bindGlobals.end())
+    return false;
+  position = glm::vec3(globalInverseTransform * it->second[3]);
+  return true;
 }
 
 bool Skeleton::BindGlobal(const std::string &name, glm::mat4 &matrix) const {

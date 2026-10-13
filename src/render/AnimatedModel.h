@@ -34,6 +34,9 @@ public:
   bool feetAtOrigin;
   bool idle = false; // see setIdle()
   bool externalPose = false; // posed from outside (setBoneGlobals): the animation does not play
+  float headYaw = 0.0f, headPitch = 0.0f; // see setHeadLook
+  glm::vec3 headPivot = glm::vec3(0.0f); // the neck's joint, where the head turns
+  bool headReady = false, headTried = false;
   glm::mat4 idleMat; // the skin matrix of every bone in the bind pose
   unsigned int animationIndex; // which aiAnimation is played (clamped to the file)
 
@@ -75,6 +78,11 @@ public:
   void usePlayedAnimation() { externalPose = false; }
   // The object-space matrix of a bone as the animation left it (false if it has no such bone)
   bool getBoneGlobal(const std::string &name, glm::mat4 &matrix) const;
+
+  // Turns the head and neck (what is above the neck's joint, by height, fading in over the neck) to look `yaw` radians
+  // to the left of where the model faces (+z) and `pitch` radians down, on top of whatever pose it
+  // has (the animation, the idle): done by the vertex shader. For the penguin.
+  void setHeadLook(float yaw, float pitch);
 
   void Update(double seconds);
   void Draw(Shader *shader);
